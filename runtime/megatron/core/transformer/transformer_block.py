@@ -89,7 +89,9 @@ def _get_block_submodules(
 
 
 class TransformerBlock(MegatronModule):
-    """Transformer class."""
+    """Transformer class.
+       A TransformerBlock contains multiple transformer layers.
+    """
 
     def __init__(
         self,

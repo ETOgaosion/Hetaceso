@@ -155,6 +155,8 @@ class VocabParallelEmbedding(torch.nn.Module):
 
     Keyword Args:
         config: A megatron.core.ModelParallelConfig object
+    
+    Weight: [num_embeddings / TP_SIZE, embedding_dim]
     """
 
     def __init__(

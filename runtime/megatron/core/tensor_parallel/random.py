@@ -158,6 +158,7 @@ _CUDA_RNG_STATE_TRACKER = CudaRNGStatesTracker()
 
 def get_cuda_rng_tracker():
     """Get cuda rng tracker."""
+    # CUDA random Number generator tracker
     return _CUDA_RNG_STATE_TRACKER
 
 

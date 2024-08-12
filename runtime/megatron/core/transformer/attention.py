@@ -28,6 +28,26 @@ from megatron.core.utils import divide
 from .enums import AttnMaskType
 from .transformer_config import TransformerConfig
 
+'''
+    We use the following notation throughout this file:
+    h: hidden size
+    n: number of attention heads
+    p: number of model parallel partitions
+    np: n/p. number of attention heads per partition
+    hp: h/p
+    hn: h/n
+    ng: number of query groups per partition
+    b: batch size
+    s: sequence length
+    l: number of layers
+    sk: sequence length of the key/value sequences
+    sq: sequence length of the query sequences
+    
+    Transformer takes input of size [s, b, h] and returns a 
+    tensor of the same size. We use the following arguments:
+        hyperparameters: transformer hyperparameters
+'''
+
 
 @dataclass
 class SelfAttentionSubmodules:

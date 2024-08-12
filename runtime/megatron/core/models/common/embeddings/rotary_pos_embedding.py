@@ -34,13 +34,17 @@ __all__ = ['RotaryEmbedding', 'apply_rotary_pos_emb']
 def get_pos_emb_on_this_cp_rank(pos_emb, seq_dim):
     cp_size = parallel_state.get_context_parallel_world_size()
     cp_rank = parallel_state.get_context_parallel_rank()
+    # 这种CP方式能覆盖高低频的编码部分
     cp_idx = torch.tensor(
         [cp_rank, (2 * cp_size - cp_rank - 1)], device="cpu", pin_memory=True
     ).cuda(non_blocking=True)
+    # [2*CP, s/(2*CP), 1, 1, dim]
     pos_emb = pos_emb.view(
         *pos_emb.shape[:seq_dim], 2 * cp_size, -1, *pos_emb.shape[(seq_dim + 1) :]
     )
+    # [2, s/(2*CP), 1, 1, dim]
     pos_emb = pos_emb.index_select(seq_dim, cp_idx)
+    # [s/CP, 1, 1, dim]
     pos_emb = pos_emb.view(*pos_emb.shape[:seq_dim], -1, *pos_emb.shape[(seq_dim + 2) :])
     return pos_emb
 
@@ -96,21 +100,41 @@ class RotaryEmbedding(nn.Module):
 
         if self.seq_len_interpolation_factor is not None:
             seq *= 1 / self.seq_len_interpolation_factor
-
+        # freqs: [s, dim/2]
+        '''
+        freqs = [[f11, f12],
+                 [f21, f22],
+                 [f31, f32]]
+        f_ij表示 第i个位置的第j种频率
+        '''
         freqs = torch.outer(seq, self.inv_freq)
         # first part even vector components, second part odd vector components,
         #  2 * dim in dimension size
         if not self.rotary_interleaved:
+            # emb: [s, dim]
+            '''
+            emb = [[f11, f12, f11, f12],
+                   [f21, f22, f21, f22],
+                   [f31, f32, f31, f32]]
+            '''
             emb = torch.cat((freqs, freqs), dim=-1)
         else:
+            # emb: [s, dim]
+            '''
+            emb = [[f11, f11, f12, f12],
+                   [f21, f21, f22, f22],
+                   [f31, f31, f32, f32]]            
+            '''
             emb = torch.stack((freqs.view(-1, 1), freqs.view(-1, 1)), dim=-1).view(
                 freqs.shape[0], -1
             )
         # emb [seq_length, .., dim]
+        # emb: [s, 1, 1, dim]
         emb = emb[:, None, None, :]
         if parallel_state.get_context_parallel_world_size() > 1:
             # slice rotary_pos_emb along sequence dimension and select the parition of the current CP rank
             emb = get_pos_emb_on_this_cp_rank(emb, 0)
+        # emb: [s/CP, 1, 1, dim]
         return emb
 
     def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
@@ -138,7 +162,7 @@ class RotaryEmbedding(nn.Module):
         if inference_params is not None:
             rotary_seq_len = inference_params.max_sequence_length
         else:
-            if transformer.input_tensor is not None:
+            if transformer is not None and transformer.input_tensor is not None:
                 rotary_seq_len = transformer.input_tensor.size(0)
             else:
                 rotary_seq_len = transformer_input.size(0)
@@ -164,6 +188,7 @@ def _rotate_half(x: Tensor, rotary_interleaved: bool) -> Tensor:
         x1, x2 = torch.chunk(x, 2, dim=-1)
         return torch.cat((-x2, x1), dim=-1)
     else:
+        # 从x中提取所有维度的元素，但是在最后一个维度上每隔一个元素提取一个
         x1 = x[:, :, :, ::2]
         x2 = x[:, :, :, 1::2]
         x_new = torch.stack((-x2, x1), dim=-1)
@@ -185,13 +210,14 @@ def apply_rotary_pos_emb_bshd(t: Tensor, freqs: Tensor, rotary_interleaved: bool
     rot_dim = freqs.shape[-1]
 
     # ideally t_pass is empty so rotary pos embedding is applied to all tensor t
+    # 理想情况下，ROPE的dim等于hidden size
     t, t_pass = t[..., :rot_dim], t[..., rot_dim:]
 
     # first part is cosine component
     # second part is sine component, need to change signs with _rotate_half method
     cos_ = torch.cos(freqs).to(t.dtype)
     sin_ = torch.sin(freqs).to(t.dtype)
-
+    # [seq / CP, 1, 1, dim]
     t = (t * cos_) + (_rotate_half(t, rotary_interleaved) * sin_)
     return torch.cat((t, t_pass), dim=-1)
 
@@ -211,7 +237,8 @@ def apply_rotary_pos_emb_thd(
     Returns:
         Tensor: Shape [t, h, d]. The input tensor after applying RoPE.
     """
-
+    # cu_seqlens是序列累计长度和
+    # 通过计算差值，得到每个序列的长度，并转换为列表形式
     seqlens = (cu_seqlens[1:] - cu_seqlens[:-1]).tolist()
     return torch.cat(
         [
@@ -225,6 +252,7 @@ def apply_rotary_pos_emb(
     t: Tensor, freqs: Tensor, config: TransformerConfig, cu_seqlens: Optional[Tensor] = None,
 ):
     """
+    Allpy ROPE to tensor t.
     Reroute to the appropriate apply_rotary_pos_emb function depending on
     fused/unfused kernels, or bshd (conventional) / thd (packed seq) format
     """

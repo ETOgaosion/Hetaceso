@@ -49,6 +49,7 @@ class LanguageModelEmbedding(MegatronModule):
 
         # Position embedding (serial).
         if self.add_position_embedding:
+            # 位置编码并没有被切分，因为max_seq_len * hidden_size << vocab_size * hidden_size
             self.position_embeddings = torch.nn.Embedding(
                 self.max_sequence_length, self.config.hidden_size
             )
@@ -91,6 +92,7 @@ class LanguageModelEmbedding(MegatronModule):
         Returns:
             Tensor: The output embeddings
         """
+        # Allreduce is done in the forward function
         word_embeddings = self.word_embeddings(input_ids)
         if self.add_position_embedding:
             position_embeddings = self.position_embeddings(position_ids)
@@ -115,6 +117,7 @@ class LanguageModelEmbedding(MegatronModule):
 
         # Dropout.
         if self.config.sequence_parallel:
+            # [s/n, b, h]
             embeddings = tensor_parallel.scatter_to_sequence_parallel_region(embeddings)
             # `scatter_to_sequence_parallel_region` returns a view, which prevents
             # the original tensor from being garbage collected. Clone to facilitate GC.

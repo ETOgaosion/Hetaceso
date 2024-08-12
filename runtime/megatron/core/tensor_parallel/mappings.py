@@ -62,7 +62,7 @@ def _split_along_first_dim(input_):
     local_dim_size = dim_size // world_size
     rank = get_tensor_model_parallel_rank()
     dim_offset = rank * local_dim_size
-
+    # return a view of input_
     output = input_[dim_offset : dim_offset + local_dim_size].contiguous()
 
     return output
