@@ -10,6 +10,12 @@ from ..transformer.module import MegatronModule
 from ..transformer.transformer_config import TransformerConfig
 from .param_and_grad_buffer import ParamAndGradBuffer
 
+from megatron.training import get_args
+from megatron.training import mpu
+
+import os
+LOG_NAME = os.environ.get("LOG_NAME", None)
+
 
 class DistributedDataParallel(MegatronModule):
     """

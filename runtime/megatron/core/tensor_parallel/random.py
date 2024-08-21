@@ -217,10 +217,11 @@ class CheckpointFunction(torch.autograd.Function):
         # Divide hidden states across model parallel group and only keep
         # the chunk corresponding to the current rank.
         if distribute_saved_activations:
-            ctx.input_0_shape = args[0].data.shape
-            safely_set_viewless_tensor_data(
-                args[0], split_tensor_into_1d_equal_chunks(args[0].data, new_buffer=True)
-            )
+            for i in range(len(args)):
+                ctx.input_0_shape = args[i].data.shape
+                safely_set_viewless_tensor_data(
+                    args[i], split_tensor_into_1d_equal_chunks(args[i].data, new_buffer=True)
+                )
 
         # Store everything.
         ctx.save_for_backward(*args)
@@ -236,9 +237,10 @@ class CheckpointFunction(torch.autograd.Function):
             )
         inputs = ctx.saved_tensors
         if ctx.distribute_saved_activations:
-            safely_set_viewless_tensor_data(
-                inputs[0], gather_split_1d_tensor(inputs[0].data).view(ctx.input_0_shape)
-            )
+            for i in range(len(args)):
+                safely_set_viewless_tensor_data(
+                    inputs[i], gather_split_1d_tensor(inputs[i].data).view(ctx.input_0_shape)
+                )
 
         # Store the current states.
         bwd_cpu_rng_state = torch.get_rng_state()

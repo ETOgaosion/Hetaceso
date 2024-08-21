@@ -1,5 +1,5 @@
 import torch
-from runtime.megatron.flex.flex_ops import OpType
+from megatron.core.flexmodels.common.flex_ops import OpType
 from megatron.core import mpu
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
