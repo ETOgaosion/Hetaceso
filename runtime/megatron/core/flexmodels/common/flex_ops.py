@@ -1,5 +1,5 @@
 from enum import Enum
-from megatron.flex.flex_module import FlexModule
+from megatron.core.flexmodels.common.flex_module import FlexModule
 from typing import Dict, Literal, Optional, Tuple, Union
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.models.common.embeddings.language_model_embedding import (

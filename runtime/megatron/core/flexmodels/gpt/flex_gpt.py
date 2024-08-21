@@ -12,7 +12,7 @@ from megatron.core.parallel_state import (
 )
 
 get_op_start_index, get_op_end_index
-from megatron.flex.flex_ops import (
+from megatron.core.flexmodels.common.flex_ops import (
     FlexEmbeddingInfo,
     OpType,
     FlexLayerNormMlpDropoutInfo,
@@ -53,7 +53,7 @@ class FlexGPTModel(LanguageModule):
         self.position_embedding_type = position_embedding_type
         self.rotary_base = rotary_base
         self.seq_len_interpolation_factor = seq_len_interpolation_factor
-        self.model_type = ModelType.encoder_or_decoder
+        self.model_type = ModelType.encoder_or_encoder
 
         # These 2 attributes are needed for TensorRT-LLM export.
         self.max_position_embeddings = max_sequence_length

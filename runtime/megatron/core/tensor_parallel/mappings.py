@@ -8,9 +8,80 @@ from megatron.core.parallel_state import (
     get_tensor_model_parallel_group,
     get_tensor_model_parallel_rank,
     get_tensor_model_parallel_world_size,
+    get_group,
 )
 
-from .utils import split_tensor_along_last_dim
+from .utils import (
+    split_tensor_along_last_dim,
+    divide,
+)
+
+import numpy as np
+
+#### Aceso:
+
+def new_split(input_, ranks, dim):
+
+    if dim == -1:
+        dim = input_.dim() - 1
+
+    dim_size = divide(input_.size()[dim], len(ranks))
+    tensor_list = torch.split(input_, dim_size, dim=dim)
+    tensor_list = tuple(chunk.contiguous() for chunk in tensor_list)   
+    return tensor_list[torch.distributed.get_rank(get_group(ranks))].contiguous()
+
+def new_all_gather(input_, ranks, dim):
+    if dim == -1:
+        dim = input_.dim() - 1
+    
+    if not input_.is_contiguous():
+        input_ = input_.contiguous()
+    tensor_list = [torch.empty_like(input_) for _ in ranks]
+
+    torch.distributed.all_gather(tensor_list, input_, group=get_group(ranks))
+    torch.cuda.synchronize()
+
+    # concat
+    new_input_ = torch.cat(tensor_list, dim=dim).contiguous().requires_grad_()
+
+    return new_input_    
+
+def new_reduce(input_, ranks):
+    """All-reduce the the input tensor across model parallel group."""
+
+    # Bypass the function if we are using only 1 GPU.
+    if len(ranks)==1:
+        return input_
+
+    # All-reduce.
+    torch.distributed.all_reduce(input_, group=get_group(ranks))
+    torch.cuda.synchronize()
+
+    return input_
+
+def new_reduce_scatter(input_, ranks, dim):
+
+    input_list = list(input_.chunk(len(ranks), dim))
+    for idx, tensor in enumerate(input_list):
+        if not tensor.is_contiguous():
+            input_list[idx] = tensor.contiguous()
+    new_input_ = torch.empty_like(input_list[0], requires_grad=True)
+    torch.distributed.reduce_scatter(new_input_, input_list, group=get_group(ranks))
+    torch.cuda.synchronize()
+    return new_input_
+
+def new_all_to_all(input_, ranks, src_dim, dst_dim):
+
+    input_list = list(input_.chunk(len(ranks), dim=dst_dim))
+    for idx, tensor in enumerate(input_list):
+        if not tensor.is_contiguous():
+            input_list[idx] = tensor.contiguous()
+    new_input_list = [torch.empty_like(t) for t in input_list]
+    torch.distributed.all_to_all(new_input_list, input_list, group=get_group(ranks))
+    torch.cuda.synchronize()
+    new_input_ = torch.concat(tuple(new_input_list), dim=src_dim).requires_grad_()
+
+    return new_input_
 
 
 def _reduce(input_):
@@ -426,6 +497,61 @@ class _AllToAll(torch.autograd.Function):
 # -----------------
 # Helper functions.
 # -----------------
+
+## For Resharding
+
+def transpose(mat: np.ndarray, dim0: int, dim1: int, get_reverse=False):
+    """
+    (from Zhiqi's codebase)
+    put the dim0 and dim1 of the mat to the last two dims
+    """
+    ndims = len(mat.shape)
+    axes = list(range(ndims))
+    assert dim0 < ndims and dim1 < ndims, "dim0 or dim1 out of index"
+    axes.pop(max(dim0, dim1))
+    axes.pop(min(dim0, dim1))
+    axes += [dim0, dim1]
+
+    if get_reverse:
+        reverse_axes = []
+        for original_index in range(ndims):
+            for new_index in axes:
+                if axes[new_index] == original_index:
+                    reverse_axes.append(new_index)
+        return np.transpose(mat, axes), reverse_axes
+    else:
+        return np.transpose(mat, axes)
+
+def identical_spec(input_spec, required_spec):
+    identical = True 
+    ## this is used in T5, to pass encoder_output.
+    if len(input_spec) == 0 and len(required_spec) == 0:
+        return identical
+
+    if input_spec["R"] != required_spec["R"]:
+        identical = False
+    if input_spec["V"] != required_spec["V"]:
+        identical = False    
+    for dim_index in range(len(input_spec["dims"])):
+        if input_spec["dims"][dim_index] != required_spec["dims"][dim_index]:
+            identical = False
+    
+    return identical
+
+def tensor_adapter_handler(input_dev_mat, init_output_dev_mat, inc_dim, dec_dim, inc_to_size, dec_to_size):
+    trans_in_dev_mat = transpose(input_dev_mat, inc_dim, dec_dim)
+    trans_out_dev_mat, reverse_axes = transpose(init_output_dev_mat, inc_dim, dec_dim, get_reverse=True)
+
+    for index_r in range(len(trans_in_dev_mat)): 
+        for index_v in range(len(trans_in_dev_mat[index_r])): 
+            for index_d in range(len(trans_in_dev_mat[index_r][index_v])):
+                tmp_arrays = np.hsplit(trans_in_dev_mat[index_r][index_v][index_d], dec_to_size)
+                tmp_arrays = [tmp_arrays[i].reshape(inc_to_size, 1) for i in range(len(tmp_arrays))]
+                new_mat = np.hstack(tmp_arrays)
+                trans_out_dev_mat[index_r][index_v][index_d] = new_mat
+    output_dev_mat = trans_out_dev_mat.transpose(reverse_axes)   
+
+    return trans_in_dev_mat, output_dev_mat
 
 
 def copy_to_tensor_model_parallel_region(input_):

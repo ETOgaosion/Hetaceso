@@ -247,16 +247,19 @@ def _initialize_distributed():
         if mpu.model_parallel_is_initialized():
             print("model parallel is already initialized")
         else:
-            mpu.initialize_model_parallel(
-                args.tensor_model_parallel_size,
-                args.pipeline_model_parallel_size,
-                args.virtual_pipeline_model_parallel_size,
-                args.pipeline_model_parallel_split_rank,
-                context_parallel_size=args.context_parallel_size,
-                expert_model_parallel_size=args.expert_model_parallel_size,
-                distributed_timeout_minutes=args.distributed_timeout_minutes,
-                nccl_communicator_config_path=args.nccl_communicator_config_path,
-            )
+            if args.flexpipe:
+                mpu.initialize_model_parallel_flexpipe()
+            else:
+                mpu.initialize_model_parallel(
+                    args.tensor_model_parallel_size,
+                    args.pipeline_model_parallel_size,
+                    args.virtual_pipeline_model_parallel_size,
+                    args.pipeline_model_parallel_split_rank,
+                    context_parallel_size=args.context_parallel_size,
+                    expert_model_parallel_size=args.expert_model_parallel_size,
+                    distributed_timeout_minutes=args.distributed_timeout_minutes,
+                    nccl_communicator_config_path=args.nccl_communicator_config_path,
+                )
             if args.rank == 0:
                 print(
                     f"> initialized tensor model parallel with size "

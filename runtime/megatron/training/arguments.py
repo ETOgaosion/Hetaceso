@@ -15,6 +15,7 @@ from megatron.core.models.retro.utils import (
     get_gpt_data_dir as get_retro_data_dir,
 )
 from megatron.core.transformer import TransformerConfig
+from json_arguments import load_json_args
 
 
 def parse_args(extra_args_provider=None, ignore_unknown_args=False):
@@ -42,6 +43,8 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     parser = _add_transformer_engine_args(parser)
     parser = _add_retro_args(parser)
     parser = _add_experimental_args(parser)
+    parser = _add_flexpipe_args(parser)
+    parser = _add_profiler_args(parser)
 
     # Custom arguments.
     if extra_args_provider is not None:
@@ -52,7 +55,28 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args, _ = parser.parse_known_args()
     else:
         args = parser.parse_args()
+    
+    if args.prof_tp_size is not None:
+        args.global_batch_size = 1 
+        args.micro_batch_size = 1
+        args.num_ops_in_each_stage = [1]
+        args.virtual_pipeline_model_parallel_size = 1
+        args.model_parallel_size_of_each_op = [[args.prof_tp_size]]
+        args.data_parallel_size_of_each_op = [[1]]
+        args.model_name = ""
+        args.resharding_stages = [True]     # TOCHECK: is this correct? gpt seems no need to reshard
 
+        if len(args.prof_repeat_times) > 1:
+            assert args.prof_repeat_threshold is not None, "when args.prof_repeat_times is a list, a threshold is required."
+        _print_args(args)
+        return args
+    else:
+        assert args.flexpipe_config is not None, "An Aceso config should be provided."
+        args.log_name = args.flexpipe_config.split("/")[-1].split(".json")[0]
+    
+    if args.flexpipe_config is not None:
+        args = load_json_args(args.flexpipe_config, args)
+        
     # Experimental yaml
     if args.yaml_cfg is not None:
         from .yaml_arguments import load_yaml
@@ -147,32 +171,9 @@ def validate_args(args, defaults={}):
     # Load saved args from Retro (if applicable).
     load_retro_args(args)
 
-    # Tensor model parallel size.
-    args.tensor_model_parallel_size = min(
-        args.tensor_model_parallel_size, args.world_size)
-    assert args.world_size % args.tensor_model_parallel_size == 0, 'world size'\
-        ' ({}) is not divisible by tensor model parallel size ({})'.format(
-            args.world_size, args.tensor_model_parallel_size)
-
-    # Pipeline model parallel size.
-    args.pipeline_model_parallel_size = min(
-        args.pipeline_model_parallel_size,
-        (args.world_size // args.tensor_model_parallel_size))
-    args.transformer_pipeline_model_parallel_size = (
-        args.pipeline_model_parallel_size - 1
-        if args.standalone_embedding_stage else
-        args.pipeline_model_parallel_size
-    )
-
-    # Checks.
-    model_parallel_size = args.pipeline_model_parallel_size * \
-                          args.tensor_model_parallel_size
-    assert args.world_size % (model_parallel_size * args.context_parallel_size) == 0, \
-        'world size ({}) is not divisible by tensor parallel size ({}) times ' \
-        'pipeline parallel size ({}) times context parallel size ({})'.format(
-        args.world_size, args.tensor_model_parallel_size,
-        args.pipeline_model_parallel_size, args.context_parallel_size)
-    args.data_parallel_size = args.world_size // (model_parallel_size * args.context_parallel_size)
+    assert args.world_size == sum(args.num_gpus), \
+        'number of GPUs should be equal to sum(mp_size * dp_size)'
+    
     if args.rank == 0:
         print('using world size: {}, data-parallel size: {}, '
               'context-parallel size: {} '
@@ -1610,5 +1611,40 @@ def _add_experimental_args(parser):
                        '`transformer_block.py`, or `transformer_layer.py`')
     group.add_argument('--yaml-cfg', type=str, default=None,
                        help = 'Config file to add additional arguments')
+
+    return parser
+
+def _add_flexpipe_args(parser):
+    group = parser.add_argument_group(title='flexpipe')
+    group.add_argument('--flexpipe', type=bool, default=True,
+                       help='Enable Flexpipe.')
+    group.add_argument('--flexpipe-config', type=str, default=None,
+                       help='Path to flexpipe configuration.')
+    group.add_argument('--interleave-factor', type=int, default=1,
+                       help='# of interleaved virtual stages in one physical stage.')                                      
+    group.add_argument('--checkpoint-stages', nargs='+', default=[], 
+                       help="An array of 1/0 to indicate if this stage will be activation checkpointed.")  
+    group.add_argument('--log-path', type=str, default="./", help='')          
+    return parser
+
+def _add_profiler_args(parser):
+    group = parser.add_argument_group(title='flexpipe_profiler')
+
+    group.add_argument('--prof-tp-size', type=int, default=None, help='Profiler tp size.')
+    group.add_argument('--prof-path', type=str, default=None, help='')
+    group.add_argument('--prof-cache-file', type=str, default=None, help='')
+    group.add_argument('--prof-model-name', type=str, default='all', help='')
+    group.add_argument('--prof-model-size', type=str, default='all', help='')
+    group.add_argument('--prof-time-only', action='store_true', help='')
+    group.add_argument('--prof-memory-only', action='store_true', help='')
+    group.add_argument('--prof-warmup-times', type=int, default=20, help='')
+    group.add_argument('--prof-repeat-times', nargs='+', type=int, default=[50], help='')
+    group.add_argument('--prof-warmup-threshold', type=int, default=None, help='')
+    group.add_argument('--prof-repeat-threshold', type=int, default=None, help='')
+    group.add_argument('--prof-skip-running', action='store_true', help='')
+    group.add_argument('--prof-num-nodes', type=int, default=None, help='')
+    group.add_argument('--prof-node-rank', type=int, default=None, help='')
+    group.add_argument('--prof-ref-data', type=str, default=None, help='')
+    group.add_argument('--prof-mbs-list', nargs='+', type=int, default=None, help='')
 
     return parser

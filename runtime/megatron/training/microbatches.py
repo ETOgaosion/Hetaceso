@@ -12,7 +12,7 @@ def build_num_microbatches_calculator(args):
     if args.rampup_batch_size is None:
         num_microbatches_calculator = ConstantNumMicroBatches(
             args.global_batch_size, args.micro_batch_size,
-            args.data_parallel_size)
+            1)  # TOCHECK: data_parallel_size is always 1 in this case.
         if args.rank == 0:
             print('setting number of micro-batches to constant {}'.format(
                 num_microbatches_calculator.get()), flush=True)

@@ -687,7 +687,7 @@ class FP32Optimizer(MegatronOptimizer):
     def state_dict(self):
         return self.optimizer.state_dict()
 
-    def load_state_dict(self, state_dict):
+def load_state_dict(self, state_dict):
         self.optimizer.load_state_dict(state_dict)
 
 

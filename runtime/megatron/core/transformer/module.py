@@ -38,6 +38,22 @@ class MegatronModule(torch.nn.Module):
     def __init__(self, config: TransformerConfig):
         super().__init__()
         self.config = config
+        
+        ## flexpipe
+        self.input_extra_tensors_info = {}
+        self.output_extra_tensors_info = {}
+        self.shared_weights_info = {}        
+        self.is_last_op = False
+        ## resharding
+        self.output_extra_specs = None
+        self.output_extra_mats_info = None
+        self.required_input_extra_specs = {}
+        self.input_extra_mats = None
+        self.new_input_extra_tensors = {}
+        self.tmp_buffer = None
+        self.elementwise = False
+        self.input_mats = None
+        self.input_extra_mats = None
 
     def state_dict_for_save_checkpoint(self, prefix: str = '', keep_vars: bool = False):
         """Override state dict for saving checkpoints Use this function to override the
