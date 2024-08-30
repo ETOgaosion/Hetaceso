@@ -9,7 +9,172 @@ import torch
 
 from megatron.core import parallel_state
 from megatron.core.dist_checkpointing.mapping import ShardedTensor
+from dataclasses import dataclass, field
 
+@dataclass
+class OpConfig:
+    name: str
+    prev_name: str
+    input_tensors_info: dict = field(default_factory=dict)
+    output_tensors_info: dict = field(default_factory=dict)
+    input_extra_tensors_info: dict = field(default_factory=dict)
+    output_extra_tensors_info: dict = field(default_factory=dict)    
+    shared_weights_info: dict = field(default_factory=dict)
+
+snapmap = dict()
+
+def debug_mem_report(log_name, path=None, return_string=False):
+    '''Report the memory usage of the tensor.storage in pytorch
+    Both on CPUs and GPUs are reported'''
+    
+    def _mem_report(tensors, mem_type):
+        '''Print the selected tensors of type
+        There are two major storage types in our major concern:
+            - GPU: tensors transferred to CUDA devices
+            - CPU: tensors remaining on the system memory (usually unimportant)
+        Args:
+            - tensors: the tensors of specified type
+            - mem_type: 'CPU' or 'GPU' in current implementation '''
+        string = ""
+        # print('Storage on %s' %(mem_type))
+        string += 'Storage on %s\n' %(mem_type)
+        # print('-'*LEN)
+        string += '-'*LEN + "\n"
+        total_numel = 0
+        total_mem = 0
+        visited_data = []
+        string_large = ""
+        string_small = ""
+        for tensor in tensors:
+            if tensor.is_sparse:
+                continue
+            # a data_ptr indicates a memory block allocated
+            data_ptr = tensor.storage().data_ptr()
+            if data_ptr in visited_data:
+                continue
+            visited_data.append(data_ptr)
+
+            numel = tensor.storage().size()
+            total_numel += numel
+            element_size = tensor.storage().element_size()
+            mem = numel*element_size /1024/1024 # 32bit=4Byte, MByte
+            total_mem += mem
+            element_type = type(tensor).__name__
+            size = tuple(tensor.size())
+
+            # print('%s\t\t%s\t\t%.2f' % (element_type, size, mem) )
+            if mem > 1:
+                string_large += '%s\t\t%s\t\t%.2f\t\t%d\n' % (element_type, size, mem, data_ptr)
+            else:
+                string_small += '%s\t\t%s\t\t%.2f\t\t%d\n' % (element_type, size, mem, data_ptr)
+        # print('-'*LEN)
+        string += string_large
+        # string += "\n" + string_small
+        string += '-'*LEN + "\n"
+        # print('Total Tensors: %d \tUsed Memory Space: %.2f MBytes' % (total_numel, total_mem) )
+        string += 'Total Tensors: %d \tUsed Memory Space: %.2f MBytes\n' % (total_numel, total_mem)
+        # print('-'*LEN)
+        string += '-'*LEN + "\n"
+        return string
+
+    string = ""
+    LEN = 65
+    string += f"================================== rank {torch.distributed.get_rank()} {log_name} ==================================\n"
+    objects = gc.get_objects()
+    string += '%s\t%s\t\t\t%s\n' %('Element type', 'Size', 'Used MEM(MBytes)')
+    tensors = [obj for obj in objects if torch.is_tensor(obj)]
+    cuda_tensors = [t for t in tensors if t.is_cuda]
+    string += _mem_report(cuda_tensors, 'GPU')
+    string += '='*LEN + "\n"
+    if path:
+        with open(path, "a+") as f:
+            f.write(string+"\n")   
+    else:
+        if return_string:
+            return string
+        else:
+            print(string + "\n")        
+
+def unwrap_model(model, module_instances=(torchDDP)):
+    return_list = True
+    if not isinstance(model, list):
+        model = [model]
+        return_list = False
+    unwrapped_model = []
+    for model_module in model:
+        while isinstance(model_module, module_instances):
+            model_module = model_module.module
+        unwrapped_model.append(model_module)
+    if not return_list:
+        return unwrapped_model[0]
+    return unwrapped_model
+
+
+def calc_params_l2_norm(model):
+    """Calculate l2 norm of parameters """
+    args = get_args()
+    if not isinstance(model, list):
+        model = [model]
+    # Remove duplicate params.
+    params_data = []
+    for model_ in model:
+        for param in model_.parameters():
+            is_not_shared = param_is_not_shared(param)
+            is_not_tp_duplicate = param_is_not_tensor_parallel_duplicate(param)
+            if is_not_shared and is_not_tp_duplicate:
+                if args.bf16:
+                    params_data.append(param.data.float())
+                else:
+                    params_data.append(param.data)
+    # Calculate norm
+    dummy_overflow_buf = torch.cuda.IntTensor([0])
+    norm, _ = multi_tensor_applier(
+        amp_C.multi_tensor_l2norm,
+        dummy_overflow_buf,
+        [params_data],
+        False # no per-parameter norm
+    )
+    norm_2 = norm * norm
+    # Sum across all model-parallel GPUs.
+    torch.distributed.all_reduce(norm_2,
+                                 op=torch.distributed.ReduceOp.SUM,
+                                 group=mpu.get_model_parallel_group())
+    return norm_2.item() ** 0.5
+
+
+def average_losses_across_data_parallel_group(losses):
+    """Reduce a tensor of losses across all GPUs."""
+    averaged_losses = torch.cat(
+        [loss.clone().detach().view(1) for loss in losses])
+    torch.distributed.all_reduce(averaged_losses,
+                                 group=mpu.get_data_parallel_group())
+    averaged_losses = averaged_losses / \
+        torch.distributed.get_world_size(group=mpu.get_data_parallel_group())
+
+    return averaged_losses
+
+
+def report_memory(name, get_list=False):
+    """Simple GPU memory report."""
+
+    mega_bytes = 1024.0 * 1024.0
+    allocated = torch.cuda.memory_allocated() / mega_bytes
+    max_allocated = torch.cuda.max_memory_allocated() / mega_bytes
+    reserved = torch.cuda.memory_reserved() / mega_bytes
+    max_reserved = torch.cuda.max_memory_reserved() / mega_bytes
+
+    string = name + ' memory (MB)'
+    string += ' | allocated: {}'.format(allocated)
+    string += ' | max allocated: {}'.format(max_allocated)
+    string += ' | reserved: {}'.format(reserved)
+    string += ' | max reserved: {}'.format(max_reserved)
+
+    if get_list:
+        mem_to_csv = [["allocated", "max_allocated", "reserved", "max_reserved"], 
+            [f"{allocated:.2f}", f"{max_allocated:.2f}", f"{reserved:.2f}", f"{max_reserved:.2f}"]]
+        return string, mem_to_csv
+
+    return string
 
 def ensure_divisibility(numerator, denominator):
     """Ensure that numerator is divisible by the denominator."""

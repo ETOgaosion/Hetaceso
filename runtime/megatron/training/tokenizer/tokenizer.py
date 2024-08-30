@@ -61,8 +61,11 @@ def _vocab_size_with_padding(orig_vocab_size, args):
     still having GPU friendly size."""
 
     after = orig_vocab_size
+    max_mp_size = 0
+    for i in range(args.num_stages):
+        max_mp_size = max(max_mp_size, args.model_parallel_size_of_each_op[i])
     multiple = args.make_vocab_size_divisible_by * \
-        args.tensor_model_parallel_size
+        args.max_mp_size
     while (after % multiple) != 0:
         after += 1
     if args.rank == 0:

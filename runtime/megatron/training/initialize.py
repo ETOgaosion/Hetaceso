@@ -8,6 +8,7 @@ import time
 
 import numpy as np
 import torch
+from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 from datetime import timedelta
 
 from megatron.legacy import fused_kernels
@@ -21,6 +22,17 @@ from megatron.training.checkpointing import load_args_from_checkpoint
 from megatron.training.global_vars import set_global_variables
 from megatron.legacy.model.transformer import bias_dropout_add_fused_train
 from megatron.legacy.model.fused_bias_gelu import bias_gelu
+
+from megatron.core.distributed import DistributedDataParallel as LocalDDP
+from megatron.legacy.model import Float16Module
+from megatron.core.pipeline_parallel.p2p_communication import (
+    send_shared_tensors,
+    recv_shared_tensors,
+)
+
+from megatron.training.utils import unwrap_model
+
+ENABLE_WEIGHT_SHARE = os.environ.get("ENABLE_WEIGHT_SHARE", '1') == '1'
 
 def initialize_megatron(
     extra_args_provider=None,
@@ -124,32 +136,33 @@ def _compile_dependencies():
     # Load fused kernels
     # ==================
 
-    # Custom kernel constraints check.
-    seq_len = args.seq_length
-    attn_batch_size = (
-        args.num_attention_heads / args.tensor_model_parallel_size
-    ) * args.micro_batch_size
-    # Constraints on sequence length and attn_batch_size to enable warp based
-    # optimization and upper triangular optimization (for causal mask)
-    custom_kernel_constraint = (
-        seq_len > 16
-        and seq_len <= 16384
-        and seq_len % 4 == 0
-        and attn_batch_size % 4 == 0
-    )
-    # Print a warning.
-    if not (
-        (args.fp16 or args.bf16)
-        and custom_kernel_constraint
-        and args.masked_softmax_fusion
-    ):
-        if args.rank == 0:
-            print(
-                "WARNING: constraints for invoking optimized"
-                " fused softmax kernel are not met. We default"
-                " back to unfused kernel invocations.",
-                flush=True,
-            )
+    # [NOT SURE] seems like no need to check
+    # # Custom kernel constraints check.
+    # seq_len = args.seq_length
+    # attn_batch_size = (
+    #     args.num_attention_heads / args.tensor_model_parallel_size
+    # ) * args.micro_batch_size
+    # # Constraints on sequence length and attn_batch_size to enable warp based
+    # # optimization and upper triangular optimization (for causal mask)
+    # custom_kernel_constraint = (
+    #     seq_len > 16
+    #     and seq_len <= 16384
+    #     and seq_len % 4 == 0
+    #     and attn_batch_size % 4 == 0
+    # )
+    # # Print a warning.
+    # if not (
+    #     (args.fp16 or args.bf16)
+    #     and custom_kernel_constraint
+    #     and args.masked_softmax_fusion
+    # ):
+    #     if args.rank == 0:
+    #         print(
+    #             "WARNING: constraints for invoking optimized"
+    #             " fused softmax kernel are not met. We default"
+    #             " back to unfused kernel invocations.",
+    #             flush=True,
+    #         )
 
     # Always build on rank zero first.
     if torch.distributed.get_rank() == 0:
@@ -250,6 +263,7 @@ def _initialize_distributed():
             if args.flexpipe:
                 mpu.initialize_model_parallel_flexpipe()
             else:
+                raise NotImplementedError("Only FlexPipe is supported for now")
                 mpu.initialize_model_parallel(
                     args.tensor_model_parallel_size,
                     args.pipeline_model_parallel_size,
@@ -394,3 +408,170 @@ def _warmup_jit_function():
             output = bias_dropout_add_fused_train(input, bias, residual, dropout_rate)
     del bias, input, residual, output
     torch.cuda.empty_cache()
+
+def initialize_weights_sharing(models):
+    if ENABLE_WEIGHT_SHARE:
+        pipeline_rank = mpu.get_pipeline_model_parallel_rank()
+        virtual_pipeline_rank = mpu.get_virtual_pipeline_model_parallel_rank()    
+        rank = torch.distributed.get_rank()
+        # initialize the ranks
+        for model in models:
+            model = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)) 
+            for op in model.language_model.ops:
+                if len(op.shared_weights_info) > 0:
+                    for key in sorted(op.shared_weights_info):
+                        op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"] = {}   
+                        op.shared_weights_info[key]["sharing_weights_with_ranks"] = {}                      
+                        if op.shared_weights_info[key]["root"]:
+                            # calculate & store the destination ranks. 
+                            for op_index in op.shared_weights_info[key]["sharing_with_ops"]:
+                                dest_pipeline_rank = mpu.get_pipeline_rank_via_op_index(op_index)
+                                if dest_pipeline_rank == pipeline_rank:
+                                    op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index] = True
+                                else:
+                                    op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index] = False
+
+                                    ranks_in_send_stage = mpu.get_ranks_via_pipeline_stage(pipeline_rank)
+                                    ranks_in_receive_stage = mpu.get_ranks_via_pipeline_stage(dest_pipeline_rank)
+                                    num_ranks_in_send_stage = len(ranks_in_send_stage)
+                                    num_ranks_in_receive_stage = len(ranks_in_receive_stage)
+
+                                    tp_size, dp_size = mpu.get_op_tp_size(op.op_index), mpu.get_op_dp_size(op.op_index)
+                                    tp_size_next, dp_size_next = mpu.get_op_tp_size(op_index), mpu.get_op_dp_size(op_index)
+
+                                    for i in range(num_ranks_in_send_stage):
+                                        if ranks_in_send_stage[i] == rank:
+                                            dp_id = i // tp_size
+                                            tp_id = i % tp_size
+
+                                    next_dp_id = [dp_id]
+                                    next_tp_id = [tp_id]
+
+                                    if tp_size_next > tp_size:
+                                        ratio = tp_size_next // tp_size
+                                        next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)                                    
+                                    if tp_size_next < tp_size:
+                                        ratio = tp_size // tp_size_next
+                                        next_tp_id = [tp_id // ratio]  
+                                    if dp_size_next > dp_size:
+                                        ratio = dp_size_next // dp_size
+                                        next_dp_id = range(dp_id * ratio, (dp_id + 1)*ratio)                                      
+                                    if dp_size_next < dp_size:
+                                        ratio = dp_size // dp_size_next
+                                        if dp_id % ratio == 0:
+                                            next_dp_id = [dp_id // ratio] 
+                                        else:
+                                            next_dp_id = []
+
+                                    op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index] = []
+                                    if len(next_dp_id) > 0:
+                                        for _dp_id in next_dp_id:
+                                            tmp_list = []
+                                            for _tp_id in next_tp_id:
+                                                tmp_list.append(ranks_in_receive_stage[_dp_id * tp_size_next + _tp_id])
+                                            op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+                        else:
+                            assert len(op.shared_weights_info[key]["sharing_with_ops"]) == 1
+                            op_index = op.shared_weights_info[key]["sharing_with_ops"][0]
+                            src_pipeline_rank = mpu.get_pipeline_rank_via_op_index(op_index)
+                            if src_pipeline_rank == pipeline_rank:
+                                op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index] = True
+                            else:
+                                op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index] = False
+
+                                ranks_in_send_stage = mpu.get_ranks_via_pipeline_stage(src_pipeline_rank)
+                                ranks_in_receive_stage = mpu.get_ranks_via_pipeline_stage(pipeline_rank)
+                                num_ranks_in_send_stage = len(ranks_in_send_stage)
+                                num_ranks_in_receive_stage = len(ranks_in_receive_stage)
+
+                                tp_size, dp_size = mpu.get_op_tp_size(op.op_index), mpu.get_op_dp_size(op.op_index)
+                                tp_size_next, dp_size_next = mpu.get_op_tp_size(op_index), mpu.get_op_dp_size(op_index)
+
+                                for i in range(num_ranks_in_receive_stage):
+                                    if ranks_in_receive_stage[i] == rank:
+                                        dp_id = i // tp_size
+                                        tp_id = i % tp_size
+
+                                next_dp_id = [dp_id]
+                                next_tp_id = [tp_id]
+
+                                if tp_size_next > tp_size:
+                                    ratio = tp_size_next // tp_size
+                                    next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)                                    
+                                if tp_size_next < tp_size:
+                                    ratio = tp_size // tp_size_next
+                                    next_tp_id = [tp_id // ratio]  
+                                if dp_size_next > dp_size:
+                                    ratio = dp_size_next // dp_size
+                                    next_dp_id = [dp_id * ratio]                                 
+                                if dp_size_next < dp_size:
+                                    ratio = dp_size // dp_size_next
+                                    next_dp_id = [dp_id // ratio]   
+
+                                op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index] = []
+
+                                for _dp_id in next_dp_id:
+                                    tmp_list = []
+                                    for _tp_id in next_tp_id:
+                                        tmp_list.append(ranks_in_send_stage[_dp_id * tp_size_next + _tp_id])
+                                    op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+
+        # send & receive tensors
+        for model in models:
+            model = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)) 
+            for op in model.language_model.ops:
+                if len(op.shared_weights_info) > 0:
+                    is_root = False 
+                    for key in op.shared_weights_info:
+                        if op.shared_weights_info[key]["root"]:
+                            is_root = True
+                    if is_root:
+                        send_shared_tensors(op, models, grads=False)
+                    else:
+                        recv_tensor = recv_shared_tensors(op, models, grads=False)
+                        op.set_shared_tensor(recv_tensor, grads=False)
+        
+
+def synchronize_shared_weights_grads(models):
+    if ENABLE_WEIGHT_SHARE:
+        for model in models:
+            model = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)) 
+            # two-phase to avoid deadlock
+            # Phase 1: root: receive, sum up, send out
+            #          workers: send
+            for op in model.language_model.ops:
+                if len(op.shared_weights_info) > 0:
+                    is_root = False
+                    for key in op.shared_weights_info:
+                        if op.shared_weights_info[key]["root"]:
+                            is_root = True                
+                    if is_root:
+                        grads_dict = {}
+                        recv_grads_dict = recv_shared_tensors(op, models, grads=True)
+                        current_grads_dict = op.get_shared_tensor(grads=True)
+                        for key in sorted(op.shared_weights_info):
+                            # receive grads from all sync-ops.
+                            recv_grads = recv_grads_dict[key]
+                            # sum up the grads from all sync-ops and this op.
+                            current_grads = current_grads_dict[key]
+                            recv_grads.append(current_grads)
+                            grads_dict[key] = [sum(recv_grads)]               
+                        op.set_shared_tensor(grads_dict, grads=True)                    
+                        # send sum of grads back to all the sync-ops.                  
+                        send_shared_tensors(op, models, grads=True)                   
+                    else:
+                        # send grads to root op. 
+                        send_shared_tensors(op, models, grads=True)
+
+            # Phase 2: workers: receive
+            for op in model.language_model.ops:
+                if len(op.shared_weights_info) > 0:
+                    is_root = False
+                    for key in op.shared_weights_info:
+                        if op.shared_weights_info[key]["root"]:
+                            is_root = True                  
+                    if not is_root:               
+                        # recv sum of grads.
+                        recv_grads = recv_shared_tensors(op, models, grads=True)
+                        # update grads.
+                        op.set_shared_tensor(recv_grads, grads=True)
