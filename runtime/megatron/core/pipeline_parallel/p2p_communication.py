@@ -5,8 +5,11 @@ from functools import reduce
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
+from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
+from megatron.training import get_args, get_timers
 from megatron import core
+from megatron.core import mpu
 from megatron.core import ModelParallelConfig
 from megatron.core.parallel_state import (
     get_pipeline_model_parallel_group,
@@ -14,9 +17,329 @@ from megatron.core.parallel_state import (
     get_pipeline_model_parallel_prev_rank,
     get_pipeline_model_parallel_rank,
 )
+from megatron.core.distributed import DistributedDataParallel as LocalDDP
+from megatron.legacy.model import Float16Module
+
+from megatron.training.utils import unwrap_model
+
+from megatron.core.utils import debug_mem_report, report_memory
+import os
+import time
+
+DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '0') == '1'
+EXTRA_TENSOR_TRANSFER = os.environ.get("EXTRA_TENSOR_TRANSFER", '1') == '1'
 
 # Types
 Shape = Union[List[int], torch.Size]
+
+def print_tensor_dict_info(name, tensor_dict):
+    args = get_args()
+    string = f"rank {torch.distributed.get_rank()} {name} dict: \n"
+    for key in sorted(tensor_dict):
+        if tensor_dict[key] is not None:
+            string += f"{key}: {list(tensor_dict[key].size())} size = {reduce(operator.mul, list(tensor_dict[key].size()), 1)}\n"
+        else:
+            string += f"{key}: {None}\n"
+
+    with open(f"{args.log_path}{args.log_name}_debug_communicate_rank{torch.distributed.get_rank()}.log", "a+") as f:
+        f.write(string+"\n")
+
+def print_communication_info(current_rank, op, other_rank, tensor_size):
+    args = get_args()
+    string = f"rank {current_rank} | {op} {other_rank}. size = {tensor_size}."
+    with open(f"{args.log_path}{args.log_name}_debug_communicate_rank{current_rank}.log", "a+") as f:
+        f.write(string+"\n")
+
+
+def _create_recv_placeholder(forward=True):
+    args = get_args()
+    dtype = args.params_dtype
+    if args.fp32_residual_connection:
+        dtype = torch.float   
+
+    recv_info = mpu.get_recv_info(forward)
+    flatten_tensor_recv_prev = {}
+    for key in sorted(recv_info["tensors"]):
+        flatten_tensor_recv_prev[key] = []
+        num_chunks = recv_info["tensors"][key]["num_tp_chunks"] * recv_info["tensors"][key]["num_dp_chunks"]
+        recv_shape = list(recv_info["tensors"][key]["shape"])
+        if recv_info["tensors"][key]["tp_split_dim"] == -1 and args.scatter_gather_tensors_in_pipeline:
+            rank = mpu.get_pipeline_model_parallel_rank()
+            if forward:
+                op_index = mpu.get_op_start_index(rank)
+            else:
+                op_index = mpu.get_op_end_index(rank) - 1
+
+            assert recv_shape[0] % mpu.get_op_tp_size(op_index) == 0
+            recv_shape[0] //= mpu.get_op_tp_size(op_index)
+            recv_shape[0] //= recv_info["tensors"][key]["num_tp_chunks"]
+        for _ in range(num_chunks):
+            flatten_tensor_recv_prev[key].append(torch.empty(recv_shape, requires_grad=True, device=torch.cuda.current_device(), dtype=dtype))
+
+
+def _partition(tensor, info, forward):
+    """
+    This function first partition each tensor and extra tensor according to number of receivers.
+    Then flatten all the tensors and concat them into one large tensor.
+    """
+    
+    tp_split_dim = info["tp_split_dim"]
+    dp_split_dim = info["dp_split_dim"]
+    num_tp_chunks = info["num_tp_chunks"]
+    num_dp_chunks = info["num_dp_chunks"]
+    tp_chunks_index = info["tp_chunks_index"]
+    dp_chunks_index = info["dp_chunks_index"]
+    args = get_args()
+
+    if dp_split_dim != -1:
+        _tmp_list = list(torch.chunk(tensor, chunks=num_dp_chunks, dim=dp_split_dim)) 
+        tensor_split = []
+        for i in range(len(dp_chunks_index)):
+            tensor_split.append(_tmp_list[dp_chunks_index[i]].contiguous())
+    else:
+        tensor_split = [tensor for _ in range(num_dp_chunks)]
+    
+    if tp_split_dim != -1:
+        for i in range(len(tensor_split)):
+            _tmp_list = list(torch.chunk(tensor_split[i], chunks=num_tp_chunks, dim=tp_split_dim)) 
+            tensor_split[i] = []
+            for j in range(len(tp_chunks_index)):
+                tensor_split[i].append(_tmp_list[tp_chunks_index[j]].contiguous())                
+    else:
+        for i in range(len(tensor_split)):
+            if args.scatter_gather_tensors_in_pipeline:
+                rank = mpu.get_pipeline_model_parallel_rank()
+                if forward:
+                    op_index = mpu.get_op_end_index(rank) - 1
+                else:
+                    op_index = mpu.get_op_start_index(rank)
+
+                assert tensor_split[i].size()[0] >= num_tp_chunks * mpu.get_op_tp_size(op_index), "scatter_gather_tensors_in_pipeline is only available when mciro batch size >= num_splits"
+                _tmp_list = list(torch.chunk(tensor_split[i], chunks=num_tp_chunks * mpu.get_op_tp_size(op_index), dim=0)) 
+                tp_rank = torch.distributed.get_rank(group=mpu.get_tensor_model_parallel_group(op_index))
+                new_tensor_split = [_tmp_list[num_tp_chunks * tp_rank + j].contiguous() for j in range(num_tp_chunks)]
+            else:
+                new_tensor_split = [tensor_split[i] for _ in range(num_tp_chunks)]
+            tensor_split[i] = new_tensor_split
+
+    _tensor_split = [n for a in tensor_split for n in a]
+
+    return _tensor_split
+
+def _reshape(recv_tensor, recv_info, forward):
+    args = get_args()
+    tensor_dict = {}
+    extra_tensor_dict = {}
+
+    for key in sorted(recv_info["tensors"]):
+        num_tp_chunks = recv_info["tensors"][key]["num_tp_chunks"]
+        num_dp_chunks = recv_info["tensors"][key]["num_dp_chunks"]
+        tp_split_dim = recv_info["tensors"][key]["tp_split_dim"]
+        dp_split_dim = recv_info["tensors"][key]["dp_split_dim"]
+        tensor_list = recv_tensor[key]       
+
+        if not EXTRA_TENSOR_TRANSFER and recv_info["tensors"][key]["extra_tensor"]:
+            data_size = tensor_list[0].size()
+            if args.model_name == "resnet":
+                data_type = torch.float32
+            else:
+                data_type = torch.float16
+            for i in range(len(tensor_list)):
+                tensor_list[i] = torch.ones(data_size, requires_grad=True, device=torch.cuda.current_device(), dtype=data_type) 
+
+        if num_tp_chunks > 1:
+            if tp_split_dim == -1 and args.scatter_gather_tensors_in_pipeline:
+                _tensor_list = []
+                for i in range(len(tensor_list)):
+                    _tensor_list.append(torch.cat(tensor_list[i: i+num_tp_chunks], dim=0))
+                    i += num_tp_chunks
+                tensor_list = _tensor_list  
+            else:
+                _tensor_list = []
+                for i in range(len(tensor_list)):
+                    _tensor_list.append(torch.cat(tensor_list[i: i+num_tp_chunks], dim=tp_split_dim))
+                    i += num_tp_chunks
+                tensor_list = _tensor_list  
+
+        if num_dp_chunks > 1:
+            _tensor_list = []
+            for i in range(len(tensor_list)):
+                _tensor_list.append(torch.cat(tensor_list[i: i+num_dp_chunks], dim=dp_split_dim))
+                i += num_dp_chunks
+            tensor_list = _tensor_list  
+
+        if tp_split_dim == -1 and args.scatter_gather_tensors_in_pipeline:
+            rank = mpu.get_pipeline_model_parallel_rank()
+            if forward:
+                op_index = mpu.get_op_start_index(rank)  
+            else:
+                op_index = mpu.get_op_end_index(rank) - 1
+            tp_size = mpu.get_op_tp_size(op_index)
+
+            gather_list = [torch.empty_like(tensor_list[0]) for _ in range(tp_size)]
+            torch.distributed.all_gather(gather_list, tensor_list[0], group=mpu.get_tensor_model_parallel_group(op_index))
+            output = torch.cat(gather_list, dim=0).contiguous()
+
+            if recv_info["tensors"][key]["extra_tensor"]:
+                extra_tensor_dict[key] = output
+            else:
+                tensor_dict[key] = output
+        else:
+            if recv_info["tensors"][key]["extra_tensor"]:
+                extra_tensor_dict[key] = tensor_list[0]  
+            else:
+                tensor_dict[key] = tensor_list[0]
+
+    if DEBUG_COMMUNICATE:
+        print_tensor_dict_info("recieved tensors", tensor_dict)
+        print_tensor_dict_info("received extra tensors", extra_tensor_dict)
+
+    return tensor_dict, extra_tensor_dict
+
+
+def _communicate_flexpipe(
+    tensor_send_next: Optional[torch.Tensor],
+    tensor_send_prev: Optional[torch.Tensor],
+    extra_tensor_send_next: Optional[torch.Tensor],
+    extra_tensor_send_prev: Optional[torch.Tensor],
+    recv_prev: bool,
+    recv_next: bool
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+
+    timers = get_timers()
+
+    prev_ranks = mpu.get_stage_comm_recv_ranks()
+    next_ranks = mpu.get_stage_comm_send_ranks()
+    num_parents = len(prev_ranks)
+    num_childs = len(next_ranks)      
+    tensor_recv_prev, extra_tensor_recv_prev, tensor_recv_next, extra_tensor_recv_next = None, None, None, None 
+
+    # Create placeholder tensors for receive in forward and backward directions if needed.
+    with torch.no_grad():
+        if recv_prev:
+            flatten_tensor_recv_prev = _create_recv_placeholder(forward=True)
+        if recv_next:
+            flatten_tensor_recv_next = _create_recv_placeholder(forward=False)
+
+    if tensor_send_prev is not None:
+        send_info = mpu.get_send_info(forward=False)
+        for key in sorted(send_info["tensors"]):
+            ops = []
+            with torch.no_grad():
+                if key in tensor_send_prev:
+                    tensor_partitioned = _partition(tensor_send_prev[key], send_info["tensors"][key], forward=False)
+                elif key in extra_tensor_send_prev:
+                    if EXTRA_TENSOR_TRANSFER:
+                        tensor_partitioned = _partition(extra_tensor_send_prev[key], send_info["tensors"][key], forward= False)
+                    else:
+                        continue
+                else:
+                    print(f"[rank {torch.distributed.get_rank()}] trying to send to prev, tensor name = {key}. send_info = {send_info['tensors']}")
+            for i in range(num_parents):
+                send_prev_op = torch.distributed.P2POp(torch.distributed.isend, tensor_partitioned[i], prev_ranks[i])
+                ops.append(send_prev_op)  
+                if DEBUG_COMMUNICATE:
+                    print_communication_info(torch.distributed.get_rank(), f"send [{key} ({tensor_partitioned[i].dtype})] to ", prev_ranks[i], list(tensor_partitioned[i].size()))
+            if recv_prev:
+                recv_info = mpu.get_recv_info(forward=True)
+                for i in range(num_parents):
+                    recv_prev_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_prev[key][i], prev_ranks[i])
+                    ops.append(recv_prev_op)
+                    if DEBUG_COMMUNICATE:
+                        print_communication_info(torch.distributed.get_rank(), f"recv [{key}] from ", prev_ranks[i], list(flatten_tensor_recv_prev[key][i].size()))                
+
+            reqs = torch.distributed.batch_isend_irecv(ops)
+            for req in reqs:
+                req.wait()
+            # torch.cuda.synchronize()
+    elif recv_prev:
+        recv_info = mpu.get_recv_info(forward=True)
+        for key in sorted(recv_info["tensors"]): 
+            if recv_info["tensors"][key]["extra_tensor"] and not EXTRA_TENSOR_TRANSFER:
+                continue
+            ops = []    
+            for i in range(num_parents):
+                recv_prev_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_prev[key][i], prev_ranks[i])
+                ops.append(recv_prev_op)
+                if DEBUG_COMMUNICATE:
+                    print_communication_info(torch.distributed.get_rank(), f"recv [{key}] from ", prev_ranks[i], list(flatten_tensor_recv_prev[key][i].size()))
+
+            reqs = torch.distributed.batch_isend_irecv(ops)
+            for req in reqs:
+                req.wait()  
+            # torch.cuda.synchronize()        
+
+    if tensor_send_next is not None:
+        send_info = mpu.get_send_info(forward=True)
+        for key in sorted(send_info["tensors"]):
+            ops = []
+            with torch.no_grad():
+                if key in tensor_send_next:
+                    tensor_partitioned = _partition(tensor_send_next[key], send_info["tensors"][key], forward=True)
+                elif key in extra_tensor_send_next:
+                    if EXTRA_TENSOR_TRANSFER:
+                        tensor_partitioned = _partition(extra_tensor_send_next[key], send_info["tensors"][key], forward=True) 
+                    else:
+                        continue
+            for i in range(num_childs):
+                send_next_op = torch.distributed.P2POp(torch.distributed.isend, tensor_partitioned[i], next_ranks[i])
+                ops.append(send_next_op)  
+                if DEBUG_COMMUNICATE:
+                    print_communication_info(torch.distributed.get_rank(), f"send [{key}] to ", next_ranks[i], list(tensor_partitioned[i].size()))
+            if recv_next:
+                recv_info = mpu.get_recv_info(forward=False)
+                for i in range(num_childs):
+                    recv_next_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_next[key][i], next_ranks[i])
+                    ops.append(recv_next_op)
+                    if DEBUG_COMMUNICATE:
+                        print_communication_info(torch.distributed.get_rank(), f"recv [{key}] from ", next_ranks[i], list(flatten_tensor_recv_next[key][i].size()))                
+
+            reqs = torch.distributed.batch_isend_irecv(ops)
+            for req in reqs:
+                req.wait()
+            # torch.cuda.synchronize()
+
+    elif recv_next:
+        recv_info = mpu.get_recv_info(forward=False)
+        for key in sorted(recv_info["tensors"]): 
+            if recv_info["tensors"][key]["extra_tensor"] and not EXTRA_TENSOR_TRANSFER:
+                continue            
+            ops = []          
+            for i in range(num_childs):
+                recv_next_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_next[key][i], next_ranks[i])
+                ops.append(recv_next_op)
+                if DEBUG_COMMUNICATE:
+                    print_communication_info(torch.distributed.get_rank(), f"recv [{key}] from ", next_ranks[i], list(flatten_tensor_recv_next[key][i].size()))  
+
+            reqs = torch.distributed.batch_isend_irecv(ops)
+            for req in reqs:
+                req.wait()  
+    # if len(ops) > 0:
+    #     reqs = torch.distributed.batch_isend_irecv(ops)
+    #     for req in reqs:
+    #         req.wait()
+    # To protect against race condition when using batch_isend_irecv().
+    torch.cuda.synchronize()
+
+    with torch.no_grad():
+        if recv_prev:
+            tensor_recv_prev, extra_tensor_recv_prev = _reshape(flatten_tensor_recv_prev, recv_info, forward=True)
+        if recv_next:
+            tensor_recv_next, extra_tensor_recv_next = _reshape(flatten_tensor_recv_next, recv_info, forward=False)
+
+    if recv_prev:
+        for key in sorted(tensor_recv_prev):
+            tensor_recv_prev[key].requires_grad = True
+        for key in sorted(extra_tensor_recv_prev):
+            extra_tensor_recv_prev[key].requires_grad = True    
+    if recv_next:
+        for key in sorted(tensor_recv_next):
+            tensor_recv_next[key].requires_grad = True
+        for key in sorted(extra_tensor_recv_next):
+            extra_tensor_recv_next[key].requires_grad = True                    
+
+    return tensor_recv_prev, extra_tensor_recv_prev, tensor_recv_next, extra_tensor_recv_next
+
 
 
 def _communicate_shapes(tensor_send_next, tensor_send_prev, recv_prev, recv_next, config):
@@ -347,7 +670,7 @@ def _communicate(
     return tensor_recv_prev, tensor_recv_next, reqs
 
 
-def recv_forward(tensor_shape: Shape, config: ModelParallelConfig) -> torch.Tensor:
+def recv_forward(tensor_shape: Shape, config: ModelParallelConfig) -> tuple[torch.Tensor, torch.Tensor]:
     """ Receive tensor from previous rank in pipeline (forward receive).
 
     See _communicate for argument details.
@@ -358,20 +681,20 @@ def recv_forward(tensor_shape: Shape, config: ModelParallelConfig) -> torch.Tens
     else:
         if config.timers is not None:
             config.timers('forward-recv', log_level=2).start()
-        input_tensor, _, _ = _communicate(
+        input_tensors, input_extra_tensors, _, _ = _communicate_flexpipe(
             tensor_send_next=None,
             tensor_send_prev=None,
+            extra_tensor_send_next=None,
+            extra_tensor_send_prev=None,
             recv_prev=True,
             recv_next=False,
-            tensor_shape=tensor_shape,
-            config=config,
         )
         if config.timers is not None:
             config.timers('forward-recv').stop()
-    return input_tensor
+    return input_tensors, input_extra_tensors
 
 
-def recv_backward(tensor_shape: Shape, config: ModelParallelConfig) -> torch.Tensor:
+def recv_backward(tensor_shape: Shape, config: ModelParallelConfig) -> tuple[torch.Tensor, torch.Tensor]:
     """Receive tensor from next rank in pipeline (backward receive).
 
     See _communicate for argument details.
@@ -381,20 +704,20 @@ def recv_backward(tensor_shape: Shape, config: ModelParallelConfig) -> torch.Ten
     else:
         if config.timers is not None:
             config.timers('backward-recv', log_level=2).start()
-        _, output_tensor_grad, _ = _communicate(
+        _, _, output_tensor_grad, output_extra_tensors_grad = _communicate_flexpipe(
             tensor_send_next=None,
             tensor_send_prev=None,
+            extra_tensor_send_next=None,
+            extra_tensor_send_prev=None,
             recv_prev=False,
             recv_next=True,
-            tensor_shape=tensor_shape,
-            config=config,
         )
         if config.timers is not None:
             config.timers('backward-recv').stop()
-    return output_tensor_grad
+    return output_tensor_grad, output_extra_tensors_grad
 
 
-def send_forward(output_tensor: torch.Tensor, config: ModelParallelConfig) -> None:
+def send_forward(output_tensor: torch.Tensor, config: ModelParallelConfig, output_extra_tensor: torch.Tensor = None) -> None:
     """Send tensor to next rank in pipeline (forward send).
 
     See _communicate for argument details.
@@ -403,19 +726,19 @@ def send_forward(output_tensor: torch.Tensor, config: ModelParallelConfig) -> No
     if not core.parallel_state.is_pipeline_last_stage():
         if config.timers is not None:
             config.timers('forward-send', log_level=2).start()
-        _communicate(
+        _communicate_flexpipe(
             tensor_send_next=output_tensor,
             tensor_send_prev=None,
+            extra_tensor_send_next=output_extra_tensor,
+            extra_tensor_send_prev=None,
             recv_prev=False,
             recv_next=False,
-            tensor_shape=None,
-            config=config,
         )
         if config.timers is not None:
             config.timers('forward-send').stop()
 
 
-def send_backward(input_tensor_grad: torch.Tensor, config: ModelParallelConfig) -> None:
+def send_backward(input_tensor_grad: torch.Tensor, config: ModelParallelConfig, extra_tensors_grad: torch.Tensor = None) -> None:
     """Send tensor to previous rank in pipeline (backward send).
 
     See _communicate for argument details.
@@ -423,21 +746,21 @@ def send_backward(input_tensor_grad: torch.Tensor, config: ModelParallelConfig) 
     if not core.parallel_state.is_pipeline_first_stage():
         if config.timers is not None:
             config.timers('backward-send', log_level=2).start()
-        _communicate(
+        _communicate_flexpipe(
             tensor_send_next=None,
             tensor_send_prev=input_tensor_grad,
+            extra_tensor_send_next=extra_tensors_grad,
+            extra_tensor_send_prev=None,
             recv_prev=False,
             recv_next=False,
-            tensor_shape=None,
-            config=config,
         )
         if config.timers is not None:
             config.timers('backward-send').stop()
 
 
 def send_forward_recv_backward(
-    output_tensor: torch.Tensor, tensor_shape: Shape, config: ModelParallelConfig
-) -> torch.Tensor:
+    output_tensor: torch.Tensor, recv_prev: bool, tensor_shape: Shape, config: ModelParallelConfig, output_extra_tensors: torch.Tensor = None
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Batched send and recv with next rank in pipeline.
 
     See _communicate for argument details.
@@ -447,22 +770,22 @@ def send_forward_recv_backward(
     else:
         if config.timers is not None:
             config.timers('forward-send-backward-recv', log_level=2).start()
-        _, output_tensor_grad, _ = _communicate(
+        _, _, output_tensor_grad, output_extra_tensors_grad = _communicate_flexpipe(
             tensor_send_next=output_tensor,
             tensor_send_prev=None,
-            recv_prev=False,
+            extra_tensor_send_next=output_extra_tensors,
+            extra_tensor_send_prev=None,
+            recv_prev=recv_prev,
             recv_next=True,
-            tensor_shape=tensor_shape,
-            config=config,
         )
         if config.timers is not None:
             config.timers('forward-send-backward-recv').stop()
-    return output_tensor_grad
+    return output_tensor_grad, output_extra_tensors_grad
 
 
 def send_backward_recv_forward(
-    input_tensor_grad: torch.Tensor, tensor_shape: Shape, config: ModelParallelConfig
-) -> torch.Tensor:
+    input_tensor_grad: torch.Tensor, recv_next: bool, tensor_shape: Shape, config: ModelParallelConfig, extra_tensors_grad: torch.Tensor = None
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Batched send and recv with previous rank in pipeline.
 
     See _communicate for argument details.
@@ -472,17 +795,17 @@ def send_backward_recv_forward(
     else:
         if config.timers is not None:
             config.timers('backward-send-forward-recv', log_level=2).start()
-        input_tensor, _, _ = _communicate(
+        input_tensor, extra_tensors, _, _ = _communicate_flexpipe(
             tensor_send_next=None,
             tensor_send_prev=input_tensor_grad,
+            extra_tensor_send_next=None,
+            extra_tensor_send_prev=extra_tensors_grad,
             recv_prev=True,
-            recv_next=False,
-            tensor_shape=tensor_shape,
-            config=config,
+            recv_next=recv_next,
         )
         if config.timers is not None:
             config.timers('backward-send-forward-recv').stop()
-    return input_tensor
+    return input_tensor, extra_tensors
 
 
 def send_forward_recv_forward(
@@ -490,28 +813,28 @@ def send_forward_recv_forward(
     recv_prev: bool,
     tensor_shape: Shape,
     config: ModelParallelConfig,
-    overlap_p2p_comm: bool = False,
-) -> torch.Tensor:
+    # overlap_p2p_comm: bool = False,
+    output_extra_tensors: torch.Tensor = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Batched recv from previous rank and send to next rank in pipeline.
 
     See _communicate for argument details.
     """
     if config.timers is not None:
         config.timers('forward-send-forward-recv', log_level=2).start()
-    input_tensor, _, wait_handles = _communicate(
+    input_tensor, extra_tensors, _, _ = _communicate_flexpipe(
         tensor_send_next=output_tensor,
         tensor_send_prev=None,
+        extra_tensor_send_next=output_extra_tensors,
+        extra_tensor_send_prev=None,
         recv_prev=recv_prev,
         recv_next=False,
-        tensor_shape=tensor_shape,
-        wait_on_reqs=(not overlap_p2p_comm),
-        config=config,
     )
     if config.timers is not None:
         config.timers('forward-send-forward-recv').stop()
-    if overlap_p2p_comm:
-        return input_tensor, wait_handles
-    return input_tensor
+    # if overlap_p2p_comm:
+    #     return input_tensor, wait_handles
+    return input_tensor, extra_tensors
 
 
 def send_backward_recv_backward(
@@ -519,29 +842,28 @@ def send_backward_recv_backward(
     recv_next: bool,
     tensor_shape: Shape,
     config: ModelParallelConfig,
-    overlap_p2p_comm: bool = False,
-) -> torch.Tensor:
+    # overlap_p2p_comm: bool = False,
+    extra_tensors_grad: torch.Tensor = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Batched recv from next rank and send to previous rank in pipeline.
 
     See _communicate for argument details.
     """
     if config.timers is not None:
         config.timers('backward-send-backward-recv', log_level=2).start()
-    _, output_tensor_grad, wait_handles = _communicate(
+    _, _, output_tensor_grad, output_extra_tensors_grad = _communicate_flexpipe(
         tensor_send_next=None,
         tensor_send_prev=input_tensor_grad,
+        extra_tensor_send_next=None,
+        extra_tensor_send_prev=extra_tensors_grad,
         recv_prev=False,
         recv_next=recv_next,
-        tensor_shape=tensor_shape,
-        wait_on_reqs=(not overlap_p2p_comm),
-        config=config,
     )
     if config.timers is not None:
         config.timers('backward-send-backward-recv').stop()
-    if overlap_p2p_comm:
-        return output_tensor_grad, wait_handles
-    return output_tensor_grad
-
+    # if overlap_p2p_comm:
+    #     return output_tensor_grad, wait_handles
+    return output_tensor_grad, output_extra_tensors_grad
 
 def send_forward_backward_recv_forward_backward(
     output_tensor: torch.Tensor,
@@ -550,21 +872,137 @@ def send_forward_backward_recv_forward_backward(
     recv_next: bool,
     tensor_shape: Shape,
     config: ModelParallelConfig,
-) -> torch.Tensor:
+    output_extra_tensors: torch.Tensor = None,
+    extra_tensors_grad: torch.Tensor = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Batched send and recv with previous and next ranks in pipeline.
 
     See _communicate for argument details.
     """
     if config.timers is not None:
         config.timers('forward-backward-send-forward-backward-recv', log_level=2).start()
-    input_tensor, output_tensor_grad, _ = _communicate(
+    input_tensor, extra_tensors, output_tensor_grad, output_extra_tensors_grad = _communicate_flexpipe(
         tensor_send_next=output_tensor,
         tensor_send_prev=input_tensor_grad,
+        extra_tensor_send_next=output_extra_tensors,
+        extra_tensor_send_prev=extra_tensors_grad,
         recv_prev=recv_prev,
         recv_next=recv_next,
-        tensor_shape=tensor_shape,
-        config=config,
     )
     if config.timers is not None:
         config.timers('forward-backward-send-forward-backward-recv').stop()
-    return input_tensor, output_tensor_grad
+    return input_tensor, extra_tensors, output_tensor_grad, output_extra_tensors_grad
+
+
+def get_op_via_index(op_index, models):
+    for model in models:
+        model = unwrap_model(model, (torchDDP, LocalDDP, Float16Module)) 
+        for op in model.language_model.ops:
+            if op.op_index == op_index:
+                return op
+    return None
+
+
+def send_shared_tensors(op, models, grads=False):
+    
+    args = get_args()
+    shared_tensor = op.get_shared_tensor(grads=grads)
+
+    for key in sorted(shared_tensor):
+        for op_index in op.shared_weights_info[key]["sharing_with_ops"]:
+            if not op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index]:
+                recv_ranks = op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]
+                if len(recv_ranks) > 0:
+                    send_ops = []
+                    split_dim = op.shared_weights_info[key]["tp_split_dim"]
+
+                    for recv_tp_groups in recv_ranks:
+                        if len(recv_tp_groups) == 1:
+                            tensor_list = [shared_tensor[key]]
+                        else:
+                            if split_dim != -1:
+                                tensor_list = list(torch.chunk(shared_tensor[key], chunks=len(recv_tp_groups), dim=split_dim)) 
+                            else:
+                                tensor_list = []
+                                for _ in range(len(recv_tp_groups)):
+                                    tensor_list.append(shared_tensor[key])
+
+                        for i in range(len(tensor_list)):
+                            send_op = torch.distributed.P2POp(
+                                torch.distributed.isend, tensor_list[i].contiguous(), recv_tp_groups[i])
+                            send_ops.append(send_op) 
+
+                            if DEBUG_COMMUNICATE:
+                                current_rank = torch.distributed.get_rank()
+                                string = f"(shared) rank {current_rank} send to {recv_tp_groups[i]} size = {list(tensor_list[i].size())}"
+                                with open(f"{args.log_path}{args.log_name}_debug_communicate_rank{current_rank}.log", "a+") as f:
+                                    f.write(string+"\n")    
+
+                    if len(send_ops) > 0:
+                        reqs = torch.distributed.batch_isend_irecv(send_ops)
+                        for req in reqs:
+                            req.wait()
+                        torch.cuda.synchronize()
+
+def recv_shared_tensors(op, models, grads=False):
+    args = get_args()
+
+    recv_dict = {}
+    shared_tensor = op.get_shared_tensor(grads=False)
+    for key in sorted(shared_tensor):
+        recv_dict[key] = []
+
+    for key in sorted(shared_tensor):
+        if key == "position_embeddings" and not grads:
+            dtype = torch.float32
+        else:
+            dtype = args.params_dtype        
+        for op_index in op.shared_weights_info[key]["sharing_with_ops"]:
+            if op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index]:
+                src_op = get_op_via_index(op_index, models)
+                recv_tensor = src_op.get_shared_tensor(grads=grads)
+                recv_dict[key].append(recv_tensor[key])
+            else:
+                send_ranks = op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]
+                if len(send_ranks) > 0: 
+                    recv_ops = []
+                    tensor_list = []
+                    receive_size = list(shared_tensor[key].size())
+                    split_dim = op.shared_weights_info[key]["tp_split_dim"]
+                    if split_dim != -1:
+                        receive_size[split_dim] //= len(send_ranks[0])
+                        
+                    for send_tp_groups in send_ranks:
+                        tmp_tensor_list = []
+                        for _ in range(len(send_tp_groups)):
+                            tmp_tensor_list.append(torch.empty(receive_size, requires_grad=True, device=torch.cuda.current_device(), dtype=dtype))
+                        for i in range(len(tmp_tensor_list)):
+                            recv_op = torch.distributed.P2POp(
+                                torch.distributed.irecv, tmp_tensor_list[i], send_tp_groups[i])
+                            recv_ops.append(recv_op)
+                            if DEBUG_COMMUNICATE:
+                                current_rank = torch.distributed.get_rank()
+                                string = f"(shared) rank {current_rank} recv from {send_tp_groups[i]} size = {list(tmp_tensor_list[i].size())}"
+                                with open(f"{args.log_path}{args.log_name}_debug_communicate_rank{current_rank}.log", "a+") as f:
+                                    f.write(string+"\n")    
+                        tensor_list.append(tmp_tensor_list)
+
+                    if len(recv_ops) > 0:
+                        reqs = torch.distributed.batch_isend_irecv(recv_ops)
+                        for req in reqs:
+                            req.wait()
+                        torch.cuda.synchronize()
+
+                    if split_dim != -1:
+                        if len(tensor_list) == 1:
+                            recv_dict[key].append(torch.cat(tensor_list[0], dim=split_dim))
+                        else:
+                            result_tensor = torch.sum(torch.stack([torch.cat(tensor_list[i], dim=split_dim) for i in range(len(tensor_list))]), dim=0)
+                            recv_dict[key].append(result_tensor)
+                    else:
+                        if len(tensor_list) == 1:
+                            recv_dict[key].append(tensor_list[0][0])
+                        else:
+                            result_tensor = torch.sum(torch.stack([tensor_list[i][0] for i in range(len(tensor_list))]), dim=0)
+                            recv_dict[key].append(result_tensor)
+    return recv_dict

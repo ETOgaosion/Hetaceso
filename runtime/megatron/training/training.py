@@ -9,6 +9,7 @@ import math
 import logging
 import os
 import sys
+import csv
 from .log_handler import CustomHandler
 # Make default logging level INFO, but filter out all log messages not from MCore.
 logging.basicConfig(handlers=[CustomHandler()], level=logging.INFO)
@@ -35,6 +36,8 @@ from megatron.legacy.data.data_samplers import build_pretraining_data_loader
 from megatron.core.transformer.moe.moe_utils import track_moe_metrics
 from megatron.core.pipeline_parallel import get_forward_backward_func
 
+from megatron.training.initialize import initialize_weights_sharing
+
 from .utils import (
     calc_params_l2_norm,
     check_adlr_autoresume_termination,
@@ -54,6 +57,10 @@ from .global_vars import (
     get_num_microbatches,
     update_num_microbatches)
 
+
+DEBUG_GRAD = os.environ.get("DEBUG_GRAD", '0') == '1'
+DEBUG_FIX_WEIGHT = os.environ.get("DEBUG_FIX_WEIGHT", '0') == '1'
+DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '0') == '1'
 
 def print_datetime(string):
     """Note that this call will sync across all ranks."""
@@ -234,7 +241,7 @@ def pretrain(train_valid_test_dataset_provider,
     # Data stuff.
     timers('train/valid/test-data-iterators-setup', log_level=0).start(
         barrier=True)
-    if args.virtual_pipeline_model_parallel_size is not None:
+    if args.virtual_pipeline_model_parallel_size is not None and args.virtual_pipeline_model_parallel_size > 1:
         train_data_iterator = []
         valid_data_iterator = []
         test_data_iterator = []
@@ -283,19 +290,19 @@ def pretrain(train_valid_test_dataset_provider,
 
         iteration = args.iteration
 
-    if args.do_valid:
-        prefix = f'iteration {iteration} on validation set'
-        evaluate_and_print_results(prefix, forward_step_func,
-                                   valid_data_iterator, model,
-                                   iteration, process_non_loss_data_func, config,
-                                   verbose=True, write_to_tensorboard=not args.skip_train)
+    # if args.do_valid:
+    #     prefix = f'iteration {iteration} on validation set'
+    #     evaluate_and_print_results(prefix, forward_step_func,
+    #                                valid_data_iterator, model,
+    #                                iteration, process_non_loss_data_func, config,
+    #                                verbose=True, write_to_tensorboard=not args.skip_train)
 
-    if args.do_test:
-        prefix = f'iteration {iteration} on test set'
-        evaluate_and_print_results(prefix, forward_step_func,
-                                   test_data_iterator, model,
-                                   iteration, process_non_loss_data_func, config,
-                                   verbose=True, write_to_tensorboard=not args.skip_train)
+    # if args.do_test:
+    #     prefix = f'iteration {iteration} on test set'
+    #     evaluate_and_print_results(prefix, forward_step_func,
+    #                                test_data_iterator, model,
+    #                                iteration, process_non_loss_data_func, config,
+    #                                verbose=True, write_to_tensorboard=not args.skip_train)
 
 
 
@@ -327,6 +334,11 @@ def update_train_iters(args):
         args.train_iters = iterations
 
     print_rank_0('setting training iterations to {}'.format(args.train_iters))
+
+
+def set_weight(model, val=0.01):
+    for param in model.parameters():
+        param.data.fill_(val)
 
 
 def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap_with_ddp=True):
@@ -390,6 +402,8 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
     for model_module in model:
         for param in model_module.parameters():
             tensor_parallel.set_defaults_if_not_set_tensor_model_parallel_attributes(param)
+            if DEBUG_FIX_WEIGHT:
+                set_weight(model_module)
 
     # Print number of parameters.
     if mpu.get_data_parallel_rank() == 0:
@@ -403,6 +417,8 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
     # GPU allocation.
     for model_module in model:
         model_module.cuda(torch.cuda.current_device())
+    
+    initialize_weights_sharing(model)
 
     # Fp16 conversion.
     if args.fp16 or args.bf16:
@@ -551,6 +567,10 @@ def train_step(forward_step_func, data_iterator,
     # Empty unused memory.
     if args.empty_unused_memory_level >= 1:
         torch.cuda.empty_cache()
+    
+    # [TODO] DEBUG_GRADIENT cannot use
+    # no allreduce_gradient now, optimizer does the job
+    # [TODO] synchronize_shared_weights_grads not know where to insert
 
     # Vision gradients.
     if getattr(args, 'vision_pretraining', False) and args.vision_pretraining_type == "dino":
@@ -818,9 +838,15 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
                 report_theoretical_memory(args, num_microbatches=num_microbatches, verbose=True)
             report_memory('(after {} iterations)'.format(iteration))
             report_memory_flag = False
-        timers.log(timers_to_log, normalizer=args.log_interval)
+        _time_to_csv = timers.log(timers_to_log, normalizer=args.log_interval)
+        if iteration == (args.train_iters - 1):
+            time_to_csv = [["global_batch_size", "time"] + _time_to_csv[0], [batch_size, f"{elapsed_time_per_iteration * 1000.0:.2f}"] + _time_to_csv[1]]
+            with open(f"{args.log_path}csv/{args.log_name}_stage{mpu.get_pipeline_model_parallel_rank()}_rank{torch.distributed.get_rank()}.csv", mode="w", newline="") as file:
+                writer = csv.writer(file)
+                for row in time_to_csv:
+                    writer.writerow(row)
 
-    return report_memory_flag
+    return report_memory_flag, elapsed_time_per_iteration * 1000.0
 
 
 def compute_throughputs_and_append_to_progress_log(iteration,
@@ -994,8 +1020,9 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                        opt_param_scheduler,
                        config)
         iteration += 1
-        batch_size = mpu.get_data_parallel_world_size() * \
-                     args.micro_batch_size * \
+        # [TOCHECK] whether need to multiply by 
+        # batch_size = mpu.get_data_parallel_world_size() * \
+        batch_size = args.micro_batch_size * \
                      get_num_microbatches()
         args.consumed_train_samples += batch_size
         num_floating_point_operations_so_far += num_floating_point_operations(args, batch_size)
@@ -1353,12 +1380,12 @@ def build_train_valid_test_data_loaders(
         # Build dataloders.
         train_dataloader = build_pretraining_data_loader(
             train_ds, args.consumed_train_samples)
-        if args.skip_train:
-            valid_dataloader = build_pretraining_data_loader(valid_ds, 0)
-        else:
-            valid_dataloader = build_pretraining_data_loader(
-                valid_ds, args.consumed_valid_samples)
-        test_dataloader = build_pretraining_data_loader(test_ds, 0)
+        # if args.skip_train:
+        #     valid_dataloader = build_pretraining_data_loader(valid_ds, 0)
+        # else:
+        #     valid_dataloader = build_pretraining_data_loader(
+        #         valid_ds, args.consumed_valid_samples)
+        # test_dataloader = build_pretraining_data_loader(test_ds, 0)
 
         # Flags to know if we need to do training/validation/testing.
         do_train = train_dataloader is not None and args.train_iters > 0
@@ -1373,8 +1400,8 @@ def build_train_valid_test_data_loaders(
     torch.distributed.broadcast(flags, 0)
 
     args.do_train = getattr(args, "do_train", False) or flags[0].item()
-    args.do_valid = getattr(args, "do_valid", False) or flags[1].item()
-    args.do_test = getattr(args, "do_test", False) or flags[2].item()
+    args.do_valid = False
+    args.do_test = False
 
     return train_dataloader, valid_dataloader, test_dataloader
 

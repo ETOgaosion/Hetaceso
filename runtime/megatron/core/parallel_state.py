@@ -10,7 +10,7 @@ from typing import Optional
 import torch
 import torch.distributed
 
-from megatron.training import get_args
+
 from megatron.core.utils import ensure_divisibility
 
 from .utils import GlobalMemoryBuffer
@@ -149,24 +149,28 @@ def get_nccl_options(pg_name, nccl_comm_cfgs):
         return None
 
 
-def initialize_model_parallel_flexpipe():
+def initialize_model_parallel_flexpipe(num_ops_in_each_stage: int, 
+                                       virtual_pipeline_model_parallel_size: int,
+                                       model_parallel_size_of_each_op:list[int],
+                                       data_parallel_size_of_each_op: list[int],
+                                       micro_batch_size: int
+                                       ):
     """
     Initialize model data parallel groups for FlexPipe.
     Generate _DATA_PARALLEL_GROUP, _MODEL_PARALLEL_GROUP, _TENSOR_MODEL_PARALLEL_GROUP, _PIPELINE_MODEL_PARALLEL_GROUP in this function.
     Because FlexPipe supports different tensor model parallelism size at each pipeline stage,
     this function is quite different from original Megatron.
     """
-    args = get_args()
-    num_ops_in_each_stage = args.num_ops_in_each_stage
-    virtual_pipeline_model_parallel_size_ = args.virtual_pipeline_model_parallel_size
+    num_ops_in_each_stage = num_ops_in_each_stage
+    virtual_pipeline_model_parallel_size_ = virtual_pipeline_model_parallel_size
 
     global _TP_SIZE_PER_OP, _DP_SIZE_PER_OP
     _TP_SIZE_PER_OP = []
-    for i in range(len(args.model_parallel_size_of_each_op)):
-        _TP_SIZE_PER_OP += args.model_parallel_size_of_each_op[i]
+    for i in range(len(model_parallel_size_of_each_op)):
+        _TP_SIZE_PER_OP += model_parallel_size_of_each_op[i]
     _DP_SIZE_PER_OP = [] 
-    for i in range(len(args.data_parallel_size_of_each_op)):
-        _DP_SIZE_PER_OP += args.data_parallel_size_of_each_op[i]
+    for i in range(len(data_parallel_size_of_each_op)):
+        _DP_SIZE_PER_OP += data_parallel_size_of_each_op[i]
 
     if torch.distributed.get_rank() == 0:
         print('> initializing FlexPipe...')
@@ -354,7 +358,7 @@ def initialize_model_parallel_flexpipe():
     dp_size= {get_data_parallel_world_size()} | \
     parent ranks={get_stage_comm_recv_ranks()} | \
     child ranks = {get_stage_comm_send_ranks()} | \
-    args.micro_batch_size = {args.micro_batch_size}\n')
+    micro_batch_size = {micro_batch_size}\n')
     
     _set_global_memory_buffer()
 

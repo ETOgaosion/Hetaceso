@@ -367,6 +367,42 @@ class Timers:
             rank = torch.distributed.get_world_size() - 1
         if rank == torch.distributed.get_rank() and output_string is not None:
             print(output_string, flush=True)
+        
+        from megatron import mpu
+        from megatron.core import report_memory
+        from megatron.core import debug_mem_report
+
+        assert normalizer > 0.0
+        time_to_csv = [[],[]]
+        
+        string = f'\n==> Time (ms) | [stage {mpu.get_pipeline_model_parallel_rank()}, virtual {mpu.get_virtual_pipeline_model_parallel_rank()}, rank {torch.distributed.get_rank()}]'
+        
+        string_ops = f'\n==> OP Time (us) | [stage {mpu.get_pipeline_model_parallel_rank()}, virtual {mpu.get_virtual_pipeline_model_parallel_rank()}, rank {torch.distributed.get_rank()}]'
+        
+        string_mem, mem_to_csv = report_memory(f"\n==> Memory | [stage {mpu.get_pipeline_model_parallel_rank()}, virtual {mpu.get_virtual_pipeline_model_parallel_rank()}, rank {torch.distributed.get_rank()}]", get_list=True)
+        
+        for name in names:
+            logged_times = self.timers[name].logged_times
+            if logged_times > 0:
+                elapsed_time = self.timers[name].elapsed(
+                    reset=reset) * 1000000.0 / logged_times
+                string_ops += ' | {}: {:.2f}'.format(name, elapsed_time)
+            else:                   
+                elapsed_time = self.timers[name].elapsed(
+                    reset=reset) * 1000.0 / normalizer
+                string += ' | {}: {:.2f}'.format(name, elapsed_time)
+            time_to_csv[0].append(name)
+            time_to_csv[1].append(f"{elapsed_time:.2f}")
+        time_to_csv[0] += mem_to_csv[0]
+        time_to_csv[1] += mem_to_csv[1]
+        if torch.distributed.is_initialized():
+            print(string, flush=True)
+            print(string_mem, flush=True)               
+        else:
+            print(string, flush=True)
+
+        return time_to_csv
+        
 
     def write(
         self,

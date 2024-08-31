@@ -15,7 +15,7 @@ from megatron.core.models.retro.utils import (
     get_gpt_data_dir as get_retro_data_dir,
 )
 from megatron.core.transformer import TransformerConfig
-from json_arguments import load_json_args
+from megatron.training.json_arguments import load_json_args
 
 
 def parse_args(extra_args_provider=None, ignore_unknown_args=False):
@@ -87,6 +87,8 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     # Args from environment
     args.rank = int(os.getenv('RANK', '0'))
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
+
+    args.overlap_p2p_comm = False
 
     return args
 
@@ -549,7 +551,8 @@ def core_transformer_config_from_args(args, config_class=None):
     kw_args['persist_layer_norm'] = not args.no_persist_layer_norm
     kw_args['layernorm_zero_centered_gamma'] = args.apply_layernorm_1p
     kw_args['layernorm_epsilon'] = args.norm_epsilon
-    kw_args['deallocate_pipeline_outputs'] = True
+    # kw_args['deallocate_pipeline_outputs'] = True
+    kw_args['deallocate_pipeline_outputs'] = False
     kw_args['pipeline_dtype'] = args.params_dtype
     kw_args['batch_p2p_comm'] = not args.overlap_p2p_comm
     kw_args['num_moe_experts'] = args.num_experts
