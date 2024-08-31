@@ -10,7 +10,7 @@ import torch
 from megatron.core import parallel_state
 from megatron.core.dist_checkpointing.mapping import ShardedTensor
 from dataclasses import dataclass, field
-
+from torch.nn.parallel import DistributedDataParallel as torchDDP
 @dataclass
 class OpConfig:
     name: str

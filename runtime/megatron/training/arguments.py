@@ -15,7 +15,7 @@ from megatron.core.models.retro.utils import (
     get_gpt_data_dir as get_retro_data_dir,
 )
 from megatron.core.transformer import TransformerConfig
-from json_arguments import load_json_args
+from megatron.training.json_arguments import load_json_args
 
 
 def parse_args(extra_args_provider=None, ignore_unknown_args=False):

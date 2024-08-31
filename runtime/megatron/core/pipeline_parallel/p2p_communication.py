@@ -21,7 +21,6 @@ from megatron.core.distributed import DistributedDataParallel as LocalDDP
 from megatron.legacy.model import Float16Module
 
 from megatron.training.utils import unwrap_model
-from megatron.training.initialize import initialize_weights_sharing
 
 from megatron.core.utils import debug_mem_report, report_memory
 import os
@@ -202,7 +201,7 @@ def _communicate_flexpipe(
     tensor_send_next: Optional[torch.Tensor],
     tensor_send_prev: Optional[torch.Tensor],
     extra_tensor_send_next: Optional[torch.Tensor],
-    extra_tensor_send_prev: Optional[torch.T],
+    extra_tensor_send_prev: Optional[torch.Tensor],
     recv_prev: bool,
     recv_next: bool
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:

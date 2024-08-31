@@ -6,16 +6,12 @@ from typing import Dict, Optional
 import torch
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from .. import parallel_state
+from .. import parallel_state as mpu
 from ..transformer.module import MegatronModule
 from ..transformer.transformer_config import TransformerConfig
 from .param_and_grad_buffer import ParamAndGradBuffer
 
-from megatron.training import get_args
-from megatron.training import mpu
 
-from megatron.training.utils import unwrap_model
-from megatron.legacy.model import Float16Module
 
 import os
 LOG_NAME = os.environ.get("LOG_NAME", None)
@@ -59,6 +55,7 @@ class DistributedDataParallel(MegatronModule):
         disable_bucketing: bool = False,
         check_for_nan_in_grad: bool = False,
         bucket_size: int = 40000000,
+        resharding_stages = None,
     ):
         super().__init__(config=config)
         self.module = module
@@ -182,9 +179,8 @@ class DistributedDataParallel(MegatronModule):
                 grad_acc.register_hook(self._make_param_hook(param, self.param_to_buffer))
                 self.grad_accs.append(grad_acc)
         
-        args = get_args()
         rank_in_pipeline = mpu.get_pipeline_model_parallel_rank()
-        self.resharding = args.resharding_stages[rank_in_pipeline]
+        self.resharding = resharding_stages[rank_in_pipeline]
 
     def forward(self, *inputs, **kwargs):
         """
@@ -313,6 +309,9 @@ class DistributedDataParallel(MegatronModule):
 
     # [TODO] No allreduce_gradients now in DDP API
     def allreduce_gradients(self):
+        from megatron.training.utils import unwrap_model
+        from megatron.legacy.model import Float16Module
+
         """Reduce gradients across data parallel ranks."""
         # If we have buffers, simply reduce the data in the buffer.
         # args = get_args()
@@ -325,6 +324,8 @@ class DistributedDataParallel(MegatronModule):
                     buffer_.data, group=mpu.get_data_parallel_group())
         else:
             if self.resharding:
+                raise RuntimeError("resharding is not supported yet.")
+            
                 # Otherwise, bucketize and all-reduce
                 buckets = {}
                 dp_groups = {}
