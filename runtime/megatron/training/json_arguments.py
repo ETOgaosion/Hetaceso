@@ -38,5 +38,5 @@ def load_json_args(json_file, args):
         args.data_parallel_size_of_each_op = config_dict["data_parallel_size_of_each_op"]
         args.recompute_ops = config_dict["recompute_ops"]
         args.resharding_stages = config_dict["resharding_stages"]
-        args.checkpoint_activations = config_dict["checkpoint_activations"]
+        args.flex_recompute_activations = config_dict["flex_recompute_activations"]
     return args
