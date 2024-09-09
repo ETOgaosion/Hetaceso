@@ -176,21 +176,27 @@ def validate_args(args, defaults={}):
     assert args.world_size == sum(args.num_gpus), \
         'number of GPUs should be equal to sum(mp_size * dp_size)'
     
+
+    assert hasattr(args, 'data_parallel_size') == False, 'args.data_parallel_size is not used in flexpipe'
+    assert args.tensor_model_parallel_size == 1, '--tensor-model-parallel-size not used in flexpipe'
+    del args.tensor_model_parallel_size
+    assert args.pipeline_model_parallel_size == 1, '--pipeline-model-parallel-size not used in flexpipe'
+    del args.pipeline_model_parallel_size
+    assert args.pipeline_model_parallel_split_rank is None, '--pipeline-model-parallel-split-rank not used in flexpipe'
+    del args.pipeline_model_parallel_split_rank
+    assert args.context_parallel_size == 1, '--context-parallel-size not implemented in flexpipe now' 
+    
+
     if args.rank == 0:
-        print('using world size: {}, data-parallel size: {}, '
-              'context-parallel size: {} '
-              'tensor-model-parallel size: {}, '
-              'pipeline-model-parallel size: {} '.format(
-                  args.world_size, args.data_parallel_size,
-                  args.context_parallel_size,
-                  args.tensor_model_parallel_size,
-                  args.pipeline_model_parallel_size), flush=True)
-    if args.pipeline_model_parallel_size > 1:
-        if args.pipeline_model_parallel_split_rank is not None:
-            assert args.pipeline_model_parallel_split_rank < \
-                    args.pipeline_model_parallel_size, 'split rank needs'\
-                    ' to be less than pipeline model parallel size ({})'.format(
-                            args.pipeline_model_parallel_size)
+        print('using world size: {}, context-parallel size: {}'.format(
+                  args.world_size, args.context_parallel_size), flush=True)
+        
+    # if args.pipeline_model_parallel_size > 1:
+    #     if args.pipeline_model_parallel_split_rank is not None:
+    #         assert args.pipeline_model_parallel_split_rank < \
+    #                 args.pipeline_model_parallel_size, 'split rank needs'\
+    #                 ' to be less than pipeline model parallel size ({})'.format(
+    #                         args.pipeline_model_parallel_size)
 
     if args.tp_comm_overlap:
         assert args.sequence_parallel == True, 'Tensor parallel communication/GEMM overlap can happen only when sequence parallelism is enabled'
@@ -232,14 +238,13 @@ def validate_args(args, defaults={}):
             setattr(args, key, defaults[key])
 
     # Batch size.
-    assert args.micro_batch_size is not None
+    assert args.micro_batch_size is not None, '--micro-batch-size is needed in flexpipe'
     assert args.micro_batch_size > 0
-    if args.global_batch_size is None:
-        args.global_batch_size = args.micro_batch_size * args.data_parallel_size
-        if args.rank == 0:
-            print('setting global batch size to {}'.format(
-                args.global_batch_size), flush=True)
+
+    assert args.global_batch_size is not None, '--global-batch-size is needed in flexpipe' 
     assert args.global_batch_size > 0
+
+    assert args.num_layers_per_virtual_pipeline_stage is None, '--num-layers-per-virtual-pipeline-stage is not implemented in flexpipe'
     if args.num_layers_per_virtual_pipeline_stage is not None:
         assert args.pipeline_model_parallel_size > 2, \
             'pipeline-model-parallel size should be greater than 2 with ' \
@@ -417,6 +422,7 @@ def validate_args(args, defaults={}):
                   'Defaulting to no_persist_layer_norm=True')
 
     # Activation recomputing.
+    assert args.distribute_saved_activations == False, '--distribute-saved-activations is not implemented in flexpipe'
     if args.distribute_saved_activations:
         assert args.tensor_model_parallel_size > 1, 'can distribute ' \
             'recomputed activations only across tensor model ' \
@@ -440,8 +446,11 @@ def validate_args(args, defaults={}):
     # disable sequence parallelism when tp=1
     # to avoid change in numerics when
     # sequence_parallelism is enabled.
-    if args.tensor_model_parallel_size == 1:
-        args.sequence_parallel = False
+    
+    assert args.sequence_parallel == False, '--sequence-parallel is not implemented in flexpipe'
+    assert args.async_tensor_model_parallel_allreduce == False, '--async-tensor-model-parallel-allreduce is not implemented in flexpipe'
+    # if args.tensor_model_parallel_size == 1:
+    #     args.sequence_parallel = False
 
     # disable async_tensor_model_parallel_allreduce when
     # model parallel memory optimization is enabled
@@ -495,6 +504,7 @@ def validate_args(args, defaults={}):
         raise RuntimeError('--no-position-embedding is deprecated, use --position-embedding-type')
 
     # MoE Spec check
+    assert args.num_experts is None, '--num-experts MoE is not implemented in flexpipe'
     if args.num_experts is not None:
         assert args.spec is None, "Model Spec must be None when using MoEs"
         if args.tensor_model_parallel_size > 1:
@@ -502,6 +512,8 @@ def validate_args(args, defaults={}):
                 "When using MoE and tensor parallelism, sequence parallelism must be used."
 
     # Expert parallelism check
+    assert args.expert_model_parallel_size == 1, '--expert-model-parallel-size is not implemented in flexpipe'
+
     if args.expert_model_parallel_size  > 1:
         assert args.num_experts is not None, "num_experts must be non None to use expert model parallelism"
         assert args.num_experts % args.expert_model_parallel_size == 0, \
@@ -512,7 +524,6 @@ def validate_args(args, defaults={}):
     # Distributed checkpointing checks
     if args.use_dist_ckpt and not args.use_mcore_models:
         raise RuntimeError('--use-dist-ckpt only support Megatron Core, please add --use-mcore-models.')
-
     # Print arguments.
     _print_args("arguments", args)
 
