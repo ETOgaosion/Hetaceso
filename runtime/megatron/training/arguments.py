@@ -55,7 +55,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args, _ = parser.parse_known_args()
     else:
         args = parser.parse_args()
-    
+
     if args.prof_tp_size is not None:
         args.global_batch_size = 1 
         args.micro_batch_size = 1
@@ -525,7 +525,7 @@ def validate_args(args, defaults={}):
     if args.use_dist_ckpt and not args.use_mcore_models:
         raise RuntimeError('--use-dist-ckpt only support Megatron Core, please add --use-mcore-models.')
     # Print arguments.
-    _print_args("arguments", args)
+    # _print_args("arguments", args)
 
     return args
 
