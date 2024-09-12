@@ -49,6 +49,7 @@ def initialize_megatron(
     Returns a function to finalize distributed env initialization
     (optionally, only when args.lazy_mpu_init == True)
     """
+
     if not allow_no_cuda:
         # Make sure cuda is available.
         assert torch.cuda.is_available(), "Megatron requires CUDA."
@@ -67,8 +68,9 @@ def initialize_megatron(
 
 
     # set global args, build tokenizer, and set adlr-autoresume,
-    # tensorboard-writer, and timers.
+    # tensorboard-writer, and timers. 
     set_global_variables(args)
+    
 
     # torch.distributed initialization
     def finish_mpu_init():
@@ -83,7 +85,7 @@ def initialize_megatron(
 
     if skip_mpu_initialization:
         return None
-
+    # 
     args = get_args()
     if args.lazy_mpu_init:
         # TODO is this still a necessary option?
@@ -260,7 +262,7 @@ def _initialize_distributed():
         if mpu.model_parallel_is_initialized():
             print("model parallel is already initialized")
         else:
-            if args.flexpipe:
+            if args.flexpipe:#+++++++++++++++++++++++++++++++++++
                 mpu.initialize_model_parallel_flexpipe(
                     args.num_ops_in_each_stage, 
                     args.virtual_pipeline_model_parallel_size, 

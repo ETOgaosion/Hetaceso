@@ -11,8 +11,8 @@ NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 
-VOCAB_FILE=/workspace/python/huawei/data/gpt2-vocab.json
-MERGE_FILE=/workspace/python/huawei/data/gpt2-merges.txt
+VOCAB_FILE=/workspace/file/vocabs/gpt2-vocab.json
+MERGE_FILE=/workspace/file/vocabs/gpt2-merges.txt
 
 
 DISTRIBUTED_ARGS="
@@ -37,7 +37,7 @@ GPT_ARGS="
     --micro-batch-size 4 \
     --global-batch-size 16 \
     --lr 0.00015 \
-    --train-iters 500000 \
+    --train-iters 1 \
     --lr-decay-iters 320000 \
     --lr-decay-style cosine \
     --min-lr 1.0e-5 \
@@ -45,6 +45,7 @@ GPT_ARGS="
     --lr-warmup-fraction .01 \
     --clip-grad 1.0 \
     --fp16 \
+    --tokenizer-type GPT2BPETokenizer \
     --flexpipe-config ./test_initialize.json \
 "
 

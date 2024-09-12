@@ -1,7 +1,7 @@
 # Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
 
 """Megatron tokenizers."""
-
+import os
 from abc import ABC
 from abc import abstractmethod
 
@@ -45,9 +45,9 @@ def build_tokenizer(args):
         assert args.vocab_size is not None
         tokenizer = _NullTokenizer(args.vocab_size)
     else:
-        raise NotImplementedError('{} tokenizer is not '
+        raise NotImplementedError('{} tokenizer is not ' ####
                                   'implemented.'.format(args.tokenizer_type))
-
+    
     # Add vocab size (if not already set from a checkpoint).
     if getattr(args, "padded_vocab_size", None) is None:
         args.padded_vocab_size = _vocab_size_with_padding(tokenizer.vocab_size,
@@ -62,8 +62,15 @@ def _vocab_size_with_padding(orig_vocab_size, args):
 
     after = orig_vocab_size
     max_mp_size = 0
+    """ modify
     for i in range(args.num_stages):
         max_mp_size = max(max_mp_size, args.model_parallel_size_of_each_op[i])
+    """
+    for i in range(args.num_stages):
+        for j in args.model_parallel_size_of_each_op[i]:
+            max_mp_size = max(max_mp_size, j)
+
+    args.max_mp_size = max_mp_size
     multiple = args.make_vocab_size_divisible_by * \
         args.max_mp_size
     while (after % multiple) != 0:
@@ -405,6 +412,7 @@ class _GPTSentencePieceTokenizer(_SentencePieceTokenizer):
     """SentencePieceTokenizer-Megatron wrapper"""
 
     def __init__(self, model_file,):
+        print(f"{'#'*40}\nRank {os.environ.get('RANK', 0)} :  {model_file}\n {'#'*40}", flush=True)
         super().__init__(model_file, vocab_extra_ids=0)
 
     def _initalize(self, vocab_extra_ids):
