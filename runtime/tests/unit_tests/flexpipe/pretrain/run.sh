@@ -11,8 +11,8 @@ NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 
-VOCAB_FILE=/workspace/file/vocabs/gpt2-vocab.json
-MERGE_FILE=/workspace/file/vocabs/gpt2-merges.txt
+VOCAB_FILE=/workspace/runtime/vocabs/gpt2-vocab.json
+MERGE_FILE=/workspace/runtime/vocabs/gpt2-merges.txt
 
 
 DISTRIBUTED_ARGS="

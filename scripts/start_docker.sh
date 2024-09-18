@@ -1,0 +1,1 @@
+docker run --gpus all -d  -v $(pwd):/workspace --net=host --ipc=host --device=/dev/infiniband/rdma_cm --device=/dev/infiniband/uverbs0 --ulimit memlock=-1:-1  --name hetaceso-$(whoami) nvcr.io/nvidia/pytorch:24.04-py3  sleep infinity

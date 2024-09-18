@@ -82,6 +82,7 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
             position_embedding_type=args.position_embedding_type,
             rotary_percent=args.rotary_percent,
         )
+        exit()
     else:
         assert(args.context_parallel_size == 1), "Context parallelism is only supported with Megatron Core!"
         assert False, "Not support legacy model"
