@@ -364,7 +364,7 @@ def _warmup_jit_function():
 
     # Warmup fused bias+gelu
     bias = torch.rand(
-        args.ffn_hidden_size // args.tensor_model_parallel_size,
+        args.ffn_hidden_size // mpu.get_tensor_model_parallel_world_size(),
         dtype=dtype,
         device="cuda",
     )
@@ -372,7 +372,7 @@ def _warmup_jit_function():
         (
             args.seq_length,
             args.micro_batch_size,
-            args.ffn_hidden_size // args.tensor_model_parallel_size,
+            args.ffn_hidden_size // mpu.get_tensor_model_parallel_world_size(),
         ),
         dtype=dtype,
         device="cuda",

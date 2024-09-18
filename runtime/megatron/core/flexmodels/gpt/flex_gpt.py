@@ -55,7 +55,7 @@ class FlexGPTModel(LanguageModule):
         self.position_embedding_type = position_embedding_type
         self.rotary_base = rotary_base
         self.seq_len_interpolation_factor = seq_len_interpolation_factor
-        self.model_type = ModelType.encoder_or_encoder
+        self.model_type = ModelType.encoder_or_decoder
 
         # These 2 attributes are needed for TensorRT-LLM export.
         self.max_position_embeddings = max_sequence_length
@@ -118,7 +118,7 @@ class FlexGPTModel(LanguageModule):
                         op_name="dec-self-attention",
                         prev_name=prev_name,
                         config=self.config,
-                        submodules=self.transformer_layer_spec,
+                        submodules=self.transformer_layer_spec.submodules,
                         layer_number=i + 1,
                     ),
                     FlexLayerNormMlpDropoutInfo(
@@ -127,7 +127,7 @@ class FlexGPTModel(LanguageModule):
                         op_name="dec-mlp",
                         prev_name="dec-self-attention",
                         config=self.config,
-                        submodules=self.transformer_layer_spec,
+                        submodules=self.transformer_layer_spec.submodules,
                         layer_number=i + 1,
                     ),
                 ]

@@ -29,9 +29,9 @@ def print_ops_info(ops, recompute_ops):
     ck_ops = ""
     all_ops = ""
     for i in range(len(ops)):
-        all_ops += '"' + ops[i].name + '",'
+        all_ops += '"' + ops[i].op_name + '",'
         if recompute_ops[i] == 1:
-            ck_ops += ops[i].name + " "
+            ck_ops += ops[i].op_name + " "
     print(f"[rank {torch.distributed.get_rank()} all ops] {all_ops}")
     print(f"[rank {torch.distributed.get_rank()} recompute ops] {ck_ops}")
 
