@@ -29,7 +29,7 @@ DATA_ARGS="
 "
 GPT_ARGS="
     --no-async-tensor-model-parallel-allreduce \
-    --num-layers 24 \
+    --num-layers 2 \
     --hidden-size 1024 \
     --num-attention-heads 16 \
     --seq-length 1024 \
@@ -47,6 +47,8 @@ GPT_ARGS="
     --fp16 \
     --tokenizer-type GPT2BPETokenizer \
     --flexpipe-config ./test_pretrain.json \
+    --use-mcore-models \
+    --transformer-impl local \
 "
 
 
