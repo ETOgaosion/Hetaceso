@@ -130,7 +130,7 @@ def _build_tokenizer(args):
     """Initialize tokenizer."""
     global _GLOBAL_TOKENIZER
     _ensure_var_is_not_initialized(_GLOBAL_TOKENIZER, 'tokenizer')
-    _GLOBAL_TOKENIZER = build_tokenizer(args)#
+    _GLOBAL_TOKENIZER = build_tokenizer(args)
     return _GLOBAL_TOKENIZER
 
 

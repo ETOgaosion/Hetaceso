@@ -1,8 +1,8 @@
 from megatron.core.models.common.language_module.language_module import LanguageModule
-from runtime.megatron.core.transformer.transformer_config import TransformerConfig
+from megatron.core.flexmodels.common.flex_model_config import FlexModelConfig
+from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.spec_utils import ModuleSpec
 from typing import Dict, Literal, Optional, Tuple, Union
-from megatron.training import get_args
 from megatron.core.transformer.enums import AttnMaskType, ModelType
 import torch
 from torch import Tensor
@@ -10,20 +10,22 @@ from megatron.core.parallel_state import (
     get_pipeline_model_parallel_rank,
     get_virtual_pipeline_model_parallel_rank,
 )
-
-get_op_start_index, get_op_end_index
+from megatron.core.parallel_state import get_op_start_index, get_op_end_index
 from megatron.core.flexmodels.common.flex_ops import (
     FlexEmbeddingInfo,
     OpType,
     FlexLayerNormMlpDropoutInfo,
     FlexLayerNormSelfAttentionDropoutInfo,
 )
+from megatron.core.flexmodels.common.flex_ops import gen_op
+from megatron.core.flexmodels.common.flex_model import get_flex_model
 
 
 class FlexGPTModel(LanguageModule):
     def __init__(
         self,
         config: TransformerConfig,
+        flex_config: FlexModelConfig,
         transformer_layer_spec: ModuleSpec,
         vocab_size: int,
         max_sequence_length: int,
@@ -76,6 +78,8 @@ class FlexGPTModel(LanguageModule):
                 current_op_list.append(gen_op(full_op_list[i]))
 
             self.language_model = get_flex_model(
+                config,
+                flex_config,
                 full_model_op_list=current_op_list,
                 pre_process=pre_process,
                 post_process=post_process,
@@ -92,7 +96,7 @@ class FlexGPTModel(LanguageModule):
                 FlexEmbeddingInfo(
                     op_type=OpType.EMBEDDING,
                     op_index=0,
-                    op_name="enc-embedding",
+                    op_name="dec-embedding",
                     prev_name=None,
                     config=self.config,
                     vocab_size=self.vocab_size,
@@ -103,7 +107,7 @@ class FlexGPTModel(LanguageModule):
                     seq_len_interpolation_factor=self.seq_len_interpolation_factor,
                 )
             )
-        prev_name = "enc-embedding"
+        prev_name = "dec-embedding"
         num_ops_per_transformer = 2
         for i in range(self.config.num_layers):
             op_list.extend(
@@ -111,7 +115,7 @@ class FlexGPTModel(LanguageModule):
                     FlexLayerNormSelfAttentionDropoutInfo(
                         op_type=OpType.LAYER_NORM_SELF_ATTENTION_DROPOUT,
                         op_index=i * num_ops_per_transformer + 0,
-                        op_name="enc-self-attention",
+                        op_name="dec-self-attention",
                         prev_name=prev_name,
                         config=self.config,
                         submodules=self.transformer_layer_spec,
@@ -120,37 +124,37 @@ class FlexGPTModel(LanguageModule):
                     FlexLayerNormMlpDropoutInfo(
                         op_type=OpType.LAYER_NORM_MLP_DROPOUT,
                         op_index=i * num_ops_per_transformer + 1,
-                        op_name="enc-mlp",
-                        prev_name="enc-self-attention",
+                        op_name="dec-mlp",
+                        prev_name="dec-self-attention",
                         config=self.config,
                         submodules=self.transformer_layer_spec,
                         layer_number=i + 1,
                     ),
                 ]
             )
-            prev_name = "enc-mlp"
+            prev_name = "dec-mlp"
 
         # TODO: 这个LayerNorm可以和post process合到一起
         # op_list.append(FlexLayerNormInfo(op_type= OpType.LAYER_NORM, op_index=1 + self.config.num_layers * num_ops_per_transformer + 0, prev_name=prev_name))
-
-        if self.post_process:
-            if self.config.defer_embedding_wgrad_compute:
-                # The embedding activation buffer preserves a reference to the input activations
-                # of the final embedding projection layer GEMM. It will hold the activations for
-                # all the micro-batches of a global batch for the last pipeline stage. Once we are
-                # done with all the back props for all the microbatches for the last pipeline stage,
-                # it will be in the pipeline flush stage. During this pipeline flush we use the
-                # input activations stored in embedding activation buffer and gradient outputs stored
-                # in gradient buffer to calculate the weight gradients for the embedding final linear layer.
-                self.embedding_activation_buffer = []
-                self.grad_output_buffer = []
-            else:
-                self.embedding_activation_buffer = None
-                self.grad_output_buffer = None
-            # TODO: post process层如何和embedding层同步信息
-            # op_list.append(ColumnParallelLinearInfo())
-        if self.pre_process or self.post_process:
-            self.setup_embeddings_and_output_layer()
+        # TODO: post process
+        # if self.post_process:
+        #     if self.config.defer_embedding_wgrad_compute:
+        #         # The embedding activation buffer preserves a reference to the input activations
+        #         # of the final embedding projection layer GEMM. It will hold the activations for
+        #         # all the micro-batches of a global batch for the last pipeline stage. Once we are
+        #         # done with all the back props for all the microbatches for the last pipeline stage,
+        #         # it will be in the pipeline flush stage. During this pipeline flush we use the
+        #         # input activations stored in embedding activation buffer and gradient outputs stored
+        #         # in gradient buffer to calculate the weight gradients for the embedding final linear layer.
+        #         self.embedding_activation_buffer = []
+        #         self.grad_output_buffer = []
+        #     else:
+        #         self.embedding_activation_buffer = None
+        #         self.grad_output_buffer = None
+        #     # TODO: post process层如何和embedding层同步信息
+        #     # op_list.append(ColumnParallelLinearInfo())
+        # if self.pre_process or self.post_process:
+        #     self.setup_embeddings_and_output_layer()
         return op_list
 
     def set_input_tensor(self, input_tensor: Tensor) -> None:

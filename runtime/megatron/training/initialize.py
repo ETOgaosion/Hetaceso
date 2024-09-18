@@ -85,7 +85,7 @@ def initialize_megatron(
 
     if skip_mpu_initialization:
         return None
-    # 
+    
     args = get_args()
     if args.lazy_mpu_init:
         # TODO is this still a necessary option?
@@ -262,11 +262,11 @@ def _initialize_distributed():
         if mpu.model_parallel_is_initialized():
             print("model parallel is already initialized")
         else:
-            if args.flexpipe:#+++++++++++++++++++++++++++++++++++
+            if args.flexpipe:
                 mpu.initialize_model_parallel_flexpipe(
                     args.num_ops_in_each_stage, 
                     args.virtual_pipeline_model_parallel_size, 
-                    args.model_parallel_size_of_each_op,
+                    args.tensor_parallel_size_of_each_op,
                     args.data_parallel_size_of_each_op,
                     args.micro_batch_size 
                 )

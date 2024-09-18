@@ -1,5 +1,4 @@
 from enum import Enum
-from megatron.core.flexmodels.common.flex_module import FlexModule
 from typing import Dict, Literal, Optional, Tuple, Union
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.models.common.embeddings.language_model_embedding import (
@@ -11,11 +10,12 @@ import torch
 from torch import Tensor
 from dataclasses import dataclass
 from megatron.core.transformer.spec_utils import build_module, ModuleSpec
-from runtime.megatron.core.transformer.transformer_layer import (
+from megatron.core.transformer.transformer_layer import (
     TransformerLayerSubmodules,
 )
 from megatron.core.utils import make_viewless_tensor
-
+from megatron.core import mpu
+from megatron.core.transformer.module import MegatronModule
 
 class OpType(Enum):
     EMBEDDING = 1
@@ -44,6 +44,55 @@ class OpInfo:
         self.prev_name = prev_name
         self.output_width = output_width
 
+class FlexModule(MegatronModule):
+    def __init__(
+        self,
+        config: TransformerConfig,
+        op_type: OpType,
+        op_index: int,
+        op_name: str,
+        prev_name: str,
+        is_last_op=False,
+        
+    ):
+        super().__init__(config=config)
+        self.op_type = op_type
+        self.op_name = op_name
+        self.prev_name = prev_name
+        self.op_index = op_index
+        self.is_last_op = is_last_op
+
+        self.tp_size = mpu.get_op_tp_size(op_index)
+        self.dp_size = mpu.get_op_dp_size(op_index)
+
+        self.input_tensors_info = {}
+        self.output_tensors_info = {}
+        self.input_extra_tensors_info = {}
+        self.output_extra_tensors_info = {}
+        self.shared_weights_info = {}
+
+        ## resharding
+        self.output_extra_specs = None
+        self.output_extra_mats_info = None
+        self.required_input_extra_specs = {}
+        self.input_extra_mats = None
+        self.new_input_extra_tensors = {}
+        self.tmp_buffer = None
+        self.elementwise = False
+        self.input_mats = None
+        self.input_extra_mats = None
+
+        ## for profiling
+        self.weight_size = 0
+
+    def parse_op_configs(self, config):
+        self.name = config.name
+        self.prev_name = config.prev_name
+        self.input_tensors_info = config.input_tensors_info
+        self.output_tensors_info = config.output_tensors_info
+        self.input_extra_tensors_info = config.input_extra_tensors_info
+        self.output_extra_tensors_info = config.output_extra_tensors_info        
+        self.shared_weights_info = config.shared_weights_info
 
 @dataclass
 class FlexEmbeddingInfo:
@@ -134,7 +183,7 @@ class FlexLayerNormSelfAttentionDropoutInfo:
     config: TransformerConfig
     submodules: TransformerLayerSubmodules
     layer_number: int = 1
-    hidden_droupout: float = None
+    hidden_dropout: float = None
 
 
 class FlexLayerNormSelfAttentionDropout(FlexModule):
@@ -237,7 +286,8 @@ class FlexLayerNormMlpDropoutInfo:
     config: TransformerConfig
     submodules: TransformerLayerSubmodules
     layer_number: int = 1
-    hidden_droupout: float = None
+    hidden_dropout: float = None
+
 
 class FlexLayerNormMlpDropout(FlexModule):
     def __init__(
@@ -323,3 +373,20 @@ class FlexLayerNormMlpDropout(FlexModule):
         output_tensors["context"] = context
 
         return output_tensors
+
+
+def gen_op(
+    op_info: (
+        FlexEmbeddingInfo
+        | FlexLayerNormSelfAttentionDropoutInfo
+        | FlexLayerNormMlpDropoutInfo
+    ),
+):
+    op = None
+    if op_info.op_type == OpType.EMBEDDING:
+        op = FlexEmbedding(**vars(op_info))
+    elif op_info.op_type == OpType.LAYER_NORM_SELF_ATTENTION_DROPOUT:
+        op = FlexLayerNormSelfAttentionDropout(**vars(op_info))
+    elif op_info.op_type == OpType.LAYER_NORM_MLP_DROPOUT:
+        op = FlexLayerNormMlpDropout(**vars(op_info))
+    return op
