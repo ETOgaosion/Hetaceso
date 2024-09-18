@@ -34,7 +34,7 @@ def load_json_args(json_file, args):
         args.num_gpus = config_dict["num_gpus"]
         args.num_stages = config_dict["num_stages"]
         args.algo_of_each_op = config_dict["algo_of_each_op"]
-        args.model_parallel_size_of_each_op = config_dict["model_parallel_size_of_each_op"]
+        args.tensor_parallel_size_of_each_op = config_dict["tensor_parallel_size_of_each_op"]
         args.data_parallel_size_of_each_op = config_dict["data_parallel_size_of_each_op"]
         args.recompute_ops = config_dict["recompute_ops"]
         args.resharding_stages = config_dict["resharding_stages"]

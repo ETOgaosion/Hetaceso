@@ -15,6 +15,7 @@ from megatron.core.utils import ensure_divisibility
 
 from .utils import GlobalMemoryBuffer
 
+
 # Intra-layer model parallel group that the current rank belongs to.
 _TENSOR_MODEL_PARALLEL_GROUP = None
 # Inter-layer model parallel group that the current rank belongs to.
@@ -130,6 +131,14 @@ _OP_RESHARDING_RANKS = []
 _TENSOR_MODEL_PARALLEL_RANKS = None
 _DATA_PARALLEL_RANKS = None
 
+def _print_rank_0(message):
+    """If distributed is initialized, print only on rank 0."""
+    if torch.distributed.is_initialized():
+        if torch.distributed.get_rank() == 0:
+            print(message, flush=True)
+    else:
+        print(message, flush=True)
+
 def get_nccl_options(pg_name, nccl_comm_cfgs):
     """Set the NCCL process group options.
 
@@ -161,11 +170,11 @@ def printDebug(*args, n = 0): # default n = 0 打印所有rank的参数; n = 1 �
 
 
 
-def initialize_model_parallel_flexpipe(num_ops_in_each_stage: int,   #[3, 2]
-                                       virtual_pipeline_model_parallel_size: int, # 
-                                       model_parallel_size_of_each_op:list[int], # [[2, 2, 2], [1, 1]]
-                                       data_parallel_size_of_each_op: list[int], # [[1, 1, 1], [2, 2]]
-                                       micro_batch_size: int #1
+def initialize_model_parallel_flexpipe(num_ops_in_each_stage: list[int],
+                                       virtual_pipeline_model_parallel_size: int, 
+                                       tensor_parallel_size_of_each_op:list[list[int]],
+                                       data_parallel_size_of_each_op: list[list[int]], 
+                                       micro_batch_size: int
                                        ): 
     """
     Initialize model data parallel groups for FlexPipe.
@@ -181,10 +190,11 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: int,   #[3, 2]
     _TP_SIZE_PER_OP = []
     _DP_SIZE_PER_OP = [] 
 
-    for i in range(len(model_parallel_size_of_each_op)):
-        _TP_SIZE_PER_OP += model_parallel_size_of_each_op[i]  
+    for i in range(len(tensor_parallel_size_of_each_op)):
+        _TP_SIZE_PER_OP += tensor_parallel_size_of_each_op[i]  
     for i in range(len(data_parallel_size_of_each_op)):
-        _DP_SIZE_PER_OP += data_parallel_size_of_each_op[i]  
+        _DP_SIZE_PER_OP += data_parallel_size_of_each_op[i] 
+
 
     if torch.distributed.get_rank() == 0:
         print('> initializing FlexPipe...')
@@ -199,7 +209,7 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: int,   #[3, 2]
     _VIRTUAL_PIPELINE_MODEL_PARALLEL_WORLD_SIZE = virtual_pipeline_model_parallel_size_    
 
     global _NUM_OPS_IN_EACH_STAGE_LIST
-    _NUM_OPS_IN_EACH_STAGE_LIST = list(map(int, num_ops_in_each_stage)) #[3,2] 
+    _NUM_OPS_IN_EACH_STAGE_LIST = list(map(int, num_ops_in_each_stage))
 ####################################################
 
     global _OPS_START_INDEX_LIST
@@ -212,20 +222,21 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: int,   #[3, 2]
         start_index_list.append(start_index)
         start_index += _NUM_OPS_IN_EACH_STAGE_LIST[i]
         end_index_list.append(start_index)
-    _OPS_START_INDEX_LIST = start_index_list  # 每个stage 的开始 [0, 3]
-    _OPS_END_INDEX_LIST = end_index_list      # 每个stage 的结束 [3, 5]
+    _OPS_START_INDEX_LIST = start_index_list
+    _OPS_END_INDEX_LIST = end_index_list
 
 #######################################################
     # Build the data-parallel groups.
     global _MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE
     pipeline_model_parallel_size = len(_NUM_OPS_IN_EACH_STAGE_LIST)
-    _MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE = pipeline_model_parallel_size #2
+    _MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE = pipeline_model_parallel_size
 
     global _DATA_PARALLEL_GROUP, _DATA_PARALLEL_GROUP_GLOO, _DATA_PARALLEL_RANKS
     assert _DATA_PARALLEL_GROUP is None, \
         'data parallel group is already initialized'   
     _DATA_PARALLEL_GROUP = []
     _DATA_PARALLEL_GROUP_GLOO = []
+    # the DP ranks of each op in this PP stage
     _DATA_PARALLEL_RANKS = []
     
     for i in range(pipeline_model_parallel_size):
@@ -241,7 +252,7 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: int,   #[3, 2]
             OP_DP_SIZE = _DP_SIZE_PER_OP[op_index]
             for j in range(OP_TP_SIZE):
                 ranks = range(start_rank + j, end_rank, OP_TP_SIZE)
-                group = get_group(ranks)#!!!
+                group = get_group(ranks)
                 if rank in ranks:
                     _DATA_PARALLEL_GROUP.append(group) 
                     _DATA_PARALLEL_GROUP_GLOO.append(group)
@@ -447,7 +458,23 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: int,   #[3, 2]
     parent ranks={get_stage_comm_recv_ranks()} | \
     child ranks = {get_stage_comm_send_ranks()} | \
     micro_batch_size = {micro_batch_size}\n')
-    #tp_size, dp_size
+
+    print(f'[DEBUG]|rank {torch.distributed.get_rank()}| \
+    TP_SIZE_PER_OP: {_TP_SIZE_PER_OP} | \
+    DP_SIZE_PER_OP: {_DP_SIZE_PER_OP} | \
+    NUM_OPS_IN_EACH_STAGE_LIST: {_NUM_OPS_IN_EACH_STAGE_LIST} | \
+    OPS_START_INDEX_LIST: {_OPS_START_INDEX_LIST} | \
+    OPS_END_INDEX_LIST: {_OPS_END_INDEX_LIST} | \
+    MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE: {_MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE} | \
+    DATA_PARALLEL_RANKS: {_DATA_PARALLEL_RANKS} | \
+    MPU_PIPELINE_MODEL_PARALLEL_RANK: {_MPU_PIPELINE_MODEL_PARALLEL_RANK} | \
+    CHILD_RANKS: {_CHILD_RANKS} | \
+    PARENT_RANKS: {_PARENT_RANKS} | \
+    FLEXPIPE_PREV_RANKS: {_FLEXPIPE_PREV_RANKS} | \
+    FLEXPIPE_NEXT_RANKS: {_FLEXPIPE_NEXT_RANKS} | \
+    RANKS_IN_EACH_PIPELINE_STAGE: {_RANKS_IN_EACH_PIPELINE_STAGE}| \
+    OP_RESHARDING_RANKS: {_OP_RESHARDING_RANKS}')
+    
     _set_global_memory_buffer()
 
 def is_initialized():
@@ -493,11 +520,12 @@ def get_model_parallel_group():
     
 #     return _TENSOR_MODEL_PARALLEL_GROUP
 
-def get_tensor_model_parallel_group(op_index=None):
+def get_tensor_model_parallel_group(op_index=None, check_initialized=True):
     """Get the tensor model parallel group the caller rank belongs to."""
-    assert _TENSOR_MODEL_PARALLEL_GROUP is not None, \
-        'intra_layer_model parallel group is not initialized'
-    # args = get_args()
+    if check_initialized:
+        assert (
+            _TENSOR_MODEL_PARALLEL_GROUP is not None
+        ), 'tensor model parallel group is not initialized'
     if op_index is None:
         op_index = _OPS_START_INDEX_LIST[get_pipeline_model_parallel_rank()]
     return get_tensor_model_parallel_group_via_op_index(op_index)
@@ -524,8 +552,10 @@ def get_pipeline_model_parallel_group():
 #         assert _DATA_PARALLEL_GROUP is not None, 'data parallel group is not initialized'
 #         return _DATA_PARALLEL_GROUP
 # /// *** modify
-def get_data_parallel_group(op_index=None):
+
+def get_data_parallel_group(op_index=None, with_context_parallel=False):
     """Get the data parallel group the caller rank belongs to."""
+    assert with_context_parallel == False, 'context parallel not implemented'
     assert _DATA_PARALLEL_GROUP is not None, \
         'data parallel group is not initialized'
     if op_index is None:
@@ -882,9 +912,9 @@ def get_pipeline_model_parallel_prev_rank():
 #         )
 #     else:
 #         return 0
-def get_data_parallel_world_size():
+def get_data_parallel_world_size(with_context_parallel=False):
     """Return world size for the data parallel group."""
-    return torch.distributed.get_world_size(group=get_data_parallel_group())
+    return torch.distributed.get_world_size(group=get_data_parallel_group(with_context_parallel=with_context_parallel))
 
 def get_data_parallel_rank(with_context_parallel=False):
     """Return my rank for the data parallel group."""

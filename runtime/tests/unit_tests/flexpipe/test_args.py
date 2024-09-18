@@ -20,7 +20,7 @@ class TestFlexpipeArgs(unittest.TestCase):
         print(f"resharding_stages: {args.resharding_stages}")
         print(f"num_ops_in_each_stage: {args.num_ops_in_each_stage}")
         print(f"num_gpus: {args.num_gpus}")
-        print(f"model_parallel_size_of_each_op: {args.model_parallel_size_of_each_op}")
+        print(f"tensor_parallel_size_of_each_op: {args.tensor_parallel_size_of_each_op}")
         print(f"data_parallel_size_of_each_op: {args.data_parallel_size_of_each_op}")
         print(f"recompute_ops: {args.recompute_ops}")
         print(f"algo_of_each_op: {args.algo_of_each_op}")

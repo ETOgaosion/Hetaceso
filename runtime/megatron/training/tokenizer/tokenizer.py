@@ -62,17 +62,10 @@ def _vocab_size_with_padding(orig_vocab_size, args):
 
     after = orig_vocab_size
     max_mp_size = 0
-    """ modify
     for i in range(args.num_stages):
-        max_mp_size = max(max_mp_size, args.model_parallel_size_of_each_op[i])
-    """
-    for i in range(args.num_stages):
-        for j in args.model_parallel_size_of_each_op[i]:
-            max_mp_size = max(max_mp_size, j)
+        max_mp_size = max(max_mp_size, max(args.tensor_parallel_size_of_each_op[i]))
+    multiple = args.make_vocab_size_divisible_by * max_mp_size
 
-    args.max_mp_size = max_mp_size
-    multiple = args.make_vocab_size_divisible_by * \
-        args.max_mp_size
     while (after % multiple) != 0:
         after += 1
     if args.rank == 0:

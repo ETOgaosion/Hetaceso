@@ -16,6 +16,7 @@ from megatron.core.models.retro.utils import (
 )
 from megatron.core.transformer import TransformerConfig
 from megatron.training.json_arguments import load_json_args
+from megatron.core.flexmodels.common.flex_model_config import FlexModelConfig
 
 
 def parse_args(extra_args_provider=None, ignore_unknown_args=False):
@@ -61,7 +62,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args.micro_batch_size = 1
         args.num_ops_in_each_stage = [1]
         args.virtual_pipeline_model_parallel_size = 1
-        args.model_parallel_size_of_each_op = [[args.prof_tp_size]]
+        args.tensor_parallel_size_of_each_op = [[args.prof_tp_size]]
         args.data_parallel_size_of_each_op = [[1]]
         args.model_name = ""
         args.resharding_stages = [True]     # TOCHECK: is this correct? gpt seems no need to reshard
@@ -525,7 +526,7 @@ def validate_args(args, defaults={}):
     if args.use_dist_ckpt and not args.use_mcore_models:
         raise RuntimeError('--use-dist-ckpt only support Megatron Core, please add --use-mcore-models.')
     # Print arguments.
-    # _print_args("arguments", args)
+    _print_args("arguments", args)
 
     return args
 
@@ -548,6 +549,19 @@ def _print_args(title, args):
 def _check_arg_is_not_none(args, arg):
     assert getattr(args, arg) is not None, '{} argument is None'.format(arg)
 
+def flex_config_from_args(args, config_class=None):
+    config_class = config_class or FlexModelConfig
+
+    kw_args = {}
+    for f in dataclasses.fields(config_class):
+        if hasattr(args, f.name):
+            kw_args[f.name] = getattr(args, f.name)    
+    kw_args['model_name'] = args.model_name
+    kw_args['recompute_ops'] = args.recompute_ops
+    kw_args['flex_recompute_activations'] = args.flex_recompute_activations
+    kw_args['resharding_stages'] = args.resharding_stages
+    kw_args['scatter_gather_tensors_in_pipeline'] = args.scatter_gather_tensors_in_pipeline
+    return config_class(**kw_args)
 
 def core_transformer_config_from_args(args, config_class=None):
 

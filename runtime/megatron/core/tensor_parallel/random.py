@@ -190,7 +190,7 @@ def model_parallel_cuda_manual_seed(seed):
     # expert_parallel_seed = (
     #     seed + 1024 + 100 * get_expert_model_parallel_rank() + get_tensor_model_parallel_rank()
     # )
-    # _CUDA_RNG_STATE_TRACKER.add(_EXPERT_PARALLEL_RNG_TRACKER_NAME, expert_parallel_seed
+    # _CUDA_RNG_STATE_TRACKER.add(_EXPERT_PARALLEL_RNG_TRACKER_NAME, expert_parallel_seed)
 
 
 class CheckpointFunction(torch.autograd.Function):
