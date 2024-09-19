@@ -29,6 +29,9 @@ from megatron.legacy.model.module import param_is_not_shared
 
 ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
 
+def warn(message):
+    """Print warning message."""
+    print("Warning: {}.".format(message), flush=True)
 
 def unwrap_model(model, module_instances=ALL_MODULE_WRAPPER_CLASSNAMES):
     return_list = True
@@ -296,14 +299,7 @@ def get_batch_on_this_tp_rank(data_iterator):
            'position_ids': data["position_ids"].cuda(non_blocking = True)
        }
 
-       if args.pipeline_model_parallel_size == 1:
-           _broadcast(batch['tokens'])
-           _broadcast(batch['labels'])
-           _broadcast(batch['loss_mask'])
-           _broadcast(batch['attention_mask'])
-           _broadcast(batch['position_ids'])
-
-       elif mpu.is_pipeline_first_stage():
+       if mpu.is_pipeline_first_stage():
            _broadcast(batch['tokens'])
            _broadcast(batch['attention_mask'])
            _broadcast(batch['position_ids'])
@@ -325,15 +321,8 @@ def get_batch_on_this_tp_rank(data_iterator):
        else:
            attention_mask=None
        position_ids=torch.empty((args.micro_batch_size,args.seq_length), dtype = torch.int64 , device = torch.cuda.current_device())
-
-       if args.pipeline_model_parallel_size == 1:
-           _broadcast(tokens)
-           _broadcast(labels)
-           _broadcast(loss_mask)
-           _broadcast(attention_mask)
-           _broadcast(position_ids)
  
-       elif mpu.is_pipeline_first_stage():
+       if mpu.is_pipeline_first_stage():
            labels=None
            loss_mask=None
    

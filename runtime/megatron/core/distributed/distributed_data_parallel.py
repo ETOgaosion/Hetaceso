@@ -10,8 +10,7 @@ from .. import parallel_state as mpu
 from ..transformer.module import MegatronModule
 from ..transformer.transformer_config import TransformerConfig
 from .param_and_grad_buffer import ParamAndGradBuffer
-
-
+from ..flexmodels.common.flex_model_config import FlexModelConfig
 
 import os
 LOG_NAME = os.environ.get("LOG_NAME", None)
@@ -46,6 +45,7 @@ class DistributedDataParallel(MegatronModule):
     def __init__(
         self,
         config: TransformerConfig,
+        flexconfig: FlexModelConfig,
         module: torch.nn.Module,
         data_parallel_group: torch.distributed.ProcessGroup,
         accumulate_allreduce_grads_in_fp32: bool,
@@ -55,7 +55,6 @@ class DistributedDataParallel(MegatronModule):
         disable_bucketing: bool = False,
         check_for_nan_in_grad: bool = False,
         bucket_size: int = 40000000,
-        resharding_stages = None,
     ):
         super().__init__(config=config)
         self.module = module
@@ -71,7 +70,7 @@ class DistributedDataParallel(MegatronModule):
         # in the interleaved schedule).
         if not self.overlap_grad_reduce:
             bucket_size = None
-        if parallel_state.get_pipeline_model_parallel_rank() > 0:
+        if mpu.get_pipeline_model_parallel_rank() > 0:
             bucket_size = None
         if disable_bucketing:
             bucket_size = None
@@ -147,11 +146,15 @@ class DistributedDataParallel(MegatronModule):
         )
 
         # Allocate separate param+grad buffers for expert parallel params' grads.
-        self.expert_parallel_buffers = allocate_buffers_for_parameters(
-            expert_parallel_params,
-            expert_data_parallel_group,
-            gradient_scaling_factor=1.0 / data_parallel_world_size,
-        )
+        if expert_data_parallel_group:
+            raise NotImplementedError('expert parallel not supported')
+            self.expert_parallel_buffers = allocate_buffers_for_parameters(
+                expert_parallel_params,
+                expert_data_parallel_group,
+                gradient_scaling_factor=1.0 / data_parallel_world_size,
+            )
+        else:
+            self.expert_parallel_buffers = []
 
         # Delete references to weight_tensor if they exist since we don't want two parameter copies
         # if we re-mapped parameters (which happens when we use the distributed optimizer).
@@ -180,7 +183,10 @@ class DistributedDataParallel(MegatronModule):
                 self.grad_accs.append(grad_acc)
         
         rank_in_pipeline = mpu.get_pipeline_model_parallel_rank()
-        self.resharding = resharding_stages[rank_in_pipeline]
+        if flexconfig.resharding_stages is not None:
+            self.resharding = flexconfig.resharding_stages[rank_in_pipeline]
+        else:
+            self.resharding = False
 
     def forward(self, *inputs, **kwargs):
         """
@@ -270,6 +276,7 @@ class DistributedDataParallel(MegatronModule):
             is_expert_parallel = not getattr(param, 'allreduce', True)
 
             if is_expert_parallel:
+                raise NotImplementedError('expert parallel not supported')
                 torch.distributed.broadcast(
                     param.data,
                     src=torch.distributed.get_process_group_ranks(self.expert_data_parallel_group),
@@ -306,79 +313,3 @@ class DistributedDataParallel(MegatronModule):
         the keys returned by this module’s state_dict() function.
         """
         self.module.load_state_dict(state_dict, strict=strict)
-
-    # [TODO] No allreduce_gradients now in DDP API
-    def allreduce_gradients(self):
-        from megatron.training.utils import unwrap_model
-        from megatron.legacy.model import Float16Module
-
-        """Reduce gradients across data parallel ranks."""
-        # If we have buffers, simply reduce the data in the buffer.
-        # args = get_args()
-        if self._grad_buffers is not None:
-            if self.resharding:
-                raise RuntimeError("cross-op resharding with continues buffer is not supported yet.")
-            for _, buffer_ in self._grad_buffers.items():
-                buffer_.data /= mpu.get_data_parallel_world_size()
-                torch.distributed.all_reduce(
-                    buffer_.data, group=mpu.get_data_parallel_group())
-        else:
-            if self.resharding:
-                raise RuntimeError("resharding is not supported yet.")
-            
-                # Otherwise, bucketize and all-reduce
-                buckets = {}
-                dp_groups = {}
-                dp_sizes = {}
-                # Pack the buckets.
-                model_ = unwrap_model(self.module, (Float16Module)) 
-                for op in model_.language_model.ops:
-                    tp_size = op.tp_size
-                    dp_size = op.dp_size
-                    for param in op.parameters():
-                        if param.requires_grad and param.grad is not None:
-                            data_type = param.data.type()
-                            key_str = str(data_type)+str(tp_size)+str(dp_size)
-                            if key_str not in buckets:
-                                buckets[key_str] = []
-                            buckets[key_str].append(param)
-                            param.main_grad = param.grad
-
-                            if key_str not in dp_groups:
-                                dp_groups[key_str] = mpu.get_data_parallel_group_via_op_index(op.op_index)
-                                dp_sizes[key_str] = dp_size
-
-                # For each bucket, all-reduce and copy all-reduced grads.
-                for key_str in buckets:
-                    bucket = buckets[key_str]
-                    grads = [param.grad.data for param in bucket]
-                    coalesced = _flatten_dense_tensors(grads)
-                    coalesced /= dp_sizes[key_str]
-                    torch.distributed.all_reduce(
-                        coalesced, group=dp_groups[key_str])
-                    for buf, synced in zip(grads, _unflatten_dense_tensors(
-                            coalesced, grads)):
-                        buf.copy_(synced)
-            else:
-                # Otherwise, bucketize and all-reduce
-                buckets = {}
-                # Pack the buckets.
-                for param in self.module.parameters():
-                    if param.requires_grad and param.grad is not None:
-                        tp = param.data.type()
-                        if tp not in buckets:
-                            buckets[tp] = []
-                        buckets[tp].append(param)
-                        param.main_grad = param.grad
-
-                # For each bucket, all-reduce and copy all-reduced grads.
-                for tp in buckets:
-                    bucket = buckets[tp]
-                    grads = [param.grad.data for param in bucket]
-                    coalesced = _flatten_dense_tensors(grads)
-                    coalesced /= mpu.get_data_parallel_world_size()
-                    torch.distributed.all_reduce(
-                        coalesced, group=mpu.get_data_parallel_group())
-                    for buf, synced in zip(grads, _unflatten_dense_tensors(
-                            coalesced, grads)):
-                        buf.copy_(synced)

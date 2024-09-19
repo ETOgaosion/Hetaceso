@@ -16,6 +16,7 @@ from megatron.core.flexmodels.common.flex_ops import (
     OpType,
     FlexLayerNormMlpDropoutInfo,
     FlexLayerNormSelfAttentionDropoutInfo,
+    FlexLayerNormPostProcessInfo
 )
 from megatron.core.flexmodels.common.flex_ops import gen_op
 from megatron.core.flexmodels.common.flex_model import get_flex_model
@@ -27,17 +28,10 @@ class FlexGPTModel(LanguageModule):
         config: TransformerConfig,
         flex_config: FlexModelConfig,
         transformer_layer_spec: ModuleSpec,
-        vocab_size: int,
-        max_sequence_length: int,
         pre_process: bool = True,
         post_process: bool = True,
-        fp16_lm_cross_entropy: bool = False,
         parallel_output: bool = True,
         share_embeddings_and_output_weights: bool = False,
-        position_embedding_type: Literal[
-            "learned_absolute", "rope"
-        ] = "learned_absolute",
-        rotary_percent: float = 1.0,
         rotary_base: int = 10000,
         seq_len_interpolation_factor: Optional[float] = None,
         profiling=False,
@@ -45,21 +39,21 @@ class FlexGPTModel(LanguageModule):
         super().__init__(config)
 
         self.transformer_layer_spec: ModuleSpec = transformer_layer_spec
-        self.vocab_size = vocab_size
-        self.max_sequence_length = max_sequence_length
+        self.padded_vocab_size = config.padded_vocab_size
+        self.max_sequence_length = config.position_embedding_type
         self.pre_process = pre_process
         self.post_process = post_process
-        self.fp16_lm_cross_entropy = fp16_lm_cross_entropy
+        self.fp16_lm_cross_entropy = config.fp16_lm_cross_entropy
         self.parallel_output = parallel_output
         self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
-        self.position_embedding_type = position_embedding_type
+        self.position_embedding_type = config.position_embedding_type
         self.rotary_base = rotary_base
         self.seq_len_interpolation_factor = seq_len_interpolation_factor
         self.model_type = ModelType.encoder_or_decoder
 
         # These 2 attributes are needed for TensorRT-LLM export.
-        self.max_position_embeddings = max_sequence_length
-        self.rotary_percent = rotary_percent
+        self.max_position_embeddings = config.max_position_embeddings
+        self.rotary_percent = config.rotary_percent
 
         if not profiling:
             num_layers = self.config.num_layers
@@ -90,23 +84,18 @@ class FlexGPTModel(LanguageModule):
 
     def gen_oplist(self) -> list:
         op_list = []
-
-        if self.pre_process:
-            op_list.append(
-                FlexEmbeddingInfo(
-                    op_type=OpType.EMBEDDING,
-                    op_index=0,
-                    op_name="dec-embedding",
-                    prev_name=None,
-                    config=self.config,
-                    vocab_size=self.vocab_size,
-                    max_sequence_length=self.max_sequence_length,
-                    position_embedding_type=self.position_embedding_type,
-                    rotary_percent=self.rotary_percent,
-                    rotary_base=self.rotary_base,
-                    seq_len_interpolation_factor=self.seq_len_interpolation_factor,
-                )
+        
+        op_list.append(
+            FlexEmbeddingInfo(
+                op_type=OpType.EMBEDDING,
+                op_index=0,
+                op_name="dec-embedding",
+                prev_name=None,
+                config=self.config,
+                rotary_base=self.rotary_base,
+                seq_len_interpolation_factor=self.seq_len_interpolation_factor,
             )
+        )
         prev_name = "dec-embedding"
         num_ops_per_transformer = 2
         for i in range(self.config.num_layers):
@@ -133,28 +122,18 @@ class FlexGPTModel(LanguageModule):
                 ]
             )
             prev_name = "dec-mlp"
+        op_list.append(
+            FlexLayerNormPostProcessInfo(
+                op_type=OpType.LAYER_NORM_POST_PROCESS,
+                op_index=self.config.num_layers * num_ops_per_transformer,
+                op_name="dec-final-layer-norm",
+                prev_name=prev_name,
+                config=self.config,
+                submodules=self.transformer_layer_spec.submodules,
+                parallel_output=self.parallel_output,
+            )
+        )
 
-        # TODO: 这个LayerNorm可以和post process合到一起
-        # op_list.append(FlexLayerNormInfo(op_type= OpType.LAYER_NORM, op_index=1 + self.config.num_layers * num_ops_per_transformer + 0, prev_name=prev_name))
-        # TODO: post process
-        # if self.post_process:
-        #     if self.config.defer_embedding_wgrad_compute:
-        #         # The embedding activation buffer preserves a reference to the input activations
-        #         # of the final embedding projection layer GEMM. It will hold the activations for
-        #         # all the micro-batches of a global batch for the last pipeline stage. Once we are
-        #         # done with all the back props for all the microbatches for the last pipeline stage,
-        #         # it will be in the pipeline flush stage. During this pipeline flush we use the
-        #         # input activations stored in embedding activation buffer and gradient outputs stored
-        #         # in gradient buffer to calculate the weight gradients for the embedding final linear layer.
-        #         self.embedding_activation_buffer = []
-        #         self.grad_output_buffer = []
-        #     else:
-        #         self.embedding_activation_buffer = None
-        #         self.grad_output_buffer = None
-        #     # TODO: post process层如何和embedding层同步信息
-        #     # op_list.append(ColumnParallelLinearInfo())
-        # if self.pre_process or self.post_process:
-        #     self.setup_embeddings_and_output_layer()
         return op_list
 
     def set_input_tensor(self, input_tensor: Tensor) -> None:

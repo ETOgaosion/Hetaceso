@@ -2,6 +2,7 @@ import logging
 from typing import Optional, Tuple
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 from megatron.core import parallel_state, tensor_parallel
@@ -9,7 +10,28 @@ from megatron.core.dist_checkpointing.mapping import ShardedStateDict
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.utils import make_tp_sharded_tensor_for_checkpoint
+from megatron.core.tensor_parallel import (
+    copy_to_tensor_model_parallel_region,
+    gather_from_tensor_model_parallel_region
+)
 
+
+def parallel_lm_logits(input_, word_embeddings_weight, parallel_output,
+                       bias=None):
+    """LM logits using word embedding weights."""
+    # Parallel logits.
+    input_parallel = copy_to_tensor_model_parallel_region(input_)
+    # Matrix multiply.
+    if bias is None:
+        logits_parallel = F.linear(input_parallel, word_embeddings_weight)
+    else:
+        logits_parallel = F.linear(input_parallel, word_embeddings_weight, bias)
+    
+    # Gather if needed.
+    if parallel_output:
+        return logits_parallel
+
+    return gather_from_tensor_model_parallel_region(logits_parallel)
 
 class LanguageModule(MegatronModule):
     """Base language module that has common helper functions used across GPT, BERT etc.

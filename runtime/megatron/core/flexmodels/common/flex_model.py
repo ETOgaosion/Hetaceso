@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 import torch
+import torch.distributed
 
 from megatron.core.transformer.module import MegatronModule
 from functools import reduce
@@ -11,6 +12,8 @@ import os
 from megatron.core import mpu
 from megatron.core.flexmodels.common.flex_model_config import FlexModelConfig
 from megatron.core.transformer.transformer_config import TransformerConfig
+from megatron.core.pipeline_parallel.schedules import reset_checkpointed_activations_memory_buffer
+from megatron.core.tensor_parallel.random import checkpoint
 
 NUM_BATCHES = 0
 DEBUG_OUTPUT = os.environ.get("DEBUG_OUTPUT", "0") == "1"
@@ -259,7 +262,7 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
                     assert (
                         op_index_send_to >= op_start_index_next_stage
                         and op_index_send_to < op_end_index_next_stage
-                    ), f"rank {torch.distributed.get_rank()}, virtual {mpu.get_virtual_pipeline_model_parallel_rank()}, op.name = {op.name} op_index_send_to = {op_index_send_to}, op_start_index_next_stage = {op_start_index_next_stage}, op_end_index_next_stage = {op_end_index_next_stage}"
+                    ), f"rank {torch.distributed.get_rank()}, virtual {mpu.get_virtual_pipeline_model_parallel_rank()}, op.op_name = {op.op_name} op_index_send_to = {op_index_send_to}, op_start_index_next_stage = {op_start_index_next_stage}, op_end_index_next_stage = {op_end_index_next_stage}"
                     op.output_extra_tensors_info[key]["cross_stage"] = True
                     output_extra_tensors_dict[key] = {
                         "info": {key: op.output_extra_tensors_info[key]},
@@ -351,8 +354,6 @@ class FlexPipeModel(MegatronModule):
     ):
         super(FlexPipeModel, self).__init__(config)
 
-        self.model_name = flex_config.model_name
-
         self.saved_tensors = {}
         self.pre_process = pre_process
         self.post_process = post_process
@@ -418,6 +419,7 @@ class FlexPipeModel(MegatronModule):
 
                 len_inputs = len(input_tensor_names)
                 for i in range(len(input_extra_tensor_names)):
+                    print(f'self.rank: {torch.distributed.get_rank()} i: {i}, len_inputs: {len_inputs}, len(inputs): {len(inputs)} len(input_extra_tensor_names): {len(input_extra_tensor_names)}, inputs: {inputs}, input_tensor_names: {input_tensor_names},input_extra_tensor_names: {input_extra_tensor_names}')
                     input_extra_tensors_dict[input_extra_tensor_names[i]] = inputs[
                         i + len_inputs
                     ]
@@ -507,7 +509,7 @@ class FlexPipeModel(MegatronModule):
             return custom_forward
 
         # Make sure memory is freed.
-        mpu.reset_checkpointed_activations_memory_buffer()
+        reset_checkpointed_activations_memory_buffer()
 
         input_tensor_names = []
         input_extra_tensor_names = []
@@ -536,7 +538,7 @@ class FlexPipeModel(MegatronModule):
 
         if self.resharding:
             output_tensors_specs_mats = {}
-            output_tensors = mpu.checkpoint(
+            output_tensors = checkpoint(
                 custom_reshard(
                     start,
                     end,
@@ -551,7 +553,7 @@ class FlexPipeModel(MegatronModule):
                 *list_inputs,
             )
         else:
-            output_tensors = mpu.checkpoint(
+            output_tensors = checkpoint(
                 custom(
                     start,
                     end,
@@ -632,8 +634,7 @@ class FlexPipeModel(MegatronModule):
                     ):
                         checkpoint_end_index += 1
                         if checkpoint_end_index < end_index and (
-                            self.ops[checkpoint_end_index].name in ["enc-1st-layernorm"]
-                            or "-conv1" in self.ops[checkpoint_end_index].name
+                            self.ops[checkpoint_end_index].op_name in ["dec-self-attention"]
                         ):
                             break
 
