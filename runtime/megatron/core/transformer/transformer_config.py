@@ -29,6 +29,12 @@ class TransformerConfig(ModelParallelConfig):
 
     num_attention_heads: int = 0
     """Number of transformer attention heads."""
+    
+    seq_length: int = 0
+    """Sequence Length in total."""
+    
+    micro_batch_size: int = 0
+    """Micro batch size for the model."""
 
     num_query_groups: int = None
     """Number of query groups for group query attention. If None, normal attention is used."""
@@ -251,12 +257,20 @@ class TransformerConfig(ModelParallelConfig):
     disable_parameter_transpose_cache: bool = False
     """When set to true, the parameter transposes are not cached for subsequent iterations."""
 
-    # These 2 attributes are WAR for TRTLLM export. DO NOT USE!! WILL BE DEPRECATED SOON!!
+    ###################
+    # Flex Pipe
+    ###################
     max_position_embeddings: int = 0
-    """Deprecated. Do not use."""
 
     rotary_percent: float = 0
-    """Deprecated. Do not use."""
+    
+    fp16_lm_cross_entropy: bool = False
+    """If True, use FP16 for the cross entropy loss computation."""
+    
+    padded_vocab_size: int = 0
+    
+    position_embedding_type: str = "learned_absolute"
+    
 
     def __post_init__(self):
         """ Python dataclass method that is used to modify attributes after initialization.

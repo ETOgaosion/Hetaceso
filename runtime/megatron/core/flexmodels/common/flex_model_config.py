@@ -2,7 +2,6 @@ from dataclasses import dataclass
 
 @dataclass
 class FlexModelConfig():
-    model_name: str = None 
     recompute_ops: list[int] = None
     flex_recompute_activations: list[int] = None 
     resharding_stages: list[int] = None

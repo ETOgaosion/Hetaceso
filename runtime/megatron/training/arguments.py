@@ -17,6 +17,7 @@ from megatron.core.models.retro.utils import (
 from megatron.core.transformer import TransformerConfig
 from megatron.training.json_arguments import load_json_args
 from megatron.core.flexmodels.common.flex_model_config import FlexModelConfig
+from .utils import warn
 
 
 def parse_args(extra_args_provider=None, ignore_unknown_args=False):
@@ -64,7 +65,6 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args.virtual_pipeline_model_parallel_size = 1
         args.tensor_parallel_size_of_each_op = [[args.prof_tp_size]]
         args.data_parallel_size_of_each_op = [[1]]
-        args.model_name = ""
         args.resharding_stages = [True]     # TOCHECK: is this correct? gpt seems no need to reshard
 
         if len(args.prof_repeat_times) > 1:
@@ -258,7 +258,7 @@ def validate_args(args, defaults={}):
         args.virtual_pipeline_model_parallel_size = num_layers_per_pipeline_stage // \
             args.num_layers_per_virtual_pipeline_stage
     else:
-        args.virtual_pipeline_model_parallel_size = None
+        args.virtual_pipeline_model_parallel_size = args.interleave_factor
         # Overlap P2P communication is disabled if not using the interleaved schedule.
         args.overlap_p2p_comm = False
         if args.rank == 0:
@@ -525,6 +525,10 @@ def validate_args(args, defaults={}):
     # Distributed checkpointing checks
     if args.use_dist_ckpt and not args.use_mcore_models:
         raise RuntimeError('--use-dist-ckpt only support Megatron Core, please add --use-mcore-models.')
+    
+    if not args.untie_embeddings_and_output_weights:
+        warn("Untie embeddings and output weights must be enabled in flexpipe, currently not support shared weights")
+    args.untie_embeddings_and_output_weights = True
     # Print arguments.
     _print_args("arguments", args)
 
@@ -555,8 +559,7 @@ def flex_config_from_args(args, config_class=None):
     kw_args = {}
     for f in dataclasses.fields(config_class):
         if hasattr(args, f.name):
-            kw_args[f.name] = getattr(args, f.name)    
-    kw_args['model_name'] = args.model_name
+            kw_args[f.name] = getattr(args, f.name)
     kw_args['recompute_ops'] = args.recompute_ops
     kw_args['flex_recompute_activations'] = args.flex_recompute_activations
     kw_args['resharding_stages'] = args.resharding_stages

@@ -10,9 +10,17 @@ NNODES=1
 NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
+# fixed Model related configuration here, pls not overlap with json config
+HIDDEN_SIZE=1024
+NUM_ATTENTION_HEADS=16
+SEQ_LENGTH=2048
+MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
+MICRO_BATCH_SIZE=4
+GLOBAL_BATCH_SIZE=16
 
-VOCAB_FILE=/workspace/file/vocabs/gpt2-vocab.json
-MERGE_FILE=/workspace/file/vocabs/gpt2-merges.txt
+
+VOCAB_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-vocab.json
+MERGE_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-merges.txt
 
 
 DISTRIBUTED_ARGS="
@@ -22,20 +30,22 @@ DISTRIBUTED_ARGS="
     --master_addr $MASTER_ADDR \
     --master_port $MASTER_PORT
 "
+
 DATA_ARGS="
     --vocab-file $VOCAB_FILE \
     --merge-file $MERGE_FILE \
     --mock-data \
 "
+
+# Model related configuration here, pls not overlap with json config
 GPT_ARGS="
     --no-async-tensor-model-parallel-allreduce \
-    --num-layers 2 \
-    --hidden-size 1024 \
-    --num-attention-heads 16 \
-    --seq-length 1024 \
-    --max-position-embeddings 1024 \
-    --micro-batch-size 4 \
-    --global-batch-size 16 \
+    --hidden-size $HIDDEN_SIZE \
+    --num-attention-heads $NUM_ATTENTION_HEADS \
+    --seq-length $SEQ_LENGTH \
+    --max-position-embeddings $MAX_POSITION_EMBEDDINGS \
+    --micro-batch-size $MICRO_BATCH_SIZE \
+    --global-batch-size $GLOBAL_BATCH_SIZE \
     --lr 0.00015 \
     --train-iters 1 \
     --lr-decay-iters 320000 \
@@ -46,13 +56,18 @@ GPT_ARGS="
     --clip-grad 1.0 \
     --fp16 \
     --tokenizer-type GPT2BPETokenizer \
-    --flexpipe-config ./test_pretrain.json \
     --use-mcore-models \
     --transformer-impl local \
+"
+
+FLEX_ARGS="
+    --flexpipe-config ./test_pretrain.json \
+    --log-path ./logs \
 "
 
 
 torchrun $DISTRIBUTED_ARGS pretrain_gpt.py \
     $GPT_ARGS \
+    $FLEX_ARGS \
     $DATA_ARGS \
     --distributed-backend nccl \

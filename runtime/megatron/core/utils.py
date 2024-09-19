@@ -4,13 +4,18 @@
 import math
 import operator
 from functools import reduce
-
+import os
+import gc
+import amp_C
 import torch
+from apex.multi_tensor_apply import multi_tensor_applier
 
 from megatron.core import parallel_state
 from megatron.core.dist_checkpointing.mapping import ShardedTensor
 from dataclasses import dataclass, field
 from torch.nn.parallel import DistributedDataParallel as torchDDP
+
+
 @dataclass
 class OpConfig:
     name: str
@@ -110,48 +115,21 @@ def unwrap_model(model, module_instances=(torchDDP)):
     return unwrapped_model
 
 
-def calc_params_l2_norm(model):
-    """Calculate l2 norm of parameters """
-    args = get_args()
-    if not isinstance(model, list):
-        model = [model]
-    # Remove duplicate params.
-    params_data = []
-    for model_ in model:
-        for param in model_.parameters():
-            is_not_shared = param_is_not_shared(param)
-            is_not_tp_duplicate = param_is_not_tensor_parallel_duplicate(param)
-            if is_not_shared and is_not_tp_duplicate:
-                if args.bf16:
-                    params_data.append(param.data.float())
-                else:
-                    params_data.append(param.data)
-    # Calculate norm
-    dummy_overflow_buf = torch.cuda.IntTensor([0])
-    norm, _ = multi_tensor_applier(
-        amp_C.multi_tensor_l2norm,
-        dummy_overflow_buf,
-        [params_data],
-        False # no per-parameter norm
-    )
-    norm_2 = norm * norm
-    # Sum across all model-parallel GPUs.
-    torch.distributed.all_reduce(norm_2,
-                                 op=torch.distributed.ReduceOp.SUM,
-                                 group=mpu.get_model_parallel_group())
-    return norm_2.item() ** 0.5
+def _print_rank_0(message):
+    """If distributed is initialized, print only on rank 0."""
+    if torch.distributed.is_initialized():
+        if torch.distributed.get_rank() == 0:
+            print(message, flush=True)
+    else:
+        print(message, flush=True)
 
-
-def average_losses_across_data_parallel_group(losses):
-    """Reduce a tensor of losses across all GPUs."""
-    averaged_losses = torch.cat(
-        [loss.clone().detach().view(1) for loss in losses])
-    torch.distributed.all_reduce(averaged_losses,
-                                 group=mpu.get_data_parallel_group())
-    averaged_losses = averaged_losses / \
-        torch.distributed.get_world_size(group=mpu.get_data_parallel_group())
-
-    return averaged_losses
+def printDebug(*args, n = 0): # default n = 0 打印所有rank的参数; n = 1 打印 rank 0 的参数
+    rank = int(os.environ.get('RANK', 0)) 
+    if n == 0 or (n == 1 and rank == 0):  
+        print(f"\n{'#' * 80}\n Rank {rank}: \n")
+        for i, arg in enumerate(args, 1):
+            print(f"{i}: {arg}")
+        print(f"\n{'#' * 80}\n")
 
 
 def report_memory(name, get_list=False):
@@ -223,6 +201,111 @@ def get_model_type(model):
 def get_model_config(model):
     return get_attr_wrapped_model(model, 'config', allow_none=False)
 
+
+
+class MemoryBuffer:
+    """Contiguous memory buffer.
+    Allocate a contiguous memory of type `dtype` and size `numel`. It is
+    used to reduce memory fragmentation.
+
+    Usage: After the allocation, the `_start` index is set tot the first
+           index of the memory. A memory chunk starting from `_start` index
+           can be `allocated` for an input tensor, with the elements of the
+           tensor being coppied. The buffer can be reused by resetting the
+           `_start` index.
+
+    """
+    def __init__(self, name, numel, dtype, track_usage):
+        if torch.distributed.get_rank() == 0:
+            element_size = torch.tensor([], dtype=dtype).element_size()
+            print('> building the {} memory buffer with {} num elements '
+                  'and {} dtype ({:.1f} MB)...'.format(
+                      name, numel, dtype, numel*element_size/1024/1024),
+                  flush=True)
+        self.name = name
+        self.numel = numel
+        self.dtype = dtype
+        self.data = torch.empty(self.numel,
+                                dtype=self.dtype,
+                                device=torch.cuda.current_device(),
+                                requires_grad=False)
+
+        # Index tracking the start of the free memory.
+        self._start = 0
+
+        # Values used for tracking usage.
+        self.track_usage = track_usage
+        if self.track_usage:
+            self.in_use_value = 0.0
+            self.total_value = 0.0
+
+
+    def reset(self):
+        """Reset the buffer start index to the beginning of the buffer."""
+        self._start = 0
+
+
+    def is_in_use(self):
+        """Whether the current buffer hold on to any memory."""
+        return self._start > 0
+
+
+    def numel_in_use(self):
+        """Return number of elements in use."""
+        return self._start
+
+
+    def add(self, tensor):
+        """Allocate a chunk of memory from the buffer to tensor and copy
+        the values."""
+        assert tensor.dtype == self.dtype, \
+            'Input tensor type {} different from buffer type {}'.format(
+                tensor.dtype, self.dtype)
+        # Number of elements of the input tensor.
+        tensor_numel = torch.numel(tensor)
+        new_start = self._start + tensor_numel
+        assert new_start <= self.numel, \
+            'Not enough memory left in the buffer ({} > {})'.format(
+                tensor_numel, self.numel - self._start)
+        # New tensor is a view into the memory.
+        new_tensor = self.data[self._start:new_start]
+        self._start = new_start
+        new_tensor = new_tensor.view(tensor.shape)
+        new_tensor.copy_(tensor)
+        # Return a pointer to the new tensor.
+        return new_tensor
+
+
+    def get_data(self):
+        """Return the data currently in use."""
+        if self.track_usage:
+            self.in_use_value += float(self._start)
+            self.total_value += float(self.numel)
+        return self.data[:self._start]
+
+
+    def print_average_usage(self):
+        """Print memory usage average over time. We would like this value
+        to be as high as possible."""
+        assert self.track_usage, 'You need to enable track usage.'
+        if torch.distributed.get_rank() == 0:
+            print(' > usage of {} memory buffer: {:.2f} %'.format(
+                self.name, self.in_use_value * 100.0 / self.total_value),
+                  flush=True)
+
+# A dictionary of all the memory buffers allocated.
+_MEM_BUFFS = dict()
+
+def allocate_mem_buff(name, numel, dtype, track_usage):
+    """Allocate a memory buffer."""
+    assert name not in _MEM_BUFFS, \
+        'memory buffer {} already allocated.'.format(name)
+    _MEM_BUFFS[name] = MemoryBuffer(name, numel, dtype, track_usage)
+    return _MEM_BUFFS[name]
+
+def get_mem_buff(name):
+    """Get the memory buffer."""
+    return _MEM_BUFFS[name]
 
 class GlobalMemoryBuffer:
     """Global buffer to avoid dynamic memory allocations.
