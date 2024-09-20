@@ -370,11 +370,6 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: list[int],
     micro_batch_size = {micro_batch_size}\n')
 
     print(f'[DEBUG]|rank {torch.distributed.get_rank()}| \
-    TP_SIZE_PER_OP: {_TP_SIZE_PER_OP} | \
-    DP_SIZE_PER_OP: {_DP_SIZE_PER_OP} | \
-    NUM_OPS_IN_EACH_STAGE_LIST: {_NUM_OPS_IN_EACH_STAGE_LIST} | \
-    OPS_START_INDEX_LIST: {_OPS_START_INDEX_LIST} | \
-    OPS_END_INDEX_LIST: {_OPS_END_INDEX_LIST} | \
     MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE: {_MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE} | \
     DATA_PARALLEL_RANKS: {_DATA_PARALLEL_RANKS} | \
     MPU_PIPELINE_MODEL_PARALLEL_RANK: {_MPU_PIPELINE_MODEL_PARALLEL_RANK} | \

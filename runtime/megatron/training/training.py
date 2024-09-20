@@ -677,8 +677,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'optimizer']
 
     # Calculate batch size.
-    batch_size = args.micro_batch_size * args.data_parallel_size * \
-        get_num_microbatches()
+    batch_size = args.micro_batch_size * get_num_microbatches()
 
     # Track app tag & app tag ID
     if one_logger:
@@ -769,6 +768,8 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
     if args.num_experts is not None:
         moe_loss_scale = 1 / get_num_microbatches()
         track_moe_metrics(moe_loss_scale, iteration, writer, wandb_writer, total_loss_dict, args.moe_per_layer_logging)
+        
+    elapsed_time_per_iteration = 0
 
     if iteration % args.log_interval == 0:
         elapsed_time = timers('interval-time').elapsed(barrier=True)

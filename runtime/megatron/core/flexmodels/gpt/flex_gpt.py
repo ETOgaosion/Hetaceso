@@ -126,7 +126,7 @@ class FlexGPTModel(LanguageModule):
             FlexLayerNormPostProcessInfo(
                 op_type=OpType.LAYER_NORM_POST_PROCESS,
                 op_index=self.config.num_layers * num_ops_per_transformer,
-                op_name="dec-final-layer-norm",
+                op_name="dec-post-process",
                 prev_name=prev_name,
                 config=self.config,
                 submodules=self.transformer_layer_spec.submodules,
