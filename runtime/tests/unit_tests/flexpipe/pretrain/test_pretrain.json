@@ -16,7 +16,7 @@
     ],
     "num_ops_in_each_stage": [
         3,
-        2
+        3
     ],
     "tensor_parallel_size_of_each_op": [
         [
@@ -25,8 +25,9 @@
             2
         ],
         [
-            1,
-            1
+            2,
+            2,
+            2
         ]
     ],
     "data_parallel_size_of_each_op": [
@@ -36,8 +37,9 @@
             1
         ],
         [
-            2,
-            2
+            1,
+            1,
+            1
         ]
     ],
     "recompute_ops": [
@@ -47,6 +49,7 @@
             0
         ],
         [
+            0,
             0,
             0
         ]
@@ -58,6 +61,7 @@
             0
         ],
         [
+            0,
             0,
             0
         ]

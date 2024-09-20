@@ -193,8 +193,8 @@ class Timers:
         )
         # Now if the input log level is larger than the one set for
         # the timers class, just ignore it and return a dummy timer.
-        if log_level > self._log_level:
-            return self._dummy_timer
+        # if log_level > self._log_level:
+        #     return self._dummy_timer
         # Otherwise, initalize the timer and set the level.
         self._timers[name] = Timer(name)
         self._log_levels[name] = log_level
@@ -385,6 +385,8 @@ class Timers:
         string_mem, mem_to_csv = report_memory(f"\n==> Memory | [stage {mpu.get_pipeline_model_parallel_rank()}, virtual {mpu.get_virtual_pipeline_model_parallel_rank()}, rank {torch.distributed.get_rank()}]", get_list=True)
         
         for name in names:
+            if name not in self._timers:
+                continue
             logged_times = self._timers[name]._logged_times
             if logged_times > 0:
                 elapsed_time = self._timers[name].elapsed(

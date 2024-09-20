@@ -15,8 +15,9 @@ from megatron.core.models.retro.utils import (
     get_gpt_data_dir as get_retro_data_dir,
 )
 from megatron.core.transformer import TransformerConfig
-from megatron.training.json_arguments import load_json_args
+from megatron.training.json_arguments import load_json_args, validate_json_args
 from megatron.core.flexmodels.common.flex_model_config import FlexModelConfig
+from megatron.training.global_vars import get_timers
 from .utils import warn
 
 
@@ -529,6 +530,11 @@ def validate_args(args, defaults={}):
     if not args.untie_embeddings_and_output_weights:
         warn("Untie embeddings and output weights must be enabled in flexpipe, currently not support shared weights")
     args.untie_embeddings_and_output_weights = True
+    
+    # Validate json arguments
+    if args.flexpipe_config is not None:
+        validate_json_args(args)
+    
     # Print arguments.
     _print_args("arguments", args)
 
@@ -1028,7 +1034,7 @@ def _add_training_args(parser):
                        help='Total number of samples to train over all '
                        'training runs. Note that either train-iters or '
                        'train-samples should be provided.')
-    group.add_argument('--log-interval', type=int, default=100,
+    group.add_argument('--log-interval', type=int, default=1,
                        help='Report loss and timing interval.')
     group.add_argument('--exit-interval', type=int, default=None,
                        help='Exit the program after the iteration is divisible '

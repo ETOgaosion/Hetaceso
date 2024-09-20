@@ -661,10 +661,7 @@ class FlexPipeModel(MegatronModule):
         NUM_BATCHES = NUM_BATCHES + 1
         output = hidden_states
 
-        if self.post_process:
-            return output
-        else:
-            return output, output_extra_tensors
+        return output, output_extra_tensors
 
 
 def get_flex_model(

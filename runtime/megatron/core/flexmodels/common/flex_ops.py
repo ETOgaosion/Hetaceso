@@ -238,12 +238,14 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
 
     def forward(
         self,
-        input_tensors: Dict,
+        input_tensors: Dict|list,
         input_extra_tensors: Dict,
         output_extra_tensors: Dict,
         profiling=False,
     ):
         output_tensors = {}
+        if type(input_tensors) is list:
+            input_tensors = input_tensors[0]
         hidden_states: Tensor = input_tensors["hidden_states"]
         
         context: Tensor = input_tensors.get("context", None)
@@ -343,12 +345,14 @@ class FlexLayerNormMlpDropout(FlexModule):
 
     def forward(
         self,
-        input_tensors: Dict,
+        input_tensors: Dict|list,
         input_extra_tensors: Dict,
         output_extra_tensors: Dict,
         profiling=False,
     ):
         output_tensors = {}
+        if type(input_tensors) is list:
+            input_tensors = input_tensors[0]
         hidden_states: Tensor = input_tensors["hidden_states"]
         context: Tensor = input_tensors.get("context", None)
         # Residual connection.
@@ -421,7 +425,7 @@ class FlexLayerNormPostProcess(FlexModule):
         self.loss_func = vocab_parallel_cross_entropy
         self.lm_logits_func = parallel_lm_logits
         self.fp16_lm_cross_entropy = config.fp16_lm_cross_entropy
-        self.word_embeddings = VocabParallelEmbedding(config.padded_vocab_size, config.hidden_size, init_method=config.init_method)
+        self.word_embeddings = VocabParallelEmbedding(config.padded_vocab_size, config.hidden_size, init_method=config.init_method, config=config)
         self.word_embeddings.weight.data.fill_(0)
         self.word_embeddings.weight.shared = True
         self.word_embeddings.weight.shared_embedding = True
@@ -429,16 +433,18 @@ class FlexLayerNormPostProcess(FlexModule):
         self.weight_size = config.padded_vocab_size * config.hidden_size / self.tp_size
         
         self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
-        self.output_tensors_info = {'hidden_states': {'shape': 1, 'tp_split_dim': -1, 'dp_split_dim': -1}}
+        self.output_tensors_info = {'output_tensor': {'shape': [1], 'tp_split_dim': -1, 'dp_split_dim': -1}}
 
     def forward(
         self,
-        input_tensors: Dict,
+        input_tensors: Dict|list,
         input_extra_tensors: Dict,
         output_extra_tensors: Dict,
         profiling=False,
     ):
         output_tensors = {}
+        if type(input_tensors) is list:
+            input_tensors = input_tensors[0]
         hidden_states: Tensor = input_tensors["hidden_states"]
         context: Tensor = input_tensors.get("context", None)
 
@@ -449,6 +455,7 @@ class FlexLayerNormPostProcess(FlexModule):
         labels = input_extra_tensors['labels']
         
         output = self.lm_logits_func(final_layernorm_output, logit_weights, self.parallel_output)
+        output = output.transpose(0, 1).contiguous()
         if labels is None:
             output_tensors['output_tensor'] = output
         else:
@@ -458,7 +465,7 @@ class FlexLayerNormPostProcess(FlexModule):
             else:
                 loss = self.loss_func(output.float(), labels)
 
-        output_tensors["output"] = loss
+        output_tensors['output'] = loss
 
         return output_tensors
 

@@ -18,3 +18,31 @@ def load_json_args(json_file, args):
         args.recompute_ops = config_dict["recompute_ops"]
         args.algo_of_each_op = config_dict["algo_of_each_op"]
     return args
+
+def validate_json_args(args):
+    # len(num_gpus) must be equal to num_stages
+    assert len(args.num_gpus) == args.num_stages, f"num_gpus should have the same length as num_stages: {len(args.num_gpus)} {args.num_stages}"
+    
+    # tp and dp in group must be same
+    for tp_list in args.tensor_parallel_size_of_each_op:
+        base_tp = None
+        for tp in tp_list:
+            assert tp > 0, f"tensor_parallel_size_of_each_op should be positive: {tp}"
+            if base_tp is None:
+                base_tp = tp
+            else:
+                assert tp == base_tp, f"tensor_parallel_size_of_each_op should be the same for all ops in the same stage: {tp} {base_tp}"
+    for dp_list in args.data_parallel_size_of_each_op:
+        base_dp = None
+        for dp in dp_list:
+            assert dp > 0, f"data_parallel_size_of_each_op should be positive: {dp}"
+            if base_dp is None:
+                base_dp = dp
+            else:
+                assert dp == base_dp, f"data_parallel_size_of_each_op should be the same for all ops in the same stage: {dp} {base_dp}"
+
+    # for each op, dp * tp must equal to num_gpus
+    for i in range(args.num_stages):
+        tp = args.tensor_parallel_size_of_each_op[i][0]
+        dp = args.data_parallel_size_of_each_op[i][0]
+        assert tp * dp == args.num_gpus[i], f"tensor_parallel_size_of_each_op * data_parallel_size_of_each_op should be equal to num_gpus: {tp} {dp} {args.num_gpus[i]}"

@@ -196,7 +196,6 @@ def forward_step(
         context_manager = contextlib.nullcontext()
     with context_manager:
         if checkpoint_activations_microbatch is None:
-            print(f'forward_step_func: {forward_step_func, inspect.getfullargspec(forward_step_func)}')
             output_tensor, output_extra_tensors, loss_func = forward_step_func(data_iterator, model, extra_tensors)
         else:
             output_tensor, output_extra_tensors, loss_func = forward_step_func(
@@ -262,14 +261,16 @@ def retain_input_tensors_grad_and_check_output_grad(input_tensor, extra_tensors,
         if isinstance(output_tensor, dict):
             output_tensor_list = []
             for key in sorted(output_tensor):
-                output_tensor_list.append(output_tensor[key])
+                if output_tensor[key] is not None:
+                    output_tensor_list.append(output_tensor[key])
         else:
             output_tensor_list = output_tensor
     if output_tensor_grad is not None:
         if isinstance(output_tensor_grad, dict):
             output_tensor_grad_list = []
             for key in sorted(output_tensor_grad):
-                output_tensor_grad_list.append(output_tensor_grad[key])
+                if output_tensor_grad[key] is not None:
+                    output_tensor_grad_list.append(output_tensor_grad[key])
         else:
             output_tensor_grad_list = output_tensor_grad
 
@@ -297,27 +298,6 @@ def collect_grad_of_input_and_extra_tensors(input_tensor, extra_tensors):
                 extra_tensors_grad[key] = extra_tensors[key].grad
 
     return input_tensor_grad, extra_tensors_grad
-
-def deallocate_output_tensor(out_dict):
-    '''Pseudo-deallocate (i.e., set to scalar) the output tensor's '.data' field.
-
-    This method should be called right after the output tensor has been
-    sent to the next pipeline stage. At this point, the output tensor is
-    only useful for its '.grad_fn' field, and not its '.data'.
-    '''
-    if out_dict is None or isinstance(out_dict, torch.Tensor):
-        return
-    assert isinstance(out_dict, dict), f"dict of tensors is required. instead of: {out_dict}"
-    for name in out_dict:
-        assert isinstance(out_dict[name], torch.Tensor), \
-            "expected Tensor, found %s." % type(out_dict[name]).__name__
-        assert out_dict[name]._base is None, \
-            f"counter-productive to free a view of another tensor. rank {torch.distributed.get_rank()}, tensor: {name}"
-        out_dict[name].data = torch.empty(
-            (1,),
-            device = out_dict[name].device,
-            dtype = out_dict[name].dtype,
-    )
 
 
 def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, extra_tensors=None, output_extra_tensors=None, output_extra_tensors_grad=None, model=None):
@@ -1349,7 +1329,7 @@ def forward_backward_pipelining_without_interleaving(
         else:
             checkpoint_activations_microbatch = None
 
-        input_tensor, extra_tensors = recv_forward(recv_tensor_shapes, config)
+        input_tensor, extra_tensors = p2p_communication.recv_forward(recv_tensor_shapes, config)
         output_tensor, output_extra_tensors = forward_step(
             forward_step_func,
             data_iterator,
@@ -1363,20 +1343,20 @@ def forward_backward_pipelining_without_interleaving(
             check_first_val_step(first_val_step, forward_only, i == 0),
             extra_tensors=extra_tensors,
         )
-        send_forward(output_tensor, send_tensor_shapes, config, output_extra_tensors_list=output_extra_tensors)
+        p2p_communication.send_forward(output_tensor, config, output_extra_tensors=output_extra_tensors)
 
         if not forward_only:
             input_tensors.append(input_tensor)
             output_tensors.append(output_tensor)
             input_extra_tensors_list.append(extra_tensors)
             output_extra_tensors_list.append(output_extra_tensors)
-            deallocate_output_tensor(output_tensor[0], config.deallocate_pipeline_outputs)
+            deallocate_output_tensor(output_tensors[0], config.deallocate_pipeline_outputs)
 
     # Before running 1F1B, need to receive first forward tensor.
     # If all microbatches are run in warmup / cooldown phase, then no need to
     # receive this tensor here.
     if num_microbatches_remaining > 0:
-        input_tensor, extra_tensors = recv_forward(recv_tensor_shapes, config)
+        input_tensor, extra_tensors = p2p_communication.recv_forward(recv_tensor_shapes, config)
 
     # Run 1F1B in steady state.
     for i in range(num_microbatches_remaining):
@@ -1407,14 +1387,14 @@ def forward_backward_pipelining_without_interleaving(
         )
 
         if forward_only:
-            p2p_communication.send_forward(output_tensor, config, output_extra_tensor=output_extra_tensors)
+            p2p_communication.send_forward(output_tensor, config, output_extra_tensors=output_extra_tensors)
 
             if not last_iteration:
                 input_tensor, extra_tensors = p2p_communication.recv_forward(recv_tensor_shapes, config)
 
         else:
             output_tensor_grad, output_extra_tensors_grad = p2p_communication.send_forward_recv_backward(
-                output_tensor, True, recv_tensor_shapes, config, output_extra_tensors=output_extra_tensors
+                output_tensor, recv_tensor_shapes, config, output_extra_tensors=output_extra_tensors
             )
 
             # Add input_tensor and output_tensor to end of list.
@@ -1422,7 +1402,7 @@ def forward_backward_pipelining_without_interleaving(
             output_tensors.append(output_tensor)
             input_extra_tensors_list.append(extra_tensors)
             output_extra_tensors_list.append(output_extra_tensors)
-            deallocate_output_tensor(output_tensor[0], config.deallocate_pipeline_outputs)
+            deallocate_output_tensor(output_tensors[0], config.deallocate_pipeline_outputs)
 
             # Pop input_tensor and output_tensor from the start of the list for
             # the backward pass.
@@ -1443,10 +1423,10 @@ def forward_backward_pipelining_without_interleaving(
 
             if last_iteration:
                 input_tensor = None
-                send_backward(input_tensor_grad, recv_tensor_shapes, config, extra_tensors_grads_list=extra_tensors_grad)
+                p2p_communication.send_backward(input_tensor_grad, config, extra_tensors_grad=extra_tensors_grad)
             else:
-                input_tensor, extra_tensors = send_backward_recv_forward(
-                    input_tensor_grad, recv_tensor_shapes, config, extra_tensors_grads=extra_tensors_grad
+                input_tensor, extra_tensors = p2p_communication.send_backward_recv_forward(
+                    input_tensor_grad, recv_tensor_shapes, config, extra_tensors_grad=extra_tensors_grad
                 )
 
     # Run cooldown backward passes.
@@ -1467,7 +1447,7 @@ def forward_backward_pipelining_without_interleaving(
             extra_tensors = input_extra_tensors_list.pop(0)
             output_extra_tensors = output_extra_tensors_list.pop(0)
 
-            output_tensor_grad, output_extra_tensors_grad = recv_backward(send_tensor_shapes, config)
+            output_tensor_grad, output_extra_tensors_grad = p2p_communication.recv_backward(send_tensor_shapes, config)
 
             input_tensor_grad, extra_tensors_grad = backward_step(
                 input_tensor, output_tensor, output_tensor_grad, model_type, config, extra_tensors, output_extra_tensors, output_extra_tensors_grad, model
@@ -1476,7 +1456,7 @@ def forward_backward_pipelining_without_interleaving(
             delete_tensors(output_extra_tensors)
             delete_tensors(output_extra_tensors_grad)
 
-            send_backward(input_tensor_grad, recv_tensor_shapes, config, extra_tensors_grads_list=extra_tensors_grad)
+            p2p_communication.send_backward(input_tensor_grad, config, extra_tensors_grad=extra_tensors_grad)
 
         # Launch any remaining grad reductions.
         if no_sync_context is not None:
