@@ -1,13 +1,6 @@
 {
-    "model_name": "gpt",
-    "model_size": "1_3B",
-    "num_layers": 24,
-    "seq_length": 2048,
-    "max_position_embeddings": 2048,
-    "num_attention_heads": 32,
-    "hidden_size": 2048,
-    "global_batch_size": 512,
-    "micro_batch_size": 1,
+    "comment": "Only include flexpipe related configurations",
+    "num_layers": 2,
     "num_stages": 2,
     "num_gpus": [
         2,
@@ -23,7 +16,7 @@
     ],
     "num_ops_in_each_stage": [
         3,
-        2
+        3
     ],
     "tensor_parallel_size_of_each_op": [
         [
@@ -32,8 +25,9 @@
             2
         ],
         [
-            1,
-            1
+            2,
+            2,
+            2
         ]
     ],
     "data_parallel_size_of_each_op": [
@@ -43,18 +37,20 @@
             1
         ],
         [
-            2,
-            2
+            1,
+            1,
+            1
         ]
     ],
     "recompute_ops": [
         [
             0,
-            1,
+            0,
             0
         ],
         [
-            1,
+            0,
+            0,
             0
         ]
     ],
@@ -65,6 +61,7 @@
             0
         ],
         [
+            0,
             0,
             0
         ]

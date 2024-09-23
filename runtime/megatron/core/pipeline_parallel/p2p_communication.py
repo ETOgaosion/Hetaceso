@@ -5,6 +5,7 @@ from functools import reduce
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
+import torch.distributed
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
 from megatron.training import get_args, get_timers
@@ -70,12 +71,13 @@ def _create_recv_placeholder(forward=True):
             else:
                 op_index = mpu.get_op_end_index(rank) - 1
 
-            assert recv_shape[0] % mpu.get_op_tp_size(op_index) == 0
+            assert recv_shape[0] % mpu.get_op_tp_size(op_index) == 0, f'rank {torch.distributed.get_rank()} recv_shape {recv_shape} recv_shape[0] {recv_shape[0]} is not divisible by mpu.get_op_tp_size(op_index) {mpu.get_op_tp_size(op_index)} recv_info: {recv_info} op_index: {op_index}'
             recv_shape[0] //= mpu.get_op_tp_size(op_index)
             recv_shape[0] //= recv_info["tensors"][key]["num_tp_chunks"]
         for _ in range(num_chunks):
             flatten_tensor_recv_prev[key].append(torch.empty(recv_shape, requires_grad=True, device=torch.cuda.current_device(), dtype=dtype))
 
+    return flatten_tensor_recv_prev
 
 def _partition(tensor, info, forward):
     """
@@ -140,10 +142,7 @@ def _reshape(recv_tensor, recv_info, forward):
 
         if not EXTRA_TENSOR_TRANSFER and recv_info["tensors"][key]["extra_tensor"]:
             data_size = tensor_list[0].size()
-            if args.model_name == "resnet":
-                data_type = torch.float32
-            else:
-                data_type = torch.float16
+            data_type = torch.float16
             for i in range(len(tensor_list)):
                 tensor_list[i] = torch.ones(data_size, requires_grad=True, device=torch.cuda.current_device(), dtype=data_type) 
 
@@ -211,7 +210,7 @@ def _communicate_flexpipe(
     prev_ranks = mpu.get_stage_comm_recv_ranks()
     next_ranks = mpu.get_stage_comm_send_ranks()
     num_parents = len(prev_ranks)
-    num_childs = len(next_ranks)      
+    num_childs = len(next_ranks) 
     tensor_recv_prev, extra_tensor_recv_prev, tensor_recv_next, extra_tensor_recv_next = None, None, None, None 
 
     # Create placeholder tensors for receive in forward and backward directions if needed.
@@ -677,7 +676,8 @@ def recv_forward(tensor_shape: Shape, config: ModelParallelConfig) -> tuple[torc
     """
 
     if core.parallel_state.is_pipeline_first_stage():
-        input_tensor = None
+        input_tensors = None
+        input_extra_tensors = None
     else:
         if config.timers is not None:
             config.timers('forward-recv', log_level=2).start()
@@ -717,7 +717,7 @@ def recv_backward(tensor_shape: Shape, config: ModelParallelConfig) -> tuple[tor
     return output_tensor_grad, output_extra_tensors_grad
 
 
-def send_forward(output_tensor: torch.Tensor, config: ModelParallelConfig, output_extra_tensor: torch.Tensor = None) -> None:
+def send_forward(output_tensor: torch.Tensor, config: ModelParallelConfig, output_extra_tensors: torch.Tensor = None) -> None:
     """Send tensor to next rank in pipeline (forward send).
 
     See _communicate for argument details.
@@ -729,7 +729,7 @@ def send_forward(output_tensor: torch.Tensor, config: ModelParallelConfig, outpu
         _communicate_flexpipe(
             tensor_send_next=output_tensor,
             tensor_send_prev=None,
-            extra_tensor_send_next=output_extra_tensor,
+            extra_tensor_send_next=output_extra_tensors,
             extra_tensor_send_prev=None,
             recv_prev=False,
             recv_next=False,
@@ -759,7 +759,7 @@ def send_backward(input_tensor_grad: torch.Tensor, config: ModelParallelConfig, 
 
 
 def send_forward_recv_backward(
-    output_tensor: torch.Tensor, recv_prev: bool, tensor_shape: Shape, config: ModelParallelConfig, output_extra_tensors: torch.Tensor = None
+    output_tensor: torch.Tensor, tensor_shape: Shape, config: ModelParallelConfig, output_extra_tensors: torch.Tensor = None
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Batched send and recv with next rank in pipeline.
 
@@ -767,6 +767,7 @@ def send_forward_recv_backward(
     """
     if core.parallel_state.is_pipeline_last_stage():
         output_tensor_grad = None
+        output_extra_tensors_grad = None
     else:
         if config.timers is not None:
             config.timers('forward-send-backward-recv', log_level=2).start()
@@ -775,7 +776,7 @@ def send_forward_recv_backward(
             tensor_send_prev=None,
             extra_tensor_send_next=output_extra_tensors,
             extra_tensor_send_prev=None,
-            recv_prev=recv_prev,
+            recv_prev=False,
             recv_next=True,
         )
         if config.timers is not None:
@@ -784,7 +785,7 @@ def send_forward_recv_backward(
 
 
 def send_backward_recv_forward(
-    input_tensor_grad: torch.Tensor, recv_next: bool, tensor_shape: Shape, config: ModelParallelConfig, extra_tensors_grad: torch.Tensor = None
+    input_tensor_grad: torch.Tensor, tensor_shape: Shape, config: ModelParallelConfig, extra_tensors_grad: torch.Tensor = None
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Batched send and recv with previous rank in pipeline.
 
@@ -792,6 +793,7 @@ def send_backward_recv_forward(
     """
     if core.parallel_state.is_pipeline_first_stage():
         input_tensor = None
+        extra_tensors = None
     else:
         if config.timers is not None:
             config.timers('backward-send-forward-recv', log_level=2).start()
@@ -801,7 +803,7 @@ def send_backward_recv_forward(
             extra_tensor_send_next=None,
             extra_tensor_send_prev=extra_tensors_grad,
             recv_prev=True,
-            recv_next=recv_next,
+            recv_next=False,
         )
         if config.timers is not None:
             config.timers('backward-send-forward-recv').stop()
@@ -903,7 +905,7 @@ def get_op_via_index(op_index, models):
     return None
 
 
-def send_shared_tensors(op, models, grads=False):
+def send_shared_tensors(op, grads=False):
     
     args = get_args()
     shared_tensor = op.get_shared_tensor(grads=grads)

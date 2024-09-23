@@ -13,7 +13,6 @@ import csv
 from .log_handler import CustomHandler
 # Make default logging level INFO, but filter out all log messages not from MCore.
 logging.basicConfig(handlers=[CustomHandler()], level=logging.INFO)
-from .theoretical_memory_usage import report_theoretical_memory
 import time
 # The earliest we can measure the start time.
 _TRAIN_START_TIME = time.time()
@@ -36,7 +35,7 @@ from megatron.legacy.data.data_samplers import build_pretraining_data_loader
 from megatron.core.transformer.moe.moe_utils import track_moe_metrics
 from megatron.core.pipeline_parallel import get_forward_backward_func
 
-from megatron.training.initialize import initialize_weights_sharing
+from megatron.training.arguments import core_transformer_config_from_args, flex_config_from_args
 
 from .utils import (
     calc_params_l2_norm,
@@ -417,8 +416,6 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
     # GPU allocation.
     for model_module in model:
         model_module.cuda(torch.cuda.current_device())
-    
-    initialize_weights_sharing(model)
 
     # Fp16 conversion.
     if args.fp16 or args.bf16:
@@ -426,7 +423,9 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
 
     if wrap_with_ddp:
         config = get_model_config(model[0])
+        flex_config = flex_config_from_args(args)
         model = [DDP(config,
+                     flex_config,
                      model_chunk,
                      data_parallel_group=mpu.get_data_parallel_group(with_context_parallel=True),
                      expert_data_parallel_group=mpu.get_data_modulo_expert_parallel_group(),
@@ -678,8 +677,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'optimizer']
 
     # Calculate batch size.
-    batch_size = args.micro_batch_size * args.data_parallel_size * \
-        get_num_microbatches()
+    batch_size = args.micro_batch_size * get_num_microbatches()
 
     # Track app tag & app tag ID
     if one_logger:
@@ -770,6 +768,8 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
     if args.num_experts is not None:
         moe_loss_scale = 1 / get_num_microbatches()
         track_moe_metrics(moe_loss_scale, iteration, writer, wandb_writer, total_loss_dict, args.moe_per_layer_logging)
+        
+    elapsed_time_per_iteration = 0
 
     if iteration % args.log_interval == 0:
         elapsed_time = timers('interval-time').elapsed(barrier=True)
@@ -833,9 +833,6 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         print_rank_last(log_string)
         if report_memory_flag and learning_rate > 0.:
             # Report memory after optimizer state has been initialized.
-            if torch.distributed.get_rank() == 0:
-                num_microbatches = get_num_microbatches()
-                report_theoretical_memory(args, num_microbatches=num_microbatches, verbose=True)
             report_memory('(after {} iterations)'.format(iteration))
             report_memory_flag = False
         _time_to_csv = timers.log(timers_to_log, normalizer=args.log_interval)

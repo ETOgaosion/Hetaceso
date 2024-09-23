@@ -72,15 +72,10 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
             config=config,
             flex_config=flex_config,
             transformer_layer_spec=transformer_layer_spec,
-            vocab_size=args.padded_vocab_size,
-            max_sequence_length=args.max_position_embeddings,
             pre_process=pre_process,
             post_process=post_process,
-            fp16_lm_cross_entropy=args.fp16_lm_cross_entropy,
             parallel_output=True,
             share_embeddings_and_output_weights=not args.untie_embeddings_and_output_weights,
-            position_embedding_type=args.position_embedding_type,
-            rotary_percent=args.rotary_percent,
         )
         exit()
     else:
@@ -121,7 +116,7 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):
     """
     args = get_args()
 
-    losses = output_tensor.float()
+    losses = output_tensor['output'].float()
     loss_mask = loss_mask.view(-1).float()
     if args.context_parallel_size > 1:
         loss = torch.cat([torch.sum(losses.view(-1) * loss_mask).view(1), loss_mask.sum().view(1)])
@@ -144,7 +139,7 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):
     return loss * args.context_parallel_size, {'lm loss': averaged_loss[0]}
 
 
-def forward_step(data_iterator, model: GPTModel):
+def forward_step(data_iterator, model: FlexGPTModel, extra_tensors_):
     """Forward training step.
 
     Args:
@@ -158,12 +153,17 @@ def forward_step(data_iterator, model: GPTModel):
     timers('batch-generator', log_level=2).start()
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
         data_iterator)
+    input_tensors = {}
+    input_tensors['input_ids'] = tokens
+    input_tensors['position_ids'] = position_ids
+    input_extra_tensors = {}
+    input_extra_tensors['labels'] = labels
+    input_extra_tensors['attention_mask'] = attention_mask
     timers('batch-generator').stop()
 
-    output_tensor = model(tokens, position_ids, attention_mask,
-                          labels=labels)
+    output_tensor, output_extra_tensors = model(input_tensors, input_extra_tensors)
 
-    return output_tensor, partial(loss_func, loss_mask)
+    return output_tensor, output_extra_tensors, partial(loss_func, loss_mask)
 
 
 def is_dataset_built_on_rank():

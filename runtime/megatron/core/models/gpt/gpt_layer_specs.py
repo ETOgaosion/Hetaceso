@@ -45,6 +45,7 @@ def get_gpt_layer_with_transformer_engine_spec(
             pre_mlp_layernorm=TENorm if num_experts else IdentityOp,
             mlp=mlp,
             mlp_bda=get_bias_dropout_add,
+            final_layernorm=TENorm
         ),
     )
 
@@ -79,6 +80,7 @@ def get_gpt_layer_local_spec(
                 'input_layernorm.': 'self_attention.linear_qkv.layer_norm_',
                 'pre_mlp_layernorm.': 'mlp.linear_fc1.layer_norm_',
             },
+            final_layernorm=FusedLayerNorm
         ),
     )
 

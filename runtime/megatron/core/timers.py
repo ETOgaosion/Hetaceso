@@ -72,6 +72,7 @@ class Timer(TimerBase):
         # Note that None will default to the global process group
         self._barrier_group = None
         self._start_time = time.time()
+        self._logged_times = 0
 
     def set_barrier_group(self, barrier_group):
         """Sets barrier group.
@@ -108,6 +109,7 @@ class Timer(TimerBase):
         self._elapsed += elapsed
         self._active_time += elapsed
         self._started = False
+        self._logged_times += 1
 
     def reset(self):
         """Reset timer.
@@ -115,6 +117,7 @@ class Timer(TimerBase):
         # Don't reset _active_time
         self._elapsed = 0.0
         self._started = False
+        self._logged_times = 0
 
     def elapsed(self, reset=True, barrier=False):
         """Calculates the elapsed time and restarts timer.
@@ -190,8 +193,8 @@ class Timers:
         )
         # Now if the input log level is larger than the one set for
         # the timers class, just ignore it and return a dummy timer.
-        if log_level > self._log_level:
-            return self._dummy_timer
+        # if log_level > self._log_level:
+        #     return self._dummy_timer
         # Otherwise, initalize the timer and set the level.
         self._timers[name] = Timer(name)
         self._log_levels[name] = log_level
@@ -368,9 +371,9 @@ class Timers:
         if rank == torch.distributed.get_rank() and output_string is not None:
             print(output_string, flush=True)
         
-        from megatron import mpu
-        from megatron.core import report_memory
-        from megatron.core import debug_mem_report
+        from megatron.core import mpu
+        from megatron.core.utils  import report_memory
+        from megatron.core.utils  import debug_mem_report
 
         assert normalizer > 0.0
         time_to_csv = [[],[]]
@@ -382,13 +385,15 @@ class Timers:
         string_mem, mem_to_csv = report_memory(f"\n==> Memory | [stage {mpu.get_pipeline_model_parallel_rank()}, virtual {mpu.get_virtual_pipeline_model_parallel_rank()}, rank {torch.distributed.get_rank()}]", get_list=True)
         
         for name in names:
-            logged_times = self.timers[name].logged_times
+            if name not in self._timers:
+                continue
+            logged_times = self._timers[name]._logged_times
             if logged_times > 0:
-                elapsed_time = self.timers[name].elapsed(
+                elapsed_time = self._timers[name].elapsed(
                     reset=reset) * 1000000.0 / logged_times
                 string_ops += ' | {}: {:.2f}'.format(name, elapsed_time)
             else:                   
-                elapsed_time = self.timers[name].elapsed(
+                elapsed_time = self._timers[name].elapsed(
                     reset=reset) * 1000.0 / normalizer
                 string += ' | {}: {:.2f}'.format(name, elapsed_time)
             time_to_csv[0].append(name)

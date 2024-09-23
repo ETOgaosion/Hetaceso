@@ -10,6 +10,7 @@ from .. import parallel_state as mpu
 from ..transformer.module import MegatronModule
 from ..transformer.transformer_config import TransformerConfig
 from .param_and_grad_buffer import ParamAndGradBuffer
+from ..flexmodels.common.flex_model_config import FlexModelConfig
 
 import os
 LOG_NAME = os.environ.get("LOG_NAME", None)
@@ -44,6 +45,7 @@ class DistributedDataParallel(MegatronModule):
     def __init__(
         self,
         config: TransformerConfig,
+        flexconfig: FlexModelConfig,
         module: torch.nn.Module,
         data_parallel_group: torch.distributed.ProcessGroup,
         accumulate_allreduce_grads_in_fp32: bool,
@@ -53,7 +55,6 @@ class DistributedDataParallel(MegatronModule):
         disable_bucketing: bool = False,
         check_for_nan_in_grad: bool = False,
         bucket_size: int = 40000000,
-        resharding_stages = None,
     ):
         super().__init__(config=config)
         self.module = module
@@ -145,11 +146,15 @@ class DistributedDataParallel(MegatronModule):
         )
 
         # Allocate separate param+grad buffers for expert parallel params' grads.
-        self.expert_parallel_buffers = allocate_buffers_for_parameters(
-            expert_parallel_params,
-            expert_data_parallel_group,
-            gradient_scaling_factor=1.0 / data_parallel_world_size,
-        )
+        if expert_data_parallel_group:
+            raise NotImplementedError('expert parallel not supported')
+            self.expert_parallel_buffers = allocate_buffers_for_parameters(
+                expert_parallel_params,
+                expert_data_parallel_group,
+                gradient_scaling_factor=1.0 / data_parallel_world_size,
+            )
+        else:
+            self.expert_parallel_buffers = []
 
         # Delete references to weight_tensor if they exist since we don't want two parameter copies
         # if we re-mapped parameters (which happens when we use the distributed optimizer).
@@ -178,7 +183,10 @@ class DistributedDataParallel(MegatronModule):
                 self.grad_accs.append(grad_acc)
         
         rank_in_pipeline = mpu.get_pipeline_model_parallel_rank()
-        self.resharding = resharding_stages[rank_in_pipeline]
+        if flexconfig.resharding_stages is not None:
+            self.resharding = flexconfig.resharding_stages[rank_in_pipeline]
+        else:
+            self.resharding = False
 
     def forward(self, *inputs, **kwargs):
         """
@@ -268,6 +276,7 @@ class DistributedDataParallel(MegatronModule):
             is_expert_parallel = not getattr(param, 'allreduce', True)
 
             if is_expert_parallel:
+                raise NotImplementedError('expert parallel not supported')
                 torch.distributed.broadcast(
                     param.data,
                     src=torch.distributed.get_process_group_ranks(self.expert_data_parallel_group),

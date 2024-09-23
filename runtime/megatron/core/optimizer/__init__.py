@@ -310,7 +310,10 @@ def get_megatron_optimizer(
     moe_param_groups = list(filter(lambda g: g['is_expert_parallel'], param_groups))
 
     # Create optimizers.
-    model_parallel_rank = torch.distributed.get_rank(mpu.get_model_parallel_group())
+    if mpu.get_model_parallel_group() is not None:
+        model_parallel_rank = torch.distributed.get_rank(mpu.get_model_parallel_group())
+    else:
+        model_parallel_rank = None
     optimizers = [
         _get_megatron_optimizer_based_on_param_groups(
             config,
@@ -322,6 +325,7 @@ def get_megatron_optimizer(
         )
     ]
     if len(moe_param_groups) > 0:
+        raise NotImplementedError('MoE optimizer not implemented yet.')
         model_parallel_world_size = torch.distributed.get_world_size(mpu.get_model_parallel_group())
         expert_parallel_rank = mpu.get_expert_model_parallel_rank()
         optimizers.append(
