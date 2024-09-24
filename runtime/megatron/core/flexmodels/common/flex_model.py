@@ -14,7 +14,6 @@ from megatron.core.flexmodels.common.flex_model_config import FlexModelConfig
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.pipeline_parallel.schedules import reset_checkpointed_activations_memory_buffer
 from megatron.core.tensor_parallel.random import checkpoint
-
 NUM_BATCHES = 0
 DEBUG_OUTPUT = os.environ.get("DEBUG_OUTPUT", "0") == "1"
 
@@ -85,7 +84,7 @@ def initialize_comm_info(
     src_op_index=0,
     dst_op_index=0,
 ):
-
+    
     num_ops = sum(mpu.get_num_ops_list())
     if dst_op_index < 0:
         dst_op_index = num_ops - 1

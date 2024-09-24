@@ -26,9 +26,24 @@ from megatron.training.utils import unwrap_model
 from megatron.core.utils import debug_mem_report, report_memory
 import os
 import time
+import inspect
 
 DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '0') == '1'
 EXTRA_TENSOR_TRANSFER = os.environ.get("EXTRA_TENSOR_TRANSFER", '1') == '1'
+
+def get_debug_file() -> str:
+    args = get_args()
+    current_rank = torch.distributed.get_rank()
+    file_name = f"{args.log_path}/p2p_debug_{current_rank}.log"
+    return file_name
+
+def get_code_info() -> str:
+    frame = inspect.currentframe().f_back
+    # 提取文件名和行号信息
+    frame_info = inspect.getframeinfo(frame)
+    # 使用 os.path.basename 只获取文件名
+    filename = os.path.basename(frame_info.filename)
+    return f"[{filename}: {frame_info.lineno}] "
 
 # Types
 Shape = Union[List[int], torch.Size]

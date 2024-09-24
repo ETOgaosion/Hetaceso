@@ -16,7 +16,7 @@ from megatron.core.flexmodels.common.flex_ops import (
     OpType,
     FlexLayerNormMlpDropoutInfo,
     FlexLayerNormSelfAttentionDropoutInfo,
-    FlexLayerNormPostProcessInfo
+    FlexLayerNormPostProcessInfo,
 )
 from megatron.core.flexmodels.common.flex_ops import gen_op
 from megatron.core.flexmodels.common.flex_model import get_flex_model
@@ -84,7 +84,7 @@ class FlexGPTModel(LanguageModule):
 
     def gen_oplist(self) -> list:
         op_list = []
-        
+
         op_list.append(
             FlexEmbeddingInfo(
                 op_type=OpType.EMBEDDING,
@@ -103,7 +103,7 @@ class FlexGPTModel(LanguageModule):
                 [
                     FlexLayerNormSelfAttentionDropoutInfo(
                         op_type=OpType.LAYER_NORM_SELF_ATTENTION_DROPOUT,
-                        op_index=i * num_ops_per_transformer + 0,
+                        op_index=1 + i * num_ops_per_transformer + 0,
                         op_name="dec-self-attention",
                         prev_name=prev_name,
                         config=self.config,
@@ -112,7 +112,7 @@ class FlexGPTModel(LanguageModule):
                     ),
                     FlexLayerNormMlpDropoutInfo(
                         op_type=OpType.LAYER_NORM_MLP_DROPOUT,
-                        op_index=i * num_ops_per_transformer + 1,
+                        op_index=1 + i * num_ops_per_transformer + 1,
                         op_name="dec-mlp",
                         prev_name="dec-self-attention",
                         config=self.config,
@@ -125,7 +125,7 @@ class FlexGPTModel(LanguageModule):
         op_list.append(
             FlexLayerNormPostProcessInfo(
                 op_type=OpType.LAYER_NORM_POST_PROCESS,
-                op_index=self.config.num_layers * num_ops_per_transformer,
+                op_index=1 + self.config.num_layers * num_ops_per_transformer,
                 op_name="dec-post-process",
                 prev_name=prev_name,
                 config=self.config,
