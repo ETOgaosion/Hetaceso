@@ -19,8 +19,8 @@ MICRO_BATCH_SIZE=4
 GLOBAL_BATCH_SIZE=16
 
 
-VOCAB_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-vocab.json
-MERGE_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-merges.txt
+VOCAB_FILE=/workspace/file/vocabs/gpt2-vocab.json
+MERGE_FILE=/workspace/file/vocabs/gpt2-merges.txt
 
 
 DISTRIBUTED_ARGS="
@@ -47,7 +47,7 @@ GPT_ARGS="
     --micro-batch-size $MICRO_BATCH_SIZE \
     --global-batch-size $GLOBAL_BATCH_SIZE \
     --lr 0.00015 \
-    --train-iters 1 \
+    --train-iters 20 \
     --lr-decay-iters 320000 \
     --lr-decay-style cosine \
     --min-lr 1.0e-5 \
@@ -66,7 +66,8 @@ FLEX_ARGS="
 "
 
 
-torchrun $DISTRIBUTED_ARGS pretrain_gpt.py \
+torchrun $DISTRIBUTED_ARGS \
+    pretrain_gpt.py \
     $GPT_ARGS \
     $FLEX_ARGS \
     $DATA_ARGS \

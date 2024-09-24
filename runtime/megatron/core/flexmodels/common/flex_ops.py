@@ -177,7 +177,7 @@ class FlexLayerNormSelfAttentionDropoutInfo:
     submodules: TransformerLayerSubmodules
     layer_number: int = 1
     hidden_dropout: float = None
-    
+
 
 class FlexLayerNormSelfAttentionDropout(FlexModule):
     """
@@ -419,9 +419,9 @@ class FlexLayerNormPostProcess(FlexModule):
             hidden_size=self.config.hidden_size,
             eps=self.config.layernorm_epsilon,
         )
-        
+
         self.parallel_output = parallel_output
-        
+
         self.loss_func = vocab_parallel_cross_entropy
         self.lm_logits_func = parallel_lm_logits
         self.fp16_lm_cross_entropy = config.fp16_lm_cross_entropy
@@ -429,9 +429,9 @@ class FlexLayerNormPostProcess(FlexModule):
         self.word_embeddings.weight.data.fill_(0)
         self.word_embeddings.weight.shared = True
         self.word_embeddings.weight.shared_embedding = True
-        
+
         self.weight_size = config.padded_vocab_size * config.hidden_size / self.tp_size
-        
+
         self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
         self.output_tensors_info = {'output_tensor': {'shape': [1], 'tp_split_dim': -1, 'dp_split_dim': -1}}
 
@@ -443,6 +443,7 @@ class FlexLayerNormPostProcess(FlexModule):
         profiling=False,
     ):
         output_tensors = {}
+
         if type(input_tensors) is list:
             input_tensors = input_tensors[0]
         hidden_states: Tensor = input_tensors["hidden_states"]
@@ -450,12 +451,14 @@ class FlexLayerNormPostProcess(FlexModule):
 
         # Optional Layer norm post the cross-attention.
         final_layernorm_output = self.final_layernorm(hidden_states)
-        
+
         logit_weights = self.word_embeddings.weight
         labels = input_extra_tensors['labels']
         
         output = self.lm_logits_func(final_layernorm_output, logit_weights, self.parallel_output)
         output = output.transpose(0, 1).contiguous()
+
+        
         if labels is None:
             output_tensors['output_tensor'] = output
         else:

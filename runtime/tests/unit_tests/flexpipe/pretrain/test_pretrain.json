@@ -20,9 +20,9 @@
     ],
     "tensor_parallel_size_of_each_op": [
         [
-            2,
-            2,
-            2
+            1,
+            1,
+            1
         ],
         [
             2,
@@ -32,9 +32,9 @@
     ],
     "data_parallel_size_of_each_op": [
         [
-            1,
-            1,
-            1
+            2,
+            2,
+            2
         ],
         [
             1,

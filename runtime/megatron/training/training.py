@@ -56,7 +56,7 @@ from .global_vars import (
     get_num_microbatches,
     update_num_microbatches)
 
-
+import pdb
 DEBUG_GRAD = os.environ.get("DEBUG_GRAD", '0') == '1'
 DEBUG_FIX_WEIGHT = os.environ.get("DEBUG_FIX_WEIGHT", '0') == '1'
 DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '0') == '1'
@@ -588,9 +588,11 @@ def train_step(forward_step_func, data_iterator,
 
     # Update learning rate.
     if update_successful:
-        increment = get_num_microbatches() * \
-                    args.micro_batch_size * \
-                    args.data_parallel_size
+        increment = args.micro_batch_size * get_num_microbatches()
+        print(f"increment: {increment}")
+        # increment = get_num_microbatches() * \
+        #             args.micro_batch_size * \
+        #             args.data_parallel_size
         opt_param_scheduler.step(increment=increment)
         skipped_iter = 0
     else:
@@ -838,7 +840,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         _time_to_csv = timers.log(timers_to_log, normalizer=args.log_interval)
         if iteration == (args.train_iters - 1):
             time_to_csv = [["global_batch_size", "time"] + _time_to_csv[0], [batch_size, f"{elapsed_time_per_iteration * 1000.0:.2f}"] + _time_to_csv[1]]
-            with open(f"{args.log_path}csv/{args.log_name}_stage{mpu.get_pipeline_model_parallel_rank()}_rank{torch.distributed.get_rank()}.csv", mode="w", newline="") as file:
+            with open(f"{args.log_path}/csv/stage{mpu.get_pipeline_model_parallel_rank()}_rank{torch.distributed.get_rank()}.csv", mode="w", newline="") as file:
                 writer = csv.writer(file)
                 for row in time_to_csv:
                     writer.writerow(row)

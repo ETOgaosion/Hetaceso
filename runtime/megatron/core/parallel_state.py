@@ -887,7 +887,7 @@ def get_pipeline_model_parallel_group():
 def get_data_parallel_group(op_index=None, with_context_parallel=False):
     """Get the data parallel group the caller rank belongs to."""
     with_context_parallel = False
-    print('context parallel not implemented, with_context_parallel is set to False')
+    # print('context parallel not implemented, with_context_parallel is set to False')
     assert with_context_parallel == False, 'context parallel not implemented'
     assert _DATA_PARALLEL_GROUP is not None, \
         'data parallel group is not initialized'
@@ -900,7 +900,7 @@ def get_data_parallel_group(op_index=None, with_context_parallel=False):
 def get_data_parallel_group_gloo(with_context_parallel=False):
     """Get the data parallel group-gloo the caller rank belongs to."""
     with_context_parallel = False
-    print('context parallel not implemented, with_context_parallel is set to False')
+    # print('context parallel not implemented, with_context_parallel is set to False')
     if with_context_parallel:
         assert (
             _DATA_PARALLEL_GROUP_WITH_CP_GLOO is not None
@@ -1572,6 +1572,11 @@ def get_data_parallel_group_via_op_index(op_index):
     pp_stage = get_pipeline_model_parallel_rank()
     start_op_index = _OPS_START_INDEX_LIST[pp_stage]
     return _DATA_PARALLEL_GROUP[op_index - start_op_index]
+
+def get_data_parallel_ranks():
+    assert _DATA_PARALLEL_RANKS is not None, \
+        'data parallel group is not initialized'
+    return _DATA_PARALLEL_RANKS[0]  
 
 def get_data_parallel_ranks_via_op_index(op_index):
     assert _DATA_PARALLEL_RANKS is not None, \
