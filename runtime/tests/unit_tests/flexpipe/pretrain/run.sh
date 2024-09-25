@@ -9,7 +9,6 @@ MASTER_PORT=6000
 NNODES=3
 NODE_RANK=$1
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
-
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16

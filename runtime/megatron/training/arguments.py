@@ -174,7 +174,7 @@ def validate_args(args, defaults={}):
 
     # Load saved args from Retro (if applicable).
     load_retro_args(args)
-
+    print(f"world_size: {args.world_size}")
     assert args.world_size == sum(args.num_gpus), \
         'number of GPUs should be equal to sum(mp_size * dp_size)'
     
