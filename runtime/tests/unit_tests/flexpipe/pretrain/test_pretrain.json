@@ -10,9 +10,13 @@
     ],
     "flex_recompute_activations": [
         true,
+        false,
+        false,
         false
     ],
     "resharding_stages": [
+        false,
+        false,
         false,
         false
     ],
