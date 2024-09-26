@@ -11,10 +11,10 @@ chmod +x script/*.sh
 
 ## TODO
 
+- [ ] Imbalanced assignment of dp/sp workloads
 - [ ] Share weights between embedding layer and post process output layer, use Megatron's `_allreduce_word_embedding_grads` mechanism and `_EMBEDDING_GROUP` in parallel_state.py. Need to add first and last pp rank into it. Currently use `untie_embeddings_and_output_weights` to disable weight sharing, remove it if finish implementation.
     - [ ] allreduce position embedding grads not supported either
 - [ ] Other Configurations debug
-    - [ ] flexible tp/dp
     - [ ] flexible recompute
 - [ ] Megatron new features support
     - [ ] RoPE (with CP)
