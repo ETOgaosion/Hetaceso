@@ -6,6 +6,7 @@ import inspect
 
 import torch
 from torch.autograd.variable import Variable
+import torch.distributed
 
 from megatron.core import parallel_state
 from megatron.core.enums import ModelType

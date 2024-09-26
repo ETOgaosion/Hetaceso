@@ -44,14 +44,14 @@
     ],
     "recompute_ops": [
         [
-            0,
-            0,
-            0
+            false,
+            true,
+            true
         ],
         [
-            0,
-            0,
-            0
+            true,
+            true,
+            false
         ]
     ],
     "algo_of_each_op": [
