@@ -8,23 +8,31 @@ import pickle
 import os 
 import numpy as np 
 import sys
-sys.path.append("../runtime/")
-from megatron.initialize import initialize_megatron
-from megatron import get_args, mpu
-from megatron.model.flex_resnet import FlexResNet
-from megatron.model.flex_gpt import FlexGPTModel
-from megatron.model.flex_t5 import FlexT5Model
-from megatron.model.flex_ops import gen_op
-from megatron.model import DistributedDataParallel as LocalDDP
-from megatron.utils import unwrap_model
-from megatron.model import Float16Module
-from megatron.utils import debug_mem_report
-from megatron.utils import report_memory
-from model_configs import model_prof_configs, resnet_configs, gpt_configs, t5_configs
 
+
+sys.path.append("../runtime")
+from megatron.training.arguments import core_transformer_config_from_args, flex_config_from_args
+from megatron.training.yaml_arguments import core_transformer_config_from_yaml
+from megatron.training import initialize_megatron
+from megatron.training import get_args
+from megatron.core import mpu 
+from megatron.core.flexmodels.gpt.flex_gpt import FlexGPTModel
+# from megatron.model.flex_resnet import FlexResNet
+# from megatron.model.flex_t5 import FlexT5Model
+from megatron.core.flexmodels.common.flex_ops import OpInfo, gen_op
+from megatron.core.distributed import DistributedDataParallel as DDP
+from megatron.core.transformer.module import Float16Module
+from megatron.core.utils import report_memory, debug_mem_report, unwrap_model
+from megatron.core.transformer.spec_utils import import_module
+from model_configs import model_prof_configs, resnet_configs, gpt_configs, t5_configs
+from megatron.core.models.gpt.gpt_layer_specs import (
+    get_gpt_layer_local_spec,
+    get_gpt_layer_with_transformer_engine_spec,
+)
 DATA_BASE = 4/(1024 * 1024)
 SKIP_RUNNING = os.environ.get("SKIP_RUNNING", '0') == '1'
 
+import pdb
 ## shapes for input tensors and extra tensors
 input_shape_dict = {}
 input_extra_dict = {}
@@ -42,29 +50,35 @@ def print_cached_dicts(cached_dict):
     for item in cached_dict:
         print(f"{item}: {cached_dict[item]}")
 
-def wrap_op(op):
+def wrap_op(op, config, flex_config):
     args = get_args()
     for key in op.output_extra_tensors_info:
         op.output_extra_tensors_info[key]["cross_stage"] = True
     all_ranks = mpu.get_ranks_via_pipeline_stage(mpu.get_pipeline_model_parallel_rank())
     input_mats = np.array(all_ranks).reshape([1, 1, 1, op.dp_size, op.tp_size])    
     input_mats_ = {}
-    for name in op.required_input_specs:
-        input_mats_[name] = input_mats
     op.input_mats = input_mats_
 
-    for param in op.parameters():
-        mpu.set_defaults_if_not_set_tensor_model_parallel_attributes(param)
+    # for param in op.parameters():
+    #     mpu.set_defaults_if_not_set_tensor_model_parallel_attributes(param)
 
     op.cuda(torch.cuda.current_device())
     if args.fp16:
-        op = Float16Module(op, args) 
+        op = Float16Module(config, op) 
 
-    if args.DDP_impl == 'local':
-        op = LocalDDP(op,
-                          args.accumulate_allreduce_grads_in_fp32,
-                          args.use_contiguous_buffers_in_ddp)
-        return op
+    op = DDP(config,
+                     flex_config,
+                     op,
+                     data_parallel_group=mpu.get_data_parallel_group(with_context_parallel=True),
+                     expert_data_parallel_group=mpu.get_data_modulo_expert_parallel_group(),
+                     accumulate_allreduce_grads_in_fp32=args.accumulate_allreduce_grads_in_fp32,
+                     overlap_grad_reduce=args.overlap_grad_reduce,
+                     use_distributed_optimizer=args.use_distributed_optimizer,
+                     # Turn off bucketing for model_chunk 2 onwards, since communication for these
+                     # model chunks is overlapped with compute anyway.
+                     disable_bucketing=True,
+                     check_for_nan_in_grad=args.check_for_nan_in_loss_and_grad)
+    return op
     # return op
     raise NotImplementedError('Unknown DDP implementation specified: {}. '
                               'Exiting.'.format(args.DDP_impl))
@@ -90,10 +104,11 @@ def get_params_dtype(params_dtype):
 def get_model(model_name, model_size):
     
     args = get_args()
+
     if model_name == "resnet":
         num_layers_list, base_channels, width_factor, params_dtype = resnet_configs[model_size]
         params_dtype = get_params_dtype(params_dtype)
-        model = FlexResNet(num_layers_list=num_layers_list, in_channels=base_channels, width_factor=width_factor, profiling=True)
+        # model = FlexResNet(num_layers_list=num_layers_list, in_channels=base_channels, width_factor=width_factor, profiling=True)
     elif model_name == "gpt":
         num_layers, seq_len, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype = gpt_configs[model_size]
         params_dtype = get_params_dtype(params_dtype)
@@ -106,7 +121,32 @@ def get_model(model_name, model_size):
         args.padded_vocab_size = vocab_size
         args.num_layers = num_layers
         args.seq_length = seq_len
-        model = FlexGPTModel(num_layers=num_layers, hidden_size=hidden_size, ffn_hidden_size=ffn_hidden_size, num_attention_heads=num_attention_heads, kv_channels=kv_channels, profiling=True)
+        use_te = args.transformer_impl == "transformer_engine"
+        if args.yaml_cfg is not None:
+            config = core_transformer_config_from_yaml(args, "language_model")
+        else:
+            config = core_transformer_config_from_args(args)
+        flex_config = flex_config_from_args(args)
+        if args.use_mcore_models:
+            if args.spec is not None:
+                transformer_layer_spec = import_module(args.spec)
+            else:
+                if use_te:
+                    transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(args.num_experts, args.moe_grouped_gemm)
+                else:
+                    transformer_layer_spec = get_gpt_layer_local_spec(args.num_experts, args.moe_grouped_gemm)
+        model = FlexGPTModel(
+            config=config,
+            flex_config=flex_config,
+            transformer_layer_spec=transformer_layer_spec,
+            pre_process=True,
+            post_process=True,
+            parallel_output=True,
+            share_embeddings_and_output_weights=not args.untie_embeddings_and_output_weights,
+            profiling=True
+        )
+        args.model_name = model_name
+        return model, config, flex_config
     elif model_name == "t5":
         num_layers, encoder_seq_length, decoder_seq_length, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype = t5_configs[model_size]
         params_dtype = get_params_dtype(params_dtype)
@@ -121,12 +161,12 @@ def get_model(model_name, model_size):
         args.padded_vocab_size = vocab_size
         args.num_layers = num_layers
         args.resharding_stages = [False]
-        model = FlexT5Model(profiling=True)
+        # model = FlexT5Model(profiling=True)
 
     args.model_name = model_name
     return model
 
-def infer_data_size(op_list, save_filename_prefix, mbs, algo):
+def infer_data_size(op_list: list[OpInfo], save_filename_prefix: str, mbs: int, algo):
     '''
     Infer each op's input/output tensor shape, which will be used to generate input/output tensor during the profiling.
     '''
@@ -136,9 +176,9 @@ def infer_data_size(op_list, save_filename_prefix, mbs, algo):
 
     prev_extra_size = 0
     for op_info in op_list:
-        op_info["op_index"] = 0
-        op_uniq_name = save_filename_prefix + op_info["name"] + f"mbs{mbs}tp_size{tp_size}algo{algo}"
-        op = unwrap_model(gen_op(op_info, algo=algo), (LocalDDP, Float16Module)) 
+        op_info.op_index = 0
+        op_uniq_name = save_filename_prefix + op_info.op_name + f"mbs{mbs}tp_size{tp_size}algo{algo}"
+        op = unwrap_model(gen_op(op_info), (DDP, Float16Module)) 
 
         weight_size_dict[op_uniq_name] = np.prod(op.weight_size) * DATA_BASE
         sum_input_size = 0
@@ -149,16 +189,7 @@ def infer_data_size(op_list, save_filename_prefix, mbs, algo):
         ## infer input tensor size
         for input_name in op.input_tensors_info:
             input_shape = op.input_tensors_info[input_name]["shape"]
-            tp_split_dim = op.input_tensors_info[input_name]["tp_split_dim"]
-            if len(op.required_input_specs[input_name]) == 0 or op.required_input_specs[input_name]["R"] == op.tp_size:
-                apply_tp = False
-            elif op.required_input_specs[input_name]["R"] == 1:
-                apply_tp = True
-            else:
-                raise RuntimeError(f"not supported input spec for op ({input_name}): {op.required_input_specs[input_name]}")
-            if apply_tp:
-                input_shape[tp_split_dim] //= op.tp_size
-            
+            tp_split_dim = op.input_tensors_info[input_name]["tp_split_dim"] 
             _input_shape_dict[input_name] = input_shape
             sum_input_size += np.prod(input_shape) * DATA_BASE
         sum_input_size += prev_extra_size
@@ -167,31 +198,16 @@ def infer_data_size(op_list, save_filename_prefix, mbs, algo):
         for output_name in op.output_tensors_info:
             output_shape = op.output_tensors_info[output_name]["shape"]
             tp_split_dim = op.output_tensors_info[output_name]["tp_split_dim"]
-            if len(op.output_specs[output_name]) == 0 or op.output_specs[output_name]["R"] == op.tp_size:
-                apply_tp = False
-            elif op.output_specs[output_name]["R"] == 1:
-                apply_tp = True
-            else:
-                raise RuntimeError(f"not supportted input spec for op ({output_name}): {op.output_specs[output_name]}")
-            if apply_tp:
-                output_shape[tp_split_dim] //= op.tp_size
             sum_output_size += np.prod(output_shape) * DATA_BASE
         ## save the inferred size
         activation_size_dict[op_uniq_name] = sum_output_size
 
         ## infer input extra tensor size
         sum_input_extra_size = 0
+
         for input_extra_name in op.input_extra_tensors_info:
             input_shape = op.input_extra_tensors_info[input_extra_name]["shape"]
             tp_split_dim = op.input_extra_tensors_info[input_extra_name]["tp_split_dim"]
-            if op.required_input_extra_specs[input_extra_name]["R"] == op.tp_size:
-                apply_tp = False
-            elif op.required_input_extra_specs[input_extra_name]["R"] == 1:
-                apply_tp = True
-            else:
-                raise RuntimeError(f"not supportted input spec for op ({input_extra_name}): {op.required_input_extra_specs[input_extra_name]}")
-            if apply_tp:
-                input_shape[tp_split_dim] //= op.tp_size
             _input_extra_dict[input_extra_name] = input_shape
             ## current workaround for masks.
             if "mask" not in input_extra_name:
@@ -213,7 +229,7 @@ def infer_data_size(op_list, save_filename_prefix, mbs, algo):
             sum_output_extra_size += np.prod(output_shape) * DATA_BASE
 
         current_extra_size = prev_extra_size + sum_output_extra_size - sum_input_extra_size
-        print(f"{op_info['name']}: current_extra_size = {current_extra_size}= prev_extra_size {prev_extra_size}+ sum_output_extra_size {sum_output_extra_size}- sum_input_extra_size {sum_input_extra_size}")
+        print(f"{op_info.op_name}: current_extra_size = {current_extra_size}= prev_extra_size {prev_extra_size}+ sum_output_extra_size {sum_output_extra_size}- sum_input_extra_size {sum_input_extra_size}")
         sum_output_size += current_extra_size
         prev_extra_size = current_extra_size
 
@@ -228,14 +244,14 @@ def get_inputs(op_uniq_name, params_dtype):
     input_extra_tensors = {}
     for input_name in input_shape_dict[op_uniq_name]:
         input_shape = input_shape_dict[op_uniq_name][input_name]
-        if input_name in ["enc_input_ids", "enc_position_ids"]:
+        if input_name in ["input_ids", "position_ids"]:
             inputs[input_name] = torch.rand(input_shape, requires_grad=False, device=torch.cuda.current_device()).long() 
         else:
             inputs[input_name] = torch.rand(input_shape, requires_grad=True, device=torch.cuda.current_device(), dtype=params_dtype)        
 
     for input_extra_name in input_extra_dict[op_uniq_name]:
         input_shape = input_extra_dict[op_uniq_name][input_extra_name]
-        if input_extra_name in ["enc_attention_mask", "dec_attention_mask", "enc_dec_attention_mask"]:
+        if input_extra_name in ["attention_mask", "enc_attention_mask", "dec_attention_mask", "enc_dec_attention_mask"]:
             input_extra_tensors[input_extra_name] = (torch.rand(input_shape, requires_grad=False, device=torch.cuda.current_device(), dtype=params_dtype) < 0.5)
         else:
             input_extra_tensors[input_extra_name] = torch.rand(input_shape, requires_grad=True, device=torch.cuda.current_device(), dtype=params_dtype)
@@ -244,30 +260,30 @@ def get_inputs(op_uniq_name, params_dtype):
 
 ## this function is used for resnet, to find same operators.
 ## for GPT and T5, no need to hash op, because the possiblities are less.
-def get_op_hash(op_info, micro_batch_size, tp_size, algo, save_filename_prefix):
+def get_op_hash(op_info: OpInfo, micro_batch_size, tp_size, algo, save_filename_prefix):
     hash_str = save_filename_prefix + "mbs" + str(micro_batch_size) + "tp" + str(tp_size)
     args = get_args()
-    
+    #TODO: need refractor
     if args.model_name == "resnet":
         for op_type in ["conv", "downsample", "bn", "relu", "maxpool", "avgpool", "fc"]:
-            if op_type in op_info["name"]:
+            if op_type in op_info.op_name:
                 current_op_type = op_type
                 hash_str += op_type
-        for item in op_info:
-            if item not in ["name", "prev_name", "op_index"]:
-                hash_str +=  str(op_info[item])
+        for attr, value in op_info.__dict__.items():
+            if attr not in ["op_name", "prev_name", "op_index"]:
+                hash_str +=  str(value)
         if current_op_type in ["conv", "downsample"]:
             hash_str += "_algo" + str(algo)        
     else:
-        hash_str += op_info["name"]
+        hash_str += op_info.op_name
         for gemm_op_name in ["qkv", "dense", "GEMM"]:
-            if gemm_op_name in op_info["name"]:
+            if gemm_op_name in op_info.op_name:
                 hash_str += "_algo" + str(algo)
 
     return hash_str
 
-def get_input_tensors(op_info, input_data, input_extra_tensors):
-    if op_info["name"] == "encoder-embedding":
+def get_input_tensors(op_info: OpInfo, input_data, input_extra_tensors):
+    if op_info.op_name == "encoder-embedding":
         input_tensors = None
     else:
         input_tensors = []
@@ -284,6 +300,7 @@ def get_outputs_and_grads(output_tensors, output_extra_tensors, grad_type):
     ## keep original output tensors 
     origin_outputs = []
     for output_name in output_tensors:
+        print(f"output_name: {output_name}")
         origin_outputs.append(output_tensors[output_name])
     for output_extra_name in output_extra_tensors:
         origin_outputs.append(output_extra_tensors[output_extra_name])
@@ -305,18 +322,19 @@ def get_outputs_and_grads(output_tensors, output_extra_tensors, grad_type):
 
     return origin_outputs, output_grads
 
-def profile_op(mbs, algo, op_info, params_dtype, grad_type, op_uniq_name):
+def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name, config, flex_config):
     global profiled_results
-    op_info["op_index"] = 0
-    op = wrap_op(gen_op(op_info, algo=algo))
+    op_info.op_index = 0
+    op = wrap_op(gen_op(op_info), config, flex_config)
     input_data, input_extra_tensors = get_inputs(op_uniq_name, params_dtype)
     input_tensors = get_input_tensors(op_info, input_data, input_extra_tensors)
     output_extra_tensors = {}
 
+    
     ## Profiling forward/backward computation time
     sum_fwd_time = 0
     sum_bwd_time = 0
-    if op_info["name"] in ["gpt-post-process", "t5-post-process"]:
+    if op_info.op_name in ["dec-post-process", "t5-post-process"]:
         for index in range(args.prof_repeat_times[0] + args.prof_warmup_times):
             torch.cuda.synchronize()
             start_time = time.time()
@@ -375,10 +393,11 @@ def profile_op(mbs, algo, op_info, params_dtype, grad_type, op_uniq_name):
         else:
             avg_fwd_time = sum_fwd_time * 1000000 / remaining_fwd_times
 
+        print(f"output_data: {output_data}")
         origin_outputs, output_grads = get_outputs_and_grads(output_data, output_extra_tensors, grad_type) 
 
         ### one-time warmup for backward
-        if op_info["name"] == "encoder-embedding":
+        if op_info.op_name == "encoder-embedding":
             torch.autograd.backward(origin_outputs, grad_tensors=output_grads, retain_graph=True)
         else:
             torch.autograd.grad(outputs=origin_outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
@@ -387,7 +406,7 @@ def profile_op(mbs, algo, op_info, params_dtype, grad_type, op_uniq_name):
         torch.cuda.synchronize()
         start_time = time.time()
         for index in range(remaining_bwd_times):
-            if op_info["name"] == "encoder-embedding":
+            if op_info.op_name == "encoder-embedding":
                 torch.autograd.backward(origin_outputs, grad_tensors=output_grads, retain_graph=True)
             else:
                 torch.autograd.grad(outputs=origin_outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
@@ -436,7 +455,7 @@ def profile_op(mbs, algo, op_info, params_dtype, grad_type, op_uniq_name):
         outputs.append(output_extra_tensors[output_extra_name])
         output_grads.append(torch.randn(output_extra_tensors[output_extra_name].size(), requires_grad=False, device=torch.cuda.current_device(), dtype=grad_type) )
 
-    if op_info["name"] == "encoder-embedding":
+    if op_info.op_name == "encoder-embedding":
         input_tensors = None          
         torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True)                    
     else:
@@ -458,7 +477,7 @@ def profile_op(mbs, algo, op_info, params_dtype, grad_type, op_uniq_name):
 
     return avg_fwd_time, avg_bwd_time, _mem_reserved_fwd, _mem_reserved_bwd, _mem_allocated 
 
-def dump_profiled_results(save_filename_prefix, mbs, algo, op_list):
+def dump_profiled_results(save_filename_prefix, mbs, algo, op_list: list[OpInfo]):
     global profiled_results
     args = get_args()
     if torch.distributed.get_rank() == 0:
@@ -470,7 +489,7 @@ def dump_profiled_results(save_filename_prefix, mbs, algo, op_list):
         f_csv = csv.writer(f_result)
         f_csv.writerow(result_title)
         for op_info in op_list:
-            op_name = save_filename_prefix + op_info["name"] + f"mbs{mbs}tp_size{args.prof_tp_size}algo{algo}"
+            op_name = save_filename_prefix + op_info.op_name + f"mbs{mbs}tp_size{args.prof_tp_size}algo{algo}"
             fwd_time = '{:.3f}'.format(float(profiled_results[op_name][0]))
             bwd_time = '{:.3f}'.format(float(profiled_results[op_name][1]))            
             input_size = '{:.3f}'.format(float(profiled_results[op_name][2]))
@@ -479,7 +498,7 @@ def dump_profiled_results(save_filename_prefix, mbs, algo, op_list):
             activations = '{:.3f}'.format(float(profiled_results[op_name][5]))
             reserved_fwd = '{:.3f}'.format(float(profiled_results[op_name][6]))
             reserved_bwd = '{:.3f}'.format(float(profiled_results[op_name][7]))
-            f_csv.writerow([op_info["name"], fwd_time, bwd_time, input_size, output_size, weight_size, activations, reserved_fwd, reserved_bwd]) 
+            f_csv.writerow([op_info.op_name, fwd_time, bwd_time, input_size, output_size, weight_size, activations, reserved_fwd, reserved_bwd]) 
 
         save_dict = {}
         save_dict["profiled_results"] = profiled_results
@@ -495,7 +514,8 @@ def estimate_profile_time(task):
 
     args = get_args()
     args.micro_batch_size = mbs
-    op_list = get_model(model, size).full_op_list
+    flex_model, config, flex_config = get_model(model, size)
+    op_list:list[OpInfo] = flex_model.full_op_list
     tp_size = args.prof_tp_size
     algo_list = model_prof_configs[model]["algo"]
     save_filename_prefix = f"{model}_{size}"
@@ -503,7 +523,7 @@ def estimate_profile_time(task):
     sum_time = 0
     for algo in algo_list:
         for op_info in op_list:
-            op_uniq_name = save_filename_prefix + op_info["name"] + f"mbs{mbs}tp_size{tp_size}algo{algo}" 
+            op_uniq_name = save_filename_prefix + op_info.op_name + f"mbs{mbs}tp_size{tp_size}algo{algo}" 
             op_hash = get_op_hash(op_info, mbs, tp_size, algo, save_filename_prefix)
             if op_uniq_name in ref_data:
                 if op_hash not in new_hash_list:
@@ -529,9 +549,11 @@ def run_profile(task):
     size = task["size"]
     mbs = task["mbs"]
 
-    args = get_args()
     grad_type = torch.float
-    op_list = get_model(model, size).full_op_list
+    flex_model, config, flex_config = get_model(model, size)
+    op_list: list[OpInfo] = flex_model.full_op_list
+
+    args = get_args()
     tp_size = args.prof_tp_size
     algo_list = model_prof_configs[model]["algo"]
     params_dtype = args.params_dtype
@@ -543,29 +565,29 @@ def run_profile(task):
         infer_data_size(op_list, save_filename_prefix, mbs, algo)
         # run profiling
         for op_info in op_list:
-            op_uniq_name = save_filename_prefix + op_info["name"] + f"mbs{mbs}tp_size{tp_size}algo{algo}" 
+            op_uniq_name = save_filename_prefix + op_info.op_name + f"mbs{mbs}tp_size{tp_size}algo{algo}" 
             op_hash = get_op_hash(op_info, mbs, tp_size, algo, save_filename_prefix)
             if op_uniq_name in profiled_results:
-                print_rank0(f"working on {op_info['name']}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... Hit same op in cache!!!")  
+                print_rank0(f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... Hit same op in cache!!!")  
                 continue
             elif op_hash in op_hash_list:
-                print_rank0(f"working on {op_info['name']}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... Hit identical op in cache!!!")  
+                print_rank0(f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... Hit identical op in cache!!!")  
                 _profiled_results = list(profiled_results[op_hash_list[op_hash]])
                 _profiled_results[2] = input_size_dict[op_uniq_name]
                 _profiled_results[3] = output_size_dict[op_uniq_name]
                 profiled_results[op_uniq_name] = _profiled_results
                 continue                             
             else:
-                print_rank0(f"working on {op_info['name']}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... ")  
+                print_rank0(f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... ")  
                 try:
                     if SKIP_RUNNING:
                         _fwd_time, _bwd_time, _reserved_fwd, _reserved_bwd, _allocated_fwd = 0, 0, 0, 0, 0
                     else:
-                        _fwd_time, _bwd_time, _reserved_fwd, _reserved_bwd, _allocated_fwd = profile_op(mbs, algo, op_info, params_dtype, grad_type, op_uniq_name) 
+                        _fwd_time, _bwd_time, _reserved_fwd, _reserved_bwd, _allocated_fwd = profile_op(mbs, algo, op_info, params_dtype, grad_type, op_uniq_name, config, flex_config) 
                 except RuntimeError as e:
                     print(e)
                     _fwd_time, _bwd_time, _reserved_fwd, _reserved_bwd, _allocated_fwd = 10000000, 10000000, 10000000, 10000000, 10000000
-                print(f"[results] {op_info['name']}: fwd_compute = {_fwd_time:.2f} us, bwd_compute = {_bwd_time:.2f} us, fwd_allocated = {_allocated_fwd:.1f} MB, fwd_reserved = {_reserved_fwd:.1f} MB, bwd_reserved = {_reserved_bwd:.1f} MB.")
+                print(f"[results] {op_info.op_name}: fwd_compute = {_fwd_time:.2f} us, bwd_compute = {_bwd_time:.2f} us, fwd_allocated = {_allocated_fwd:.1f} MB, fwd_reserved = {_reserved_fwd:.1f} MB, bwd_reserved = {_reserved_bwd:.1f} MB.")
             
             profiled_results[op_uniq_name] = [_fwd_time, _bwd_time, input_size_dict[op_uniq_name], output_size_dict[op_uniq_name], weight_size_dict[op_uniq_name], _allocated_fwd, _reserved_fwd, _reserved_bwd]
             op_hash_list[op_hash] = op_uniq_name

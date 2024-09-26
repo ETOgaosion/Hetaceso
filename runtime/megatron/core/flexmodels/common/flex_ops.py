@@ -25,27 +25,12 @@ class OpType(Enum):
     LAYER_NORM_MLP_DROPOUT = 3
     LAYER_NORM_POST_PROCESS = 4
 
-
+@dataclass
 class OpInfo:
-    def __init__(
-        self,
-        op_type: OpType,
-        op_name: str,
-        op_index: int,
-        input_width: int,
-        in_channels: int,
-        num_classes,
-        prev_name,
-        output_width,
-    ) -> None:
-        self.op_type = op_type
-        self.op_name = op_name
-        self.op_index = op_index
-        self.input_width = input_width
-        self.in_channels = in_channels
-        self.num_calsses = num_classes
-        self.prev_name = prev_name
-        self.output_width = output_width
+    op_type: OpType
+    op_index: int
+    op_name: str
+    prev_name: str
 
 class FlexModule(MegatronModule):
     def __init__(
@@ -85,11 +70,14 @@ class FlexModule(MegatronModule):
 
 
 @dataclass
-class FlexEmbeddingInfo:
+class OpInfo:
     op_type: OpType
     op_index: int
     op_name: str
     prev_name: str
+
+@dataclass
+class FlexEmbeddingInfo(OpInfo):
     config: TransformerConfig
     num_tokentypes: int = 0
     rotary_base: int = 10000
@@ -168,11 +156,7 @@ class FlexEmbedding(FlexModule):
 
 
 @dataclass
-class FlexLayerNormSelfAttentionDropoutInfo:
-    op_type: OpType
-    op_index: int
-    op_name: str
-    prev_name: str
+class FlexLayerNormSelfAttentionDropoutInfo(OpInfo):
     config: TransformerConfig
     submodules: TransformerLayerSubmodules
     layer_number: int = 1
@@ -227,15 +211,26 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         # use_nvfuser = TORCH_MAJOR > 1 or (TORCH_MAJOR == 1 and TORCH_MINOR >= 10)
         # self.bias_dropout_add_exec_handler = nullcontext if use_nvfuser else torch.enable_grad
         self.bias_dropout_add_exec_handler = torch.enable_grad
-        
+
         qkv_projection_size = config.kv_channels * config.num_attention_heads
         qkv_weight = config.hidden_size * qkv_projection_size * 3 / self.tp_size
         dense_weight = ((config.kv_channels * config.num_attention_heads) * config.hidden_size) / self.tp_size
         self.weight_size = qkv_weight + dense_weight
-        
         self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
         self.output_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
-
+        self.input_extra_tensors_info = {
+            "attention_mask": {
+                "shape": [
+                    config.micro_batch_size // self.dp_size,
+                    1,
+                    config.seq_length,
+                    config.seq_length,
+                ],
+                "tp_split_dim": -1,
+                "dp_split_dim": -1,
+                "recv_from": 0,
+            }
+        }
     def forward(
         self,
         input_tensors: Dict|list,
@@ -247,14 +242,12 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         if type(input_tensors) is list:
             input_tensors = input_tensors[0]
         hidden_states: Tensor = input_tensors["hidden_states"]
-        
-        context: Tensor = input_tensors.get("context", None)
+
         rotary_pos_emb = input_tensors.get("rotary_pos_emb", None)
         inference_params = input_tensors.get("inference_params", None)
         packed_seq_params = input_tensors.get("packed_seq_params", None)
-        
-        attention_mask: Tensor = input_extra_tensors["attention_mask"]
 
+        attention_mask: Tensor = input_extra_tensors["attention_mask"]
         # hidden_states: [s, b, h]
 
         # Residual connection.
@@ -278,16 +271,11 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             )(attention_output_with_bias, residual, self.hidden_dropout)
 
         output_tensors["hidden_states"] = hidden_states
-        output_tensors["context"] = context
         return output_tensors
 
 
 @dataclass
-class FlexLayerNormMlpDropoutInfo:
-    op_type: OpType
-    op_index: int
-    op_name: str
-    prev_name: str
+class FlexLayerNormMlpDropoutInfo(OpInfo):
     config: TransformerConfig
     submodules: TransformerLayerSubmodules
     layer_number: int = 1
@@ -354,7 +342,6 @@ class FlexLayerNormMlpDropout(FlexModule):
         if type(input_tensors) is list:
             input_tensors = input_tensors[0]
         hidden_states: Tensor = input_tensors["hidden_states"]
-        context: Tensor = input_tensors.get("context", None)
         # Residual connection.
         residual = hidden_states
 
@@ -384,16 +371,11 @@ class FlexLayerNormMlpDropout(FlexModule):
         )
 
         output_tensors["hidden_states"] = output
-        output_tensors["context"] = context
 
         return output_tensors
 
 @dataclass
-class FlexLayerNormPostProcessInfo:
-    op_type: OpType
-    op_index: int
-    op_name: str
-    prev_name: str
+class FlexLayerNormPostProcessInfo(OpInfo):
     config: TransformerConfig
     submodules: TransformerLayerSubmodules
     parallel_output: bool = True
@@ -447,14 +429,13 @@ class FlexLayerNormPostProcess(FlexModule):
         if type(input_tensors) is list:
             input_tensors = input_tensors[0]
         hidden_states: Tensor = input_tensors["hidden_states"]
-        context: Tensor = input_tensors.get("context", None)
 
         # Optional Layer norm post the cross-attention.
         final_layernorm_output = self.final_layernorm(hidden_states)
 
         logit_weights = self.word_embeddings.weight
         labels = input_extra_tensors['labels']
-        
+        print(f"labels: {labels.size()}") 
         output = self.lm_logits_func(final_layernorm_output, logit_weights, self.parallel_output)
         output = output.transpose(0, 1).contiguous()
 
