@@ -9,6 +9,7 @@ import torch
 from torch import _C
 from torch.cuda import _lazy_call
 from torch.cuda import device as device_ctx_manager
+import torch.distributed
 from torch.utils.checkpoint import detach_variable
 
 from megatron.core.parallel_state import (
