@@ -1,5 +1,7 @@
 from enum import Enum
 from typing import Dict, Literal, Optional, Tuple, Union
+
+import torch.distributed
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.models.common.embeddings.language_model_embedding import (
     LanguageModelEmbedding,
@@ -31,6 +33,7 @@ class OpInfo:
     op_name: str
     prev_name: str
 
+
 class FlexModule(MegatronModule):
     def __init__(
         self,
@@ -40,7 +43,6 @@ class FlexModule(MegatronModule):
         op_name: str,
         prev_name: str,
         is_last_op=False,
-        
     ):
         super().__init__(config=config)
         self.op_type = op_type
@@ -54,13 +56,17 @@ class FlexModule(MegatronModule):
 
         ## for profiling
         self.weight_size = 0
-        
+
         # shapes
         self.seq_length = config.seq_length
         self.micro_batch_size = config.micro_batch_size
         self.hidden_size = config.hidden_size
         # [s, b, h]
-        self.hidden_state_size = [config.seq_length, config.micro_batch_size, config.hidden_size]
+        self.hidden_state_size = [
+            config.seq_length,
+            config.micro_batch_size,
+            config.hidden_size,
+        ]
 
         self.input_tensors_info = {}
         self.output_tensors_info = {}
@@ -107,7 +113,7 @@ class FlexEmbedding(FlexModule):
             position_embedding_type=self.position_embedding_type,
             num_tokentypes=num_tokentypes,
         )
-        
+
         self.embedding.word_embeddings.weight.shared_embedding = True
 
         if self.position_embedding_type == "rope":
@@ -119,14 +125,21 @@ class FlexEmbedding(FlexModule):
                 rotary_base=rotary_base,
             )
 
-        self.weight_size = (config.padded_vocab_size * config.hidden_size) / self.tp_size + config.max_position_embeddings * config.hidden_size
-        
+        self.weight_size = (
+            config.padded_vocab_size * config.hidden_size
+        ) / self.tp_size + config.max_position_embeddings * config.hidden_size
+
         self.input_tensors_info = {
             'input_ids': {'shape': [self.micro_batch_size, self.seq_length], 'tp_split_dim': -1, 'dp_split_dim': -1}, 
             'position_ids': {'shape': [self.micro_batch_size, self.seq_length,], 'tp_split_dim': -1, 'dp_split_dim': -1}
         }
+        
         self.output_tensors_info = {
-            'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}
+            "hidden_states": {
+                "shape": self.hidden_state_size,
+                "tp_split_dim": -1,
+                "dp_split_dim": 1,
+            }
         }
 
     def forward(
@@ -214,7 +227,9 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
 
         qkv_projection_size = config.kv_channels * config.num_attention_heads
         qkv_weight = config.hidden_size * qkv_projection_size * 3 / self.tp_size
-        dense_weight = ((config.kv_channels * config.num_attention_heads) * config.hidden_size) / self.tp_size
+        dense_weight = (
+            (config.kv_channels * config.num_attention_heads) * config.hidden_size
+        ) / self.tp_size
         self.weight_size = qkv_weight + dense_weight
         self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
         self.output_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
@@ -233,7 +248,7 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         }
     def forward(
         self,
-        input_tensors: Dict|list,
+        input_tensors: Dict | list,
         input_extra_tensors: Dict,
         output_extra_tensors: Dict,
         profiling=False,
@@ -323,17 +338,29 @@ class FlexLayerNormMlpDropout(FlexModule):
         # use_nvfuser = TORCH_MAJOR > 1 or (TORCH_MAJOR == 1 and TORCH_MINOR >= 10)
         # self.bias_dropout_add_exec_handler = nullcontext if use_nvfuser else torch.enable_grad
         self.bias_dropout_add_exec_handler = torch.enable_grad
-        
+
         gemm_1_weight = config.hidden_size * config.ffn_hidden_size / self.tp_size
         gemm_2_weight = config.ffn_hidden_size * config.hidden_size / self.tp_size
         self.weight_size = gemm_1_weight + gemm_2_weight
-        
-        self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
-        self.output_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
+
+        self.input_tensors_info = {
+            "hidden_states": {
+                "shape": self.hidden_state_size,
+                "tp_split_dim": -1,
+                "dp_split_dim": 1,
+            }
+        }
+        self.output_tensors_info = {
+            "hidden_states": {
+                "shape": self.hidden_state_size,
+                "tp_split_dim": -1,
+                "dp_split_dim": 1,
+            }
+        }
 
     def forward(
         self,
-        input_tensors: Dict|list,
+        input_tensors: Dict | list,
         input_extra_tensors: Dict,
         output_extra_tensors: Dict,
         profiling=False,
@@ -371,14 +398,15 @@ class FlexLayerNormMlpDropout(FlexModule):
         )
 
         output_tensors["hidden_states"] = output
-
         return output_tensors
+
 
 @dataclass
 class FlexLayerNormPostProcessInfo(OpInfo):
     config: TransformerConfig
     submodules: TransformerLayerSubmodules
     parallel_output: bool = True
+
 
 class FlexLayerNormPostProcess(FlexModule):
     def __init__(
@@ -389,7 +417,7 @@ class FlexLayerNormPostProcess(FlexModule):
         prev_name: str,
         config: TransformerConfig,
         submodules: TransformerLayerSubmodules,
-        parallel_output: bool
+        parallel_output: bool,
     ):
         super().__init__(config, op_type, op_index, op_name, prev_name)
 
@@ -407,7 +435,12 @@ class FlexLayerNormPostProcess(FlexModule):
         self.loss_func = vocab_parallel_cross_entropy
         self.lm_logits_func = parallel_lm_logits
         self.fp16_lm_cross_entropy = config.fp16_lm_cross_entropy
-        self.word_embeddings = VocabParallelEmbedding(config.padded_vocab_size, config.hidden_size, init_method=config.init_method, config=config)
+        self.word_embeddings = VocabParallelEmbedding(
+            config.padded_vocab_size,
+            config.hidden_size,
+            init_method=config.init_method,
+            config=config,
+        )
         self.word_embeddings.weight.data.fill_(0)
         self.word_embeddings.weight.shared = True
         self.word_embeddings.weight.shared_embedding = True
@@ -429,7 +462,7 @@ class FlexLayerNormPostProcess(FlexModule):
         }
     def forward(
         self,
-        input_tensors: Dict|list,
+        input_tensors: Dict | list,
         input_extra_tensors: Dict,
         output_extra_tensors: Dict,
         profiling=False,
@@ -444,20 +477,25 @@ class FlexLayerNormPostProcess(FlexModule):
         final_layernorm_output = self.final_layernorm(hidden_states)
 
         logit_weights = self.word_embeddings.weight
-        labels = input_extra_tensors['labels']
-        output = self.lm_logits_func(final_layernorm_output, logit_weights, self.parallel_output)
+        labels = input_extra_tensors["labels"]
+
+        output = self.lm_logits_func(
+            final_layernorm_output, logit_weights, self.parallel_output
+        )
         output = output.transpose(0, 1).contiguous()
 
         if labels is None:
-            output_tensors['output_tensor'] = output
+            output_tensors["output_tensor"] = output
         else:
             if self.fp16_lm_cross_entropy:
-                assert output.dtype == torch.half, f'Expected half tensor, got {output.dtype}'
+                assert (
+                    output.dtype == torch.half
+                ), f"Expected half tensor, got {output.dtype}"
                 loss = self.loss_func(output, labels)
             else:
                 loss = self.loss_func(output.float(), labels)
 
-        output_tensors['output'] = loss
+        output_tensors["output"] = loss
 
         return output_tensors
 

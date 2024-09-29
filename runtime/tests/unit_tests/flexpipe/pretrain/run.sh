@@ -18,8 +18,8 @@ MICRO_BATCH_SIZE=4
 GLOBAL_BATCH_SIZE=16
 
 
-VOCAB_FILE=/workspace/file/vocabs/gpt2-vocab.json
-MERGE_FILE=/workspace/file/vocabs/gpt2-merges.txt
+VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
+MERGE_FILE=../../../../vocabs/gpt2-merges.txt
 
 
 DISTRIBUTED_ARGS="

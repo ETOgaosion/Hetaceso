@@ -12,8 +12,11 @@ import os
 from megatron.core import mpu
 from megatron.core.flexmodels.common.flex_model_config import FlexModelConfig
 from megatron.core.transformer.transformer_config import TransformerConfig
-from megatron.core.pipeline_parallel.schedules import reset_checkpointed_activations_memory_buffer
+from megatron.core.pipeline_parallel.schedules import (
+    reset_checkpointed_activations_memory_buffer,
+)
 from megatron.core.tensor_parallel.random import checkpoint
+
 NUM_BATCHES = 0
 DEBUG_OUTPUT = os.environ.get("DEBUG_OUTPUT", "0") == "1"
 
@@ -32,7 +35,7 @@ def print_ops_info(ops, recompute_ops):
     all_ops = ""
     for i in range(len(ops)):
         all_ops += '"' + ops[i].op_name + '",'
-        if recompute_ops[i] == 1:
+        if recompute_ops[i] == True:
             ck_ops += ops[i].op_name + " "
     print(f"[rank {torch.distributed.get_rank()} all ops] {all_ops}")
     print(f"[rank {torch.distributed.get_rank()} recompute ops] {ck_ops}")
@@ -84,7 +87,7 @@ def initialize_comm_info(
     src_op_index=0,
     dst_op_index=0,
 ):
-    
+
     num_ops = sum(mpu.get_num_ops_list())
     if dst_op_index < 0:
         dst_op_index = num_ops - 1
@@ -417,7 +420,6 @@ class FlexPipeModel(MegatronModule):
 
                 len_inputs = len(input_tensor_names)
                 for i in range(len(input_extra_tensor_names)):
-                    print(f'self.rank: {torch.distributed.get_rank()} i: {i}, len_inputs: {len_inputs}, len(inputs): {len(inputs)} len(input_extra_tensor_names): {len(input_extra_tensor_names)}, inputs: {inputs}, input_tensor_names: {input_tensor_names},input_extra_tensor_names: {input_extra_tensor_names}')
                     input_extra_tensors_dict[input_extra_tensor_names[i]] = inputs[
                         i + len_inputs
                     ]
@@ -548,6 +550,7 @@ class FlexPipeModel(MegatronModule):
                     input_tensors,
                     output_tensors_specs_mats,
                 ),
+                self.config.distribute_saved_activations,
                 *list_inputs,
             )
         else:
@@ -561,6 +564,7 @@ class FlexPipeModel(MegatronModule):
                     tmp_input_extra_tensors,
                     output_extra_tensors,
                 ),
+                self.config.distribute_saved_activations,
                 *list_inputs,
             )
 
@@ -572,14 +576,6 @@ class FlexPipeModel(MegatronModule):
                 output_tensors_dict["tensors"][output_tensor_names[i]] = output_tensors[
                     i
                 ]
-            output_tensors_dict["specs"] = output_tensors_specs_mats["specs"]
-            output_tensors_dict["mats"] = output_tensors_specs_mats["mats"]
-            output_tensors_dict["input_extra_tensor_specs"] = output_tensors_specs_mats[
-                "input_extra_tensor_specs"
-            ]
-            output_tensors_dict["input_extra_tensor_mats"] = output_tensors_specs_mats[
-                "input_extra_tensor_mats"
-            ]
         else:
             output_tensors_dict = {}
             for i in range(len(output_tensors)):
@@ -616,7 +612,7 @@ class FlexPipeModel(MegatronModule):
             end_index = self.num_ops
 
             while start_index < end_index:
-                if self.recompute_ops[start_index] == 0:
+                if not self.recompute_ops[start_index]:
                     op = self.ops[start_index]
                     hidden_states = op(
                         hidden_states, input_extra_tensors, output_extra_tensors
@@ -628,11 +624,12 @@ class FlexPipeModel(MegatronModule):
                     ## NOTE: this is important for recomputation, set the recomputation breaking point.
                     while (
                         checkpoint_end_index < end_index
-                        and self.recompute_ops[checkpoint_end_index] == 1
+                        and self.recompute_ops[checkpoint_end_index]
                     ):
                         checkpoint_end_index += 1
                         if checkpoint_end_index < end_index and (
-                            self.ops[checkpoint_end_index].op_name in ["dec-self-attention"]
+                            self.ops[checkpoint_end_index].op_name
+                            in ["dec-self-attention"]
                         ):
                             break
 
