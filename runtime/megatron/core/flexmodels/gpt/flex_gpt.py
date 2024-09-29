@@ -31,7 +31,7 @@ class FlexGPTModel(LanguageModule):
         pre_process: bool = True,
         post_process: bool = True,
         parallel_output: bool = True,
-        share_embeddings_and_output_weights: bool = False,
+        share_embeddings_and_output_weights: bool = True,
         rotary_base: int = 10000,
         seq_len_interpolation_factor: Optional[float] = None,
         profiling=False,
@@ -70,6 +70,12 @@ class FlexGPTModel(LanguageModule):
             current_op_list = []
             for i in range(op_start_index, op_end_index):
                 current_op_list.append(gen_op(full_op_list[i]))
+            
+            if self.pre_process:
+                self.embedding = current_op_list[0].embedding
+            
+            if self.post_process:
+                self.output_layer = current_op_list[-1].output_layer
 
             self.language_model = get_flex_model(
                 config,

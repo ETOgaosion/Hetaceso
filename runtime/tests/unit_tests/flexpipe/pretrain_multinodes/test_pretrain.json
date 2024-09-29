@@ -1,22 +1,30 @@
 {
     "comment": "Only include flexpipe related configurations",
-    "num_layers": 2,
-    "num_stages": 2,
+    "num_layers": 4,
+    "num_stages": 4,
     "num_gpus": [
         2,
-        2
+        2,
+        4, 
+        4
     ],
     "flex_recompute_activations": [
         true,
+        false,
+        false,
         false
     ],
     "resharding_stages": [
+        false,
+        false,
         false,
         false
     ],
     "num_ops_in_each_stage": [
         3,
-        3
+        2,
+        3,
+        2
     ],
     "tensor_parallel_size_of_each_op": [
         [
@@ -26,9 +34,17 @@
         ],
         [
             2,
-            2,
             2
-        ]
+        ],
+        [
+            1,
+            1,
+            1
+        ],
+        [
+            4,
+            4
+        ] 
     ],
     "data_parallel_size_of_each_op": [
         [
@@ -38,9 +54,17 @@
         ],
         [
             1,
+            1
+        ],
+        [
+            4,
+            4,
+            4
+        ],
+        [
             1,
             1
-        ]
+        ] 
     ],
     "recompute_ops": [
         [
@@ -50,8 +74,16 @@
         ],
         [
             true,
+            true
+        ],
+        [
+            false,
             true,
-            false
+            true
+        ],
+        [
+            true,
+            true
         ]
     ],
     "algo_of_each_op": [
@@ -62,8 +94,16 @@
         ],
         [
             0,
+            0
+        ],
+        [
+            0,
             0,
             0
-        ]
+        ],
+        [
+            0,
+            0
+        ] 
     ]
 }
