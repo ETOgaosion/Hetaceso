@@ -430,21 +430,29 @@ class FlexLayerNormPostProcess(FlexModule):
             hidden_size=self.config.hidden_size,
             eps=self.config.layernorm_epsilon,
         )
-
+        
+        if config.defer_embedding_wgrad_compute:
+            self.embedding_activation_buffer = []
+            self.grad_output_buffer = []
+        else:
+            self.embedding_activation_buffer = None
+            self.grad_output_buffer = None
+        
         self.parallel_output = parallel_output
-
-        self.loss_func = vocab_parallel_cross_entropy
-        self.lm_logits_func = parallel_lm_logits
         self.fp16_lm_cross_entropy = config.fp16_lm_cross_entropy
-        self.word_embeddings = VocabParallelEmbedding(
-            config.padded_vocab_size,
+        
+        self.output_layer = tensor_parallel.ColumnParallelLinear(
             config.hidden_size,
-            init_method=config.init_method,
+            config.padded_vocab_size,
             config=config,
+            init_method=self.config.init_method,
+            bias=False,
+            skip_bias_add=False,
+            gather_output=not self.parallel_output,
+            skip_weight_param_allocation=False,
+            embedding_activation_buffer=self.embedding_activation_buffer,
+            grad_output_buffer=self.grad_output_buffer,
         )
-        self.word_embeddings.weight.data.fill_(0)
-        self.word_embeddings.weight.shared = True
-        self.word_embeddings.weight.shared_embedding = True
 
         self.weight_size = config.padded_vocab_size * config.hidden_size / self.tp_size
 
@@ -461,6 +469,7 @@ class FlexLayerNormPostProcess(FlexModule):
                 "recv_from": 0,
             }
         }
+        
     def forward(
         self,
         input_tensors: Dict | list,
@@ -477,24 +486,24 @@ class FlexLayerNormPostProcess(FlexModule):
         # Optional Layer norm post the cross-attention.
         final_layernorm_output = self.final_layernorm(hidden_states)
 
-        logit_weights = self.word_embeddings.weight
+        # always post process
+        weights = self.output_layer.weight
+
+        output, _ = self.output_layer(final_layernorm_output, weights)
+        
         labels = input_extra_tensors["labels"]
 
-        output = self.lm_logits_func(
-            final_layernorm_output, logit_weights, self.parallel_output
-        )
-        output = output.transpose(0, 1).contiguous()
-
         if labels is None:
-            output_tensors["output_tensor"] = output
+            output_tensors["output_tensor"] = output.transpose(0, 1).contiguous()
+            return output_tensors
         else:
+            labels = labels.transpose(0, 1).contiguous()
             if self.fp16_lm_cross_entropy:
-                assert (
-                    output.dtype == torch.half
-                ), f"Expected half tensor, got {output.dtype}"
-                loss = self.loss_func(output, labels)
+                assert output.dtype == torch.half
+                loss = tensor_parallel.vocab_parallel_cross_entropy(output, labels)
             else:
-                loss = self.loss_func(output.float(), labels)
+                loss = tensor_parallel.vocab_parallel_cross_entropy(output.float(), labels)
+            loss = loss.transpose(0, 1).contiguous()
 
         output_tensors["output"] = loss
 

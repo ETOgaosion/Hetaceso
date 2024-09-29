@@ -528,13 +528,11 @@ def validate_args(args, defaults={}):
     if args.use_dist_ckpt and not args.use_mcore_models:
         raise RuntimeError('--use-dist-ckpt only support Megatron Core, please add --use-mcore-models.')
     
-    if not args.untie_embeddings_and_output_weights:
-        warn("Untie embeddings and output weights must be enabled in flexpipe, currently not support shared weights")
-    args.untie_embeddings_and_output_weights = True
-    
     # Validate json arguments
     if args.flexpipe_config is not None:
         validate_json_args(args)
+        
+    args.share_embeddings_and_output_weights = not args.untie_embeddings_and_output_weights
     
     # Print arguments.
     _print_args("arguments", args)
