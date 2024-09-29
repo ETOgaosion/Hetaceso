@@ -97,9 +97,8 @@ def set_global_variables(args, build_tokenizer=True):
 
     _ensure_var_is_not_initialized(_GLOBAL_ARGS, 'args')
     set_args(args)
-
     _build_num_microbatches_calculator(args)
-    if build_tokenizer:
+    if build_tokenizer and args.prof_path == None:
         _ = _build_tokenizer(args)
     _set_tensorboard_writer(args)
     _set_wandb_writer(args)

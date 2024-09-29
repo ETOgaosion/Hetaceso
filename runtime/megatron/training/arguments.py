@@ -59,6 +59,12 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     else:
         args = parser.parse_args()
 
+    # Args from environment
+    args.rank = int(os.getenv('RANK', '0'))
+    args.world_size = int(os.getenv("WORLD_SIZE", '1'))
+
+    args.overlap_p2p_comm = False
+
     if args.prof_tp_size is not None:
         args.global_batch_size = 1 
         args.micro_batch_size = 1
@@ -70,7 +76,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
 
         if len(args.prof_repeat_times) > 1:
             assert args.prof_repeat_threshold is not None, "when args.prof_repeat_times is a list, a threshold is required."
-        _print_args(args)
+        _print_args("pofiling arguments", args)
         return args
     else:
         assert args.flexpipe_config is not None, "An Aceso config should be provided."
@@ -86,11 +92,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args = load_yaml(args.yaml_cfg)
 
 
-    # Args from environment
-    args.rank = int(os.getenv('RANK', '0'))
-    args.world_size = int(os.getenv("WORLD_SIZE", '1'))
 
-    args.overlap_p2p_comm = False
 
     return args
 
@@ -174,11 +176,10 @@ def validate_args(args, defaults={}):
 
     # Load saved args from Retro (if applicable).
     load_retro_args(args)
-
+    print(f"world_size: {args.world_size}")
     assert args.world_size == sum(args.num_gpus), \
         'number of GPUs should be equal to sum(mp_size * dp_size)'
     
-
     assert hasattr(args, 'data_parallel_size') == False, 'args.data_parallel_size is not used in flexpipe'
     assert args.tensor_model_parallel_size == 1, '--tensor-model-parallel-size not used in flexpipe'
     del args.tensor_model_parallel_size
@@ -1666,7 +1667,7 @@ def _add_flexpipe_args(parser):
 
 def _add_profiler_args(parser):
     group = parser.add_argument_group(title='flexpipe_profiler')
-
+    group.add_argument('--prof-op', action='store_true', help='Profile operator or not')
     group.add_argument('--prof-tp-size', type=int, default=None, help='Profiler tp size.')
     group.add_argument('--prof-path', type=str, default=None, help='')
     group.add_argument('--prof-cache-file', type=str, default=None, help='')

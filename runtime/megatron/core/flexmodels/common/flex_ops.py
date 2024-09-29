@@ -18,42 +18,21 @@ from megatron.core.transformer.transformer_layer import (
 from megatron.core.utils import make_viewless_tensor
 from megatron.core import mpu
 from megatron.core.transformer.module import MegatronModule
-from megatron.core.tensor_parallel import (
-    vocab_parallel_cross_entropy,
-    VocabParallelEmbedding,
-)
-from megatron.core.models.common.language_module.language_module import (
-    parallel_lm_logits,
-)
-
-
+from megatron.core.tensor_parallel import vocab_parallel_cross_entropy, VocabParallelEmbedding
+from megatron.core.models.common.language_module.language_module import parallel_lm_logits
 class OpType(Enum):
     EMBEDDING = 1
     LAYER_NORM_SELF_ATTENTION_DROPOUT = 2
     LAYER_NORM_MLP_DROPOUT = 3
     LAYER_NORM_POST_PROCESS = 4
 
-
+@dataclass
 class OpInfo:
-    def __init__(
-        self,
-        op_type: OpType,
-        op_name: str,
-        op_index: int,
-        input_width: int,
-        in_channels: int,
-        num_classes,
-        prev_name,
-        output_width,
-    ) -> None:
-        self.op_type = op_type
-        self.op_name = op_name
-        self.op_index = op_index
-        self.input_width = input_width
-        self.in_channels = in_channels
-        self.num_calsses = num_classes
-        self.prev_name = prev_name
-        self.output_width = output_width
+    op_type: OpType
+    op_index: int
+    op_name: str
+    prev_name: str
+
 
 
 class FlexModule(MegatronModule):
@@ -97,11 +76,14 @@ class FlexModule(MegatronModule):
 
 
 @dataclass
-class FlexEmbeddingInfo:
+class OpInfo:
     op_type: OpType
     op_index: int
     op_name: str
     prev_name: str
+
+@dataclass
+class FlexEmbeddingInfo(OpInfo):
     config: TransformerConfig
     num_tokentypes: int = 0
     rotary_base: int = 10000
@@ -149,17 +131,10 @@ class FlexEmbedding(FlexModule):
         ) / self.tp_size + config.max_position_embeddings * config.hidden_size
 
         self.input_tensors_info = {
-            "input_ids": {
-                "shape": [self.micro_batch_size, self.seq_length],
-                "tp_split_dim": -1,
-                "dp_split_dim": -1,
-            },
-            "position_ids": {
-                "shape": [self.seq_length, self.micro_batch_size],
-                "tp_split_dim": -1,
-                "dp_split_dim": -1,
-            },
+            'input_ids': {'shape': [self.micro_batch_size, self.seq_length], 'tp_split_dim': -1, 'dp_split_dim': -1}, 
+            'position_ids': {'shape': [self.micro_batch_size, self.seq_length,], 'tp_split_dim': -1, 'dp_split_dim': -1}
         }
+        
         self.output_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
@@ -195,11 +170,7 @@ class FlexEmbedding(FlexModule):
 
 
 @dataclass
-class FlexLayerNormSelfAttentionDropoutInfo:
-    op_type: OpType
-    op_index: int
-    op_name: str
-    prev_name: str
+class FlexLayerNormSelfAttentionDropoutInfo(OpInfo):
     config: TransformerConfig
     submodules: TransformerLayerSubmodules
     layer_number: int = 1
@@ -261,22 +232,21 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             (config.kv_channels * config.num_attention_heads) * config.hidden_size
         ) / self.tp_size
         self.weight_size = qkv_weight + dense_weight
-
-        self.input_tensors_info = {
-            "hidden_states": {
-                "shape": self.hidden_state_size,
+        self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
+        self.output_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
+        self.input_extra_tensors_info = {
+            "attention_mask": {
+                "shape": [
+                    config.micro_batch_size // self.dp_size,
+                    1,
+                    config.seq_length,
+                    config.seq_length,
+                ],
                 "tp_split_dim": -1,
-                "dp_split_dim": 1,
+                "dp_split_dim": -1,
+                "recv_from": 0,
             }
         }
-        self.output_tensors_info = {
-            "hidden_states": {
-                "shape": self.hidden_state_size,
-                "tp_split_dim": -1,
-                "dp_split_dim": 1,
-            }
-        }
-
     def forward(
         self,
         input_tensors: Dict | list,
@@ -294,7 +264,6 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         packed_seq_params = input_tensors.get("packed_seq_params", None)
 
         attention_mask: Tensor = input_extra_tensors["attention_mask"]
-
         # hidden_states: [s, b, h]
 
         # Residual connection.
@@ -322,11 +291,7 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
 
 
 @dataclass
-class FlexLayerNormMlpDropoutInfo:
-    op_type: OpType
-    op_index: int
-    op_name: str
-    prev_name: str
+class FlexLayerNormMlpDropoutInfo(OpInfo):
     config: TransformerConfig
     submodules: TransformerLayerSubmodules
     layer_number: int = 1
@@ -434,16 +399,11 @@ class FlexLayerNormMlpDropout(FlexModule):
         )
 
         output_tensors["hidden_states"] = output
-        
         return output_tensors
 
 
 @dataclass
-class FlexLayerNormPostProcessInfo:
-    op_type: OpType
-    op_index: int
-    op_name: str
-    prev_name: str
+class FlexLayerNormPostProcessInfo(OpInfo):
     config: TransformerConfig
     submodules: TransformerLayerSubmodules
     parallel_output: bool = True
@@ -488,17 +448,19 @@ class FlexLayerNormPostProcess(FlexModule):
 
         self.weight_size = config.padded_vocab_size * config.hidden_size / self.tp_size
 
-        self.input_tensors_info = {
-            "hidden_states": {
-                "shape": self.hidden_state_size,
+        self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
+        self.output_tensors_info = {'output_tensor': {'shape': [1], 'tp_split_dim': -1, 'dp_split_dim': -1}}
+        self.input_extra_tensors_info = {
+            "labels": {
+                "shape": [
+                    config.micro_batch_size // self.dp_size,
+                    config.seq_length
+                ],
                 "tp_split_dim": -1,
-                "dp_split_dim": 1,
+                "dp_split_dim": 0,
+                "recv_from": 0,
             }
         }
-        self.output_tensors_info = {
-            "output_tensor": {"shape": [1], "tp_split_dim": -1, "dp_split_dim": -1}
-        }
-
     def forward(
         self,
         input_tensors: Dict | list,
