@@ -48,31 +48,31 @@ GPT_ARGS="
 mkdir ${PROFILING_PATH}
 MAX_NUM_GPUS=1
 MODEL_NAME=gpt
-MODEL_SIZE=1_3B
+MODEL_SIZE=350M
 
 for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
 do
-GPUS_PER_NODE=${tp_size}
-DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
+    GPUS_PER_NODE=${tp_size}
+    DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
 
-echo [TIME] before profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
+    echo [TIME] before profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
 
-torchrun $DISTRIBUTED_ARGS \
-    op_profiler.py \
-    ${DATA_ARGS} \
-    ${GPT_ARGS} \
-    --use-mcore-models \
-    --prof-op \
-    --prof-tp-size $tp_size \
-    --prof-path $PROFILING_PATH \
-    --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_op_profile.pkl \
-    --prof-model-name $MODEL_NAME \
-    --prof-model-size $MODEL_SIZE \
-    --prof-warmup-times 10 \
-    --prof-repeat-times 40 \
-    2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_op_tp${tp_size}.log
+    torchrun $DISTRIBUTED_ARGS \
+        op_profiler.py \
+        ${DATA_ARGS} \
+        ${GPT_ARGS} \
+        --use-mcore-models \
+        --prof-op \
+        --prof-tp-size $tp_size \
+        --prof-path $PROFILING_PATH \
+        --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_op_profile.pkl \
+        --prof-model-name $MODEL_NAME \
+        --prof-model-size $MODEL_SIZE \
+        --prof-warmup-times 1 \
+        --prof-repeat-times 1 \
+        2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_op_tp${tp_size}.log
 
-echo [TIME] after profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
+    echo [TIME] after profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
 done
 
 exit 0

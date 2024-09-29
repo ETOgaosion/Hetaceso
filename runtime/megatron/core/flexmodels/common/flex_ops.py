@@ -18,7 +18,6 @@ from megatron.core import mpu
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.tensor_parallel import vocab_parallel_cross_entropy, VocabParallelEmbedding
 from megatron.core.models.common.language_module.language_module import parallel_lm_logits
-
 class OpType(Enum):
     EMBEDDING = 1
     LAYER_NORM_SELF_ATTENTION_DROPOUT = 2
@@ -123,7 +122,8 @@ class FlexEmbedding(FlexModule):
         self.weight_size = (config.padded_vocab_size * config.hidden_size) / self.tp_size + config.max_position_embeddings * config.hidden_size
         
         self.input_tensors_info = {
-            'input_ids': {'shape': [self.micro_batch_size, self.seq_length], 'tp_split_dim': -1, 'dp_split_dim': -1}, 'position_ids': {'shape': [self.seq_length, self.micro_batch_size], 'tp_split_dim': -1, 'dp_split_dim': -1}
+            'input_ids': {'shape': [self.micro_batch_size, self.seq_length], 'tp_split_dim': -1, 'dp_split_dim': -1}, 
+            'position_ids': {'shape': [self.micro_batch_size, self.seq_length,], 'tp_split_dim': -1, 'dp_split_dim': -1}
         }
         self.output_tensors_info = {
             'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}
@@ -416,7 +416,17 @@ class FlexLayerNormPostProcess(FlexModule):
 
         self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
         self.output_tensors_info = {'output_tensor': {'shape': [1], 'tp_split_dim': -1, 'dp_split_dim': -1}}
-
+        self.input_extra_tensors_info = {
+            "labels": {
+                "shape": [
+                    config.micro_batch_size // self.dp_size,
+                    config.seq_length
+                ],
+                "tp_split_dim": -1,
+                "dp_split_dim": 0,
+                "recv_from": 0,
+            }
+        }
     def forward(
         self,
         input_tensors: Dict|list,
@@ -435,11 +445,9 @@ class FlexLayerNormPostProcess(FlexModule):
 
         logit_weights = self.word_embeddings.weight
         labels = input_extra_tensors['labels']
-        print(f"labels: {labels.size()}") 
         output = self.lm_logits_func(final_layernorm_output, logit_weights, self.parallel_output)
         output = output.transpose(0, 1).contiguous()
 
-        
         if labels is None:
             output_tensors['output_tensor'] = output
         else:

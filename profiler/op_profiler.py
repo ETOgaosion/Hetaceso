@@ -31,7 +31,7 @@ from megatron.core.models.gpt.gpt_layer_specs import (
 )
 DATA_BASE = 4/(1024 * 1024)
 SKIP_RUNNING = os.environ.get("SKIP_RUNNING", '0') == '1'
-
+import traceback
 import pdb
 ## shapes for input tensors and extra tensors
 input_shape_dict = {}
@@ -242,10 +242,11 @@ def infer_data_size(op_list: list[OpInfo], save_filename_prefix: str, mbs: int, 
 def get_inputs(op_uniq_name, params_dtype):
     inputs = {}
     input_extra_tensors = {}
+    
     for input_name in input_shape_dict[op_uniq_name]:
         input_shape = input_shape_dict[op_uniq_name][input_name]
         if input_name in ["input_ids", "position_ids"]:
-            inputs[input_name] = torch.rand(input_shape, requires_grad=False, device=torch.cuda.current_device()).long() 
+            inputs[input_name] = torch.randint(0, input_shape[1], input_shape, requires_grad=False, device=torch.cuda.current_device(), dtype=torch.long)
         else:
             inputs[input_name] = torch.rand(input_shape, requires_grad=True, device=torch.cuda.current_device(), dtype=params_dtype)        
 
@@ -253,6 +254,10 @@ def get_inputs(op_uniq_name, params_dtype):
         input_shape = input_extra_dict[op_uniq_name][input_extra_name]
         if input_extra_name in ["attention_mask", "enc_attention_mask", "dec_attention_mask", "enc_dec_attention_mask"]:
             input_extra_tensors[input_extra_name] = (torch.rand(input_shape, requires_grad=False, device=torch.cuda.current_device(), dtype=params_dtype) < 0.5)
+        elif input_extra_name in ["labels"]:
+            input_shape = input_extra_dict[op_uniq_name][input_extra_name]
+            args = get_args()
+            input_extra_tensors[input_extra_name] = torch.rand(input_shape, requires_grad=False, device=torch.cuda.current_device()).long() * args.padded_vocab_size
         else:
             input_extra_tensors[input_extra_name] = torch.rand(input_shape, requires_grad=True, device=torch.cuda.current_device(), dtype=params_dtype)
 
@@ -291,23 +296,28 @@ def get_input_tensors(op_info: OpInfo, input_data, input_extra_tensors):
             input_tensors.append(input_data[input_name])
         for input_extra_name in input_extra_tensors:
             ## workaround for softmax op.
-            if "mask" not in input_extra_name and "bias" not in input_extra_name: 
+            if "mask" not in input_extra_name and "bias" not in input_extra_name and "labels" not in input_extra_name: 
                 input_tensors.append(input_extra_tensors[input_extra_name])   
 
     return input_tensors 
 
-def get_outputs_and_grads(output_tensors, output_extra_tensors, grad_type):
+def get_outputs_and_grads(output_tensors: dict, output_extra_tensors, grad_type):
     ## keep original output tensors 
     origin_outputs = []
     for output_name in output_tensors:
-        print(f"output_name: {output_name}")
+        if output_tensors[output_name] == None:
+            continue
         origin_outputs.append(output_tensors[output_name])
     for output_extra_name in output_extra_tensors:
+        if output_extra_tensors[output_extra_name] == None:
+            continue
         origin_outputs.append(output_extra_tensors[output_extra_name])
 
     output_grads = []
     ## add one more dummy op for each output tensor
     for output_tensor in origin_outputs:
+        if output_tensor == None:
+            continue
         tensor_shape = list(output_tensor.size())
         if len(tensor_shape) >= 3:
             pool_op = torch.nn.AdaptiveMaxPool2d(1)
@@ -342,7 +352,7 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
             torch.cuda.synchronize()
             end_time = time.time()   
             if index >= args.prof_warmup_times:
-                sum_fwd_time += end_time - start_time     
+                sum_fwd_time += end_time - start_time    
             outputs, output_grads = get_outputs_and_grads(output_data, output_extra_tensors, grad_type)
 
             torch.cuda.synchronize()
@@ -386,18 +396,17 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
         for index in range(remaining_fwd_times):
             output_data = op(input_data, input_extra_tensors, output_extra_tensors, profiling=True)          
         torch.cuda.synchronize()
-        end_time = time.time()   
+        end_time = time.time()  
         sum_fwd_time += end_time - start_time            
         if args.prof_warmup_threshold is not None and avg_warmup_time >= args.prof_warmup_threshold:
             avg_fwd_time = sum_fwd_time * 1000000 / (remaining_fwd_times + args.prof_warmup_times)
         else:
             avg_fwd_time = sum_fwd_time * 1000000 / remaining_fwd_times
 
-        print(f"output_data: {output_data}")
         origin_outputs, output_grads = get_outputs_and_grads(output_data, output_extra_tensors, grad_type) 
 
         ### one-time warmup for backward
-        if op_info.op_name == "encoder-embedding":
+        if op_info.op_name == "dec-embedding":
             torch.autograd.backward(origin_outputs, grad_tensors=output_grads, retain_graph=True)
         else:
             torch.autograd.grad(outputs=origin_outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
@@ -406,7 +415,7 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
         torch.cuda.synchronize()
         start_time = time.time()
         for index in range(remaining_bwd_times):
-            if op_info.op_name == "encoder-embedding":
+            if op_info.op_name == "dec-embedding":
                 torch.autograd.backward(origin_outputs, grad_tensors=output_grads, retain_graph=True)
             else:
                 torch.autograd.grad(outputs=origin_outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
@@ -449,13 +458,15 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
     outputs = []
     output_grads = []
     for output_name in output_data:
+        if output_data[output_name] == None:
+            continue
         outputs.append(output_data[output_name])
         output_grads.append(torch.randn(output_data[output_name].size(), requires_grad=False, device=torch.cuda.current_device(), dtype=grad_type) )
     for output_extra_name in output_extra_tensors:
         outputs.append(output_extra_tensors[output_extra_name])
         output_grads.append(torch.randn(output_extra_tensors[output_extra_name].size(), requires_grad=False, device=torch.cuda.current_device(), dtype=grad_type) )
 
-    if op_info.op_name == "encoder-embedding":
+    if op_info.op_name == "dec-embedding":
         input_tensors = None          
         torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True)                    
     else:
@@ -464,7 +475,7 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
             input_tensors.append(input_data[input_name])
         for input_extra_name in input_extra_tensors:
             ## workaround for softmax op.
-            if "mask" not in input_extra_name:
+            if "mask" not in input_extra_name and "labels" not in input_extra_name:
                 input_tensors.append(input_extra_tensors[input_extra_name])
         torch.autograd.grad(outputs=outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
 
@@ -585,7 +596,7 @@ def run_profile(task):
                     else:
                         _fwd_time, _bwd_time, _reserved_fwd, _reserved_bwd, _allocated_fwd = profile_op(mbs, algo, op_info, params_dtype, grad_type, op_uniq_name, config, flex_config) 
                 except RuntimeError as e:
-                    print(e)
+                    print(f"RuntimeError: {e}. {traceback.format_exc()}")
                     _fwd_time, _bwd_time, _reserved_fwd, _reserved_bwd, _allocated_fwd = 10000000, 10000000, 10000000, 10000000, 10000000
                 print(f"[results] {op_info.op_name}: fwd_compute = {_fwd_time:.2f} us, bwd_compute = {_bwd_time:.2f} us, fwd_allocated = {_allocated_fwd:.1f} MB, fwd_reserved = {_reserved_fwd:.1f} MB, bwd_reserved = {_reserved_bwd:.1f} MB.")
             
