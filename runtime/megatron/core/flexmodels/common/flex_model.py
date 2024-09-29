@@ -231,9 +231,8 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
         for op_index in range(op_start_index, op_end_index):
             op = model_chunk_op_list[op_index - op_start_index]
             for key in sorted(op.input_extra_tensors_info):
-                op_index_recv_from = (
-                    op_index + op.input_extra_tensors_info[key]["recv_from"]
-                )
+                op_index_recv_from = op_index + op.input_extra_tensors_info[key]["recv_from"]
+                
                 if op_index_recv_from < op_start_index:
                     assert (
                         op_index_recv_from >= op_start_index_prev_stage
@@ -602,8 +601,7 @@ class FlexPipeModel(MegatronModule):
 
     def forward(self, inputs, input_extra_tensors):
         global NUM_BATCHES
-        output_extra_tensors = {}
-
+        output_extra_tensors = {} 
         if not self.pre_process:
             hidden_states = self.input_tensor
         else:
@@ -619,6 +617,7 @@ class FlexPipeModel(MegatronModule):
                     hidden_states = op(
                         hidden_states, input_extra_tensors, output_extra_tensors
                     )
+                    
                     start_index += 1
                 else:
                     checkpoint_end_index = start_index
@@ -643,6 +642,7 @@ class FlexPipeModel(MegatronModule):
                         output_extra_tensors,
                         tmp_input_extra_tensors,
                     )
+                    
                     for key in tmp_input_extra_tensors:
                         input_extra_tensors[key] = tmp_input_extra_tensors[key]
 
@@ -653,7 +653,7 @@ class FlexPipeModel(MegatronModule):
                 hidden_states = op(
                     hidden_states, input_extra_tensors, output_extra_tensors
                 )
-
+                
         NUM_BATCHES = NUM_BATCHES + 1
         output = hidden_states
 
