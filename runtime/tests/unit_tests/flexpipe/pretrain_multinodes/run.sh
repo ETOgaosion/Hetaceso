@@ -4,12 +4,11 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 GPUS_PER_NODE=4
 # Change for multinode config
-MASTER_ADDR=localhost
+MASTER_ADDR=172.21.0.91
 MASTER_PORT=6000
-NNODES=1
-NODE_RANK=0
+NNODES=3
+NODE_RANK=$1
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
-
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16

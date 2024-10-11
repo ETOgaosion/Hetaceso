@@ -36,7 +36,6 @@ def _allreduce_word_embedding_grads(model: List[torch.nn.Module], config: Transf
         # TODO: Clean this up once the wrapper classes inherit from core MegatronModule.
         model_module = get_attr_wrapped_model(model_module, 'pre_process', return_model_obj=True)
         if model_module.share_embeddings_and_output_weights:
-            raise NotImplementedError(f'Currently cannot share embeddings and output weights.')
             weight = model_module.shared_embedding_or_output_weight()
             grad = weight.main_grad
             torch.distributed.all_reduce(grad, group=parallel_state.get_embedding_group())
@@ -57,7 +56,6 @@ def _allreduce_position_embedding_grads(model: List[torch.nn.Module], config: Tr
         grad = get_attr_wrapped_model(
             model_module, 'language_model.embedding.position_embeddings.weight.main_grad'
         )
-        raise NotImplementedError(f'Currently cannot share embeddings and output weights.')
         torch.distributed.all_reduce(grad, group=parallel_state.get_position_embedding_group())
 
 
