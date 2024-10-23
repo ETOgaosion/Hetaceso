@@ -488,7 +488,7 @@ class FlexLayerNormPostProcess(FlexModule):
         self.embedding = LanguageModelEmbedding(
             config=self.config,
             vocab_size=config.padded_vocab_size,
-            max_sequence_length=config.max_sequence_length,
+            max_sequence_length=config.max_position_embeddings,
             position_embedding_type=config.position_embedding_type,
             num_tokentypes=num_tokentypes,
         )
