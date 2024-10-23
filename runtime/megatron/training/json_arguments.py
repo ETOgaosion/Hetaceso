@@ -13,36 +13,46 @@ def load_json_args(json_file, args):
         args.flex_recompute_activations = config_dict["flex_recompute_activations"]
         args.resharding_stages = config_dict["resharding_stages"]
         args.num_ops_in_each_stage = config_dict["num_ops_in_each_stage"]
-        args.tensor_parallel_size_of_each_op = config_dict["tensor_parallel_size_of_each_op"]
-        args.data_parallel_size_of_each_op = config_dict["data_parallel_size_of_each_op"]
+        # args.tensor_parallel_size_of_each_op = config_dict["tensor_parallel_size_of_each_op"]
+        # args.data_parallel_size_of_each_op = config_dict["data_parallel_size_of_each_op"]
         args.recompute_ops = config_dict["recompute_ops"]
         args.algo_of_each_op = config_dict["algo_of_each_op"]
+        args.tensor_parallel_size_of_each_stage = config_dict["tensor_parallel_size_of_each_stage"]
+        args.data_parallel_size_of_each_stage = config_dict["data_parallel_size_of_each_stage"]
+        args.context_parallel_size_of_each_stage = config_dict["context_parallel_size_of_each_stage"]
+        args.data_parallel_split_of_each_stage = config_dict["data_parallel_split_of_each_stage"]
+        args.context_parallel_split_of_each_stage = config_dict["context_parallel_split_of_each_stage"]
     return args
 
 def validate_json_args(args):
-    # len(num_gpus) must be equal to num_stages
-    assert len(args.num_gpus) == args.num_stages, f"num_gpus should have the same length as num_stages: {len(args.num_gpus)} {args.num_stages}"
-    
-    # tp and dp in group must be same
-    for tp_list in args.tensor_parallel_size_of_each_op:
-        base_tp = None
-        for tp in tp_list:
-            assert tp > 0, f"tensor_parallel_size_of_each_op should be positive: {tp}"
-            if base_tp is None:
-                base_tp = tp
-            else:
-                assert tp == base_tp, f"tensor_parallel_size_of_each_op should be the same for all ops in the same stage: {tp} {base_tp}"
-    for dp_list in args.data_parallel_size_of_each_op:
-        base_dp = None
-        for dp in dp_list:
-            assert dp > 0, f"data_parallel_size_of_each_op should be positive: {dp}"
-            if base_dp is None:
-                base_dp = dp
-            else:
-                assert dp == base_dp, f"data_parallel_size_of_each_op should be the same for all ops in the same stage: {dp} {base_dp}"
 
-    # for each op, dp * tp must equal to num_gpus
-    for i in range(args.num_stages):
-        tp = args.tensor_parallel_size_of_each_op[i][0]
-        dp = args.data_parallel_size_of_each_op[i][0]
-        assert tp * dp == args.num_gpus[i], f"tensor_parallel_size_of_each_op * data_parallel_size_of_each_op should be equal to num_gpus: {tp} {dp} {args.num_gpus[i]}"
+    assert (
+        len(args.num_gpus)
+        == len(args.num_ops_in_each_stage)
+        == len(args.tensor_parallel_size_of_each_stage)
+        == len(args.data_parallel_size_of_each_stage)
+        == len(args.context_parallel_size_of_each_stage)
+    ), f"Number of pipeline stages is the same"
+
+    for i in range(len(args.num_gpus)):
+        assert (
+            args.num_gpus[i]
+            == args.tensor_parallel_size_of_each_stage[i]
+            * args.data_parallel_size_of_each_stage[i]
+            * args.context_parallel_size_of_each_stage[i]
+        ), f"GPUs in stage{i} not equal to TP * DP * PP"
+        assert (
+            len(args.data_parallel_split_of_each_stage[i])
+            == args.data_parallel_size_of_each_stage[i]
+        ), f"DP split of stage {i} not equal to DP size"
+        assert args.micro_batch_size == sum(
+            args.data_parallel_split_of_each_stage[i]
+        ), f"Data split by DP of stage {i} not equal to mbs"
+        assert (
+            len(args.context_parallel_split_of_each_stage[i])
+            == args.context_parallel_size_of_each_stage[i]
+        ), f"CP split of stage {i} not equal to CP size"
+        assert args.seq_length == sum(
+            args.context_parallel_split_of_each_stage[i]
+        ), f"Sequence split by CP of stage {i} not equal to sequence length"
+

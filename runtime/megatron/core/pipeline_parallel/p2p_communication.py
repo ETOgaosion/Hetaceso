@@ -355,7 +355,7 @@ def _communicate_flexpipe(
     return tensor_recv_prev, extra_tensor_recv_prev, tensor_recv_next, extra_tensor_recv_next
 
 
-
+# not used in Flexpipe.
 def _communicate_shapes(tensor_send_next, tensor_send_prev, recv_prev, recv_next, config):
     """Communicate tensor shapes between stages. Used to communicate
     tensor shapes before the actual tensor communication happens.
@@ -453,7 +453,7 @@ def _communicate_shapes(tensor_send_next, tensor_send_prev, recv_prev, recv_next
 
     return recv_prev_shape, recv_next_shape
 
-
+# not used in Flexpipe.
 def _batched_p2p_ops(
     *,
     tensor_send_prev: Optional[torch.Tensor],
@@ -501,7 +501,7 @@ def _batched_p2p_ops(
         reqs = []
     return reqs
 
-
+# not used in Flexpipe.
 def _p2p_ops(
     *,
     tensor_send_prev: Optional[torch.Tensor],
@@ -563,7 +563,7 @@ def _p2p_ops(
             reqs.append(send_prev_req)
     return reqs
 
-
+# not used in Flexpipe.
 def _communicate(
     *,
     tensor_send_next: Optional[torch.Tensor],

@@ -13,7 +13,7 @@ WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16
-SEQ_LENGTH=2048
+SEQ_LENGTH=1024
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 MICRO_BATCH_SIZE=4
 GLOBAL_BATCH_SIZE=16
@@ -47,7 +47,7 @@ GPT_ARGS="
     --micro-batch-size $MICRO_BATCH_SIZE \
     --global-batch-size $GLOBAL_BATCH_SIZE \
     --lr 0.00015 \
-    --train-iters 20 \
+    --train-iters 5 \
     --lr-decay-iters 320000 \
     --lr-decay-style cosine \
     --min-lr 1.0e-5 \

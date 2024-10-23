@@ -271,13 +271,22 @@ def _initialize_distributed():
             print("model parallel is already initialized")
         else:
             if args.flexpipe:
-                mpu.initialize_model_parallel_flexpipe(
+                # mpu.initialize_model_parallel_flexpipe(
+                #     args.num_ops_in_each_stage,
+                #     args.num_layers,
+                #     args.virtual_pipeline_model_parallel_size, 
+                #     args.tensor_parallel_size_of_each_op,
+                #     args.data_parallel_size_of_each_op,
+                #     args.micro_batch_size 
+                # )
+                mpu.initialize_model_parallel_flexpipe2(
+                    args.num_gpus,
                     args.num_ops_in_each_stage,
-                    args.num_layers,
-                    args.virtual_pipeline_model_parallel_size, 
-                    args.tensor_parallel_size_of_each_op,
-                    args.data_parallel_size_of_each_op,
-                    args.micro_batch_size 
+                    args.tensor_parallel_size_of_each_stage,
+                    args.data_parallel_size_of_each_stage,
+                    args.context_parallel_size_of_each_stage,
+                    args.data_parallel_split_of_each_stage,
+                    args.context_parallel_split_of_each_stage,
                 )
             else:
                 raise NotImplementedError("Only FlexPipe is supported for now")

@@ -26,46 +26,6 @@
         3,
         2
     ],
-    "tensor_parallel_size_of_each_op": [
-        [
-            1,
-            1,
-            1
-        ],
-        [
-            2,
-            2
-        ],
-        [
-            1,
-            1,
-            1
-        ],
-        [
-            4,
-            4
-        ] 
-    ],
-    "data_parallel_size_of_each_op": [
-        [
-            2,
-            2,
-            2
-        ],
-        [
-            1,
-            1
-        ],
-        [
-            4,
-            4,
-            4
-        ],
-        [
-            1,
-            1
-        ] 
-    ],
     "recompute_ops": [
         [
             false,
@@ -105,5 +65,10 @@
             0,
             0
         ] 
-    ]
+    ],
+    "tensor_parallel_size_of_each_stage":[1, 2, 1, 4],
+    "data_parallel_size_of_each_stage": [2, 1, 4, 1],
+    "context_parallel_size_of_each_stage": [1, 1, 1, 1],
+    "data_parallel_split_of_each_stage": [[2, 2], [4], [1, 1, 1, 1], [4]],
+    "context_parallel_split_of_each_stage": [[1024], [1024], [1024], [1024]]
 }
