@@ -445,6 +445,7 @@ class FlexLayerNormPostProcess(FlexModule):
         op_index: int,
         op_name: str,
         prev_name: str,
+        num_tokentypes: int,
         config: TransformerConfig,
         submodules: TransformerLayerSubmodules,
         parallel_output: bool,
@@ -482,6 +483,18 @@ class FlexLayerNormPostProcess(FlexModule):
             embedding_activation_buffer=self.embedding_activation_buffer,
             grad_output_buffer=self.grad_output_buffer,
         )
+        
+        self.embedding = LanguageModelEmbedding(
+            config=self.config,
+            vocab_size=config.padded_vocab_size,
+            max_sequence_length=config.max_sequence_length,
+            position_embedding_type=config.position_embedding_type,
+            num_tokentypes=num_tokentypes,
+        )
+        self.embedding.word_embeddings.weight.data.fill_(0)
+        self.embedding.word_embeddings.weight.shared = True
+
+        self.embedding.word_embeddings.weight.shared_embedding = True
 
         self.weight_size = config.padded_vocab_size * config.hidden_size / self.tp_size
 
@@ -525,7 +538,7 @@ class FlexLayerNormPostProcess(FlexModule):
         final_layernorm_output = self.final_layernorm(hidden_states)
 
         # always post process
-        weights = self.output_layer.weight
+        weights = self.embedding.word_embeddings.weight
 
         output, _ = self.output_layer(final_layernorm_output, weights)
         
