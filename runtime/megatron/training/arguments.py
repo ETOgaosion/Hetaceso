@@ -534,6 +534,9 @@ def validate_args(args, defaults={}):
         
     args.share_embeddings_and_output_weights = not args.untie_embeddings_and_output_weights
     
+    # Make sure not use args.virtual_pipeline_model_parallel_size
+    args.virtual_pipeline_model_parallel_size = None
+    
     # Print arguments.
     _print_args("arguments", args)
 
