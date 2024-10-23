@@ -73,6 +73,25 @@ class FlexModule(MegatronModule):
         self.output_tensors_info = {}
         self.input_extra_tensors_info = {}
         self.output_extra_tensors_info = {}
+        self.shared_weights_info={}
+    
+    def get_shared_tensor(self, grads=False):
+        tensor_dict = {}
+        for key in sorted(self.shared_weights_info):
+            if key == "word_embeddings":
+                if grads:
+                    tensor_dict[key] = self.embedding.weight.main_grad
+                else:
+                    tensor_dict[key] = self.embedding.weight.data
+        return tensor_dict
+
+    def set_shared_tensor(self, new_data, grads=False):
+        for key in sorted(self.shared_weights_info):
+            if key == "word_embeddings":
+                if grads:
+                    self.embedding.weight.main_grad = new_data[key][0]
+                else:
+                    self.embedding.weight.data = new_data[key][0]
 
 
 @dataclass
@@ -140,6 +159,16 @@ class FlexEmbedding(FlexModule):
                 "shape": self.hidden_state_size,
                 "tp_split_dim": -1,
                 "dp_split_dim": 1,
+            }
+        }
+        
+        self.shared_weights_info = {
+            "word_embeddings": {
+                "root": True,
+                "shareing_with_ops": [config.num_layers * 2 + 2],
+                "shape": [config.padded_vocab_size, config.hidden_size],
+                "tp_split_dim": 0,
+                "dp_split_dim": -1,
             }
         }
 
@@ -467,6 +496,15 @@ class FlexLayerNormPostProcess(FlexModule):
                 "tp_split_dim": -1,
                 "dp_split_dim": 0,
                 "recv_from": 0,
+            }
+        }
+        self.shared_weights_info = {
+            "word_embedding": {
+                "root": False,
+                "sharing_with_ops": [0],
+                "shape": [config.padded_vocab_size, config.hidden_size],
+                "tp_split_dim": 0,
+                "dp_split_dim": -1,
             }
         }
         

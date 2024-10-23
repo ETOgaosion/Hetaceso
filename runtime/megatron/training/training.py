@@ -34,6 +34,7 @@ from megatron.training.optimizer_param_scheduler import OptimizerParamScheduler
 from megatron.legacy.data.data_samplers import build_pretraining_data_loader
 from megatron.core.transformer.moe.moe_utils import track_moe_metrics
 from megatron.core.pipeline_parallel import get_forward_backward_func
+from megatron.core.pipeline_parallel.p2p_communication import initialize_weights_sharing, synchronize_shared_weights_grads
 
 from megatron.training.arguments import core_transformer_config_from_args, flex_config_from_args
 
@@ -365,7 +366,7 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
     else:
         pre_process = mpu.is_pipeline_first_stage(True)
         post_process = mpu.is_pipeline_last_stage(True)
-        print(f'{torch.distributed.get_rank()}', "pre_process: ", pre_process, " post_process: ", post_process)
+        print(f'{torch.distributed.get_rank()} pre_process: {pre_process} post_process: {post_process}')
         add_encoder = True
         add_decoder = True
         if model_type == ModelType.encoder_and_decoder:
@@ -417,6 +418,10 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
     # GPU allocation.
     for model_module in model:
         model_module.cuda(torch.cuda.current_device())
+    
+    # weights sharing initialize
+    if args.share_embeddings_and_output_weights:
+        initialize_weights_sharing(model)
 
     # Fp16 conversion.
     if args.fp16 or args.bf16:
@@ -567,10 +572,34 @@ def train_step(forward_step_func, data_iterator,
     # Empty unused memory.
     if args.empty_unused_memory_level >= 1:
         torch.cuda.empty_cache()
-    
-    # [TODO] DEBUG_GRADIENT cannot use
-    # no allreduce_gradient now, optimizer does the job
-    # [TODO] synchronize_shared_weights_grads not know where to insert
+
+    if DEBUG_GRAD:
+        string = f"=================== grad info BEFORE sync [rank {torch.distributed.get_rank()}] ==================="
+        with open(f"{args.log_path}{args.log_name}_debug_grad_rank_{torch.distributed.get_rank()}.log", "a+") as f:
+            f.write(string+"\n")    
+        total_size = 0
+        for name, params in model[0].named_parameters():
+            param_size = list(params.data.size())
+            string = f"[DEBUG] param name {name}, grad_requires: {params.requires_grad},\n weight({params.data.dtype}): {params.data} \n grad_value ({params.main_grad.dtype}): {params.main_grad}"
+            with open(f"{args.log_path}{args.log_name}_debug_grad_rank_{torch.distributed.get_rank()}.log", "a+") as f:
+                f.write(string+"\n")  
+        print(f"[TOTAL PARAMS SIZE] {total_size} MB")
+
+    # All-reduce word_embeddings' grad across first and last stages to ensure
+    # that word_embeddings parameters stay in sync.
+    timers('backward-embedding-all-reduce').start()
+    synchronize_shared_weights_grads(model)
+    timers('backward-embedding-all-reduce').stop()
+
+    if DEBUG_GRAD:
+        string = f"=================== grad info AFTER sync [rank {torch.distributed.get_rank()}] ==================="
+        with open(f"{args.log_path}{args.log_name}_debug_grad_rank_{torch.distributed.get_rank()}.log", "a+") as f:
+            f.write(string+"\n")    
+        for name, params in model[0].named_parameters():
+            string = f"[DEBUG] param name {name}, grad_requires: {params.requires_grad},\n weight: {params.data} \n grad_value: {params.main_grad}"
+            with open(f"{args.log_path}{args.log_name}_debug_grad_rank_{torch.distributed.get_rank()}.log", "a+") as f:
+                f.write(string+"\n")   
+
 
     # Vision gradients.
     if getattr(args, 'vision_pretraining', False) and args.vision_pretraining_type == "dino":

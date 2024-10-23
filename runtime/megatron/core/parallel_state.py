@@ -152,7 +152,8 @@ def get_nccl_options(pg_name, nccl_comm_cfgs):
 
 def initialize_model_parallel_flexpipe(num_ops_in_each_stage: list[int],
                                        num_layers: int,
-                                       virtual_pipeline_model_parallel_size: int, 
+                                       num_gpus: list[int],
+                                       virtual_pipeline_model_parallel_size: int,
                                        tensor_parallel_size_of_each_op:list[list[int]],
                                        data_parallel_size_of_each_op: list[list[int]], 
                                        micro_batch_size: int
@@ -272,33 +273,6 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: list[int],
             _MPU_PIPELINE_MODEL_PARALLEL_RANK = i
         ranks_in_each_pipe_stage.append(ranks)
         start_rank = end_rank
-    
-    # Now only support 1 pipeline, so only first and last layer has embedding and post process op
-    global _EMBEDDING_GROUP
-    global _EMBEDDING_GLOBAL_RANKS
-    assert _EMBEDDING_GROUP is None, 'embedding group is already initialized'
-    global _POSITION_EMBEDDING_GROUP
-    global _POSITION_EMBEDDING_GLOBAL_RANKS
-    assert _POSITION_EMBEDDING_GROUP is None, 'position embedding group is already initialized'
-    ranks = range(0, pipeline_model_parallel_size)
-    # Setup embedding group (to exchange gradients between
-    # first and last stages).
-    if len(ranks) > 1:
-        embedding_ranks = [ranks[0], ranks[-1]]
-        position_embedding_ranks = [ranks[0]]
-    else:
-        embedding_ranks = ranks
-        position_embedding_ranks = ranks
-
-    group = get_group(embedding_ranks)
-    if rank in embedding_ranks:
-        _EMBEDDING_GROUP = group
-    _EMBEDDING_GLOBAL_RANKS = embedding_ranks
-
-    group = get_group(position_embedding_ranks)
-    if rank in position_embedding_ranks:
-        _POSITION_EMBEDDING_GROUP = group
-    _POSITION_EMBEDDING_GLOBAL_RANKS = position_embedding_ranks
 
     # store child ranks and parent ranks for each rank
     child_ranks = [[] for _ in range(world_size)]
@@ -1140,6 +1114,7 @@ def is_pipeline_last_stage(ignore_virtual=False):
 
 def is_rank_in_embedding_group(ignore_virtual=False):
     """Return true if current rank is in embedding group, False otherwise."""
+    return False
     rank = torch.distributed.get_rank()
     global _EMBEDDING_GLOBAL_RANKS
     if ignore_virtual:
@@ -1156,6 +1131,7 @@ def is_rank_in_embedding_group(ignore_virtual=False):
 
 def is_rank_in_position_embedding_group():
     """Return true if current rank is in position embedding group, False otherwise."""
+    return False
     rank = torch.distributed.get_rank()
     global _POSITION_EMBEDDING_GLOBAL_RANKS
     return rank in _POSITION_EMBEDDING_GLOBAL_RANKS
