@@ -75,7 +75,6 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
             pre_process=pre_process,
             post_process=post_process,
             parallel_output=True,
-            share_embeddings_and_output_weights=not args.untie_embeddings_and_output_weights,
         )
     else:
         assert(args.context_parallel_size == 1), "Context parallelism is only supported with Megatron Core!"

@@ -274,10 +274,11 @@ def _initialize_distributed():
                 mpu.initialize_model_parallel_flexpipe(
                     args.num_ops_in_each_stage,
                     args.num_layers,
+                    args.num_gpus,
                     args.virtual_pipeline_model_parallel_size, 
                     args.tensor_parallel_size_of_each_op,
                     args.data_parallel_size_of_each_op,
-                    args.micro_batch_size 
+                    args.micro_batch_size
                 )
             else:
                 raise NotImplementedError("Only FlexPipe is supported for now")

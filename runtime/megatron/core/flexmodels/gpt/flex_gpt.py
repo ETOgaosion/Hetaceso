@@ -31,7 +31,6 @@ class FlexGPTModel(LanguageModule):
         pre_process: bool = True,
         post_process: bool = True,
         parallel_output: bool = True,
-        share_embeddings_and_output_weights: bool = True,
         rotary_base: int = 10000,
         seq_len_interpolation_factor: Optional[float] = None,
         profiling=False,
@@ -45,7 +44,7 @@ class FlexGPTModel(LanguageModule):
         self.post_process = post_process
         self.fp16_lm_cross_entropy = config.fp16_lm_cross_entropy
         self.parallel_output = parallel_output
-        self.share_embeddings_and_output_weights = share_embeddings_and_output_weights
+        self.share_embeddings_and_output_weights = False    # We implement weights sharing in our own way
         self.position_embedding_type = config.position_embedding_type
         self.rotary_base = rotary_base
         self.seq_len_interpolation_factor = seq_len_interpolation_factor
@@ -136,7 +135,7 @@ class FlexGPTModel(LanguageModule):
                 prev_name=prev_name,
                 config=self.config,
                 submodules=self.transformer_layer_spec.submodules,
-                parallel_output=self.parallel_output,
+                parallel_output=self.parallel_output
             )
         )
 

@@ -1660,7 +1660,7 @@ def _add_flexpipe_args(parser):
                        help='# of interleaved virtual stages in one physical stage.')                                      
     group.add_argument('--checkpoint-stages', nargs='+', default=[], 
                        help="An array of 1/0 to indicate if this stage will be activation checkpointed.")  
-    group.add_argument('--log-path', type=str, default="./", help='')          
+    group.add_argument('--log-path', type=str, default="./local/", help='')          
     return parser
 
 def _add_profiler_args(parser):

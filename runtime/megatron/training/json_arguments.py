@@ -23,6 +23,17 @@ def validate_json_args(args):
     # len(num_gpus) must be equal to num_stages
     assert len(args.num_gpus) == args.num_stages, f"num_gpus should have the same length as num_stages: {len(args.num_gpus)} {args.num_stages}"
     
+    assert len(args.flex_recompute_activations) == args.num_stages, f"flex_recompute_activations should have the same length as num_stages: {len(args.flex_recompute_activations)} {args.num_stages}"
+    
+    assert len(args.resharding_stages) == args.num_stages, f"resharding_stages should have the same length as num_stages: {len(args.resharding_stages)} {args.num_stages}"
+    
+    assert len(args.num_ops_in_each_stage) == args.num_stages, f"num_ops_in_each_stage should have the same length as num_stages: {len(args.num_ops_in_each_stage)} {args.num_stages}"
+    
+    num_ops_total = 0
+    for num_ops in args.num_ops_in_each_stage:
+        num_ops_total += num_ops
+    assert num_ops_total == args.num_layers * 2 + 2, f"num_ops_in_each_stage should sum to num_layers * 2 + 2: {num_ops_total} {args.num_layers}"
+    
     # tp and dp in group must be same
     for tp_list in args.tensor_parallel_size_of_each_op:
         base_tp = None
@@ -46,3 +57,7 @@ def validate_json_args(args):
         tp = args.tensor_parallel_size_of_each_op[i][0]
         dp = args.data_parallel_size_of_each_op[i][0]
         assert tp * dp == args.num_gpus[i], f"tensor_parallel_size_of_each_op * data_parallel_size_of_each_op should be equal to num_gpus: {tp} {dp} {args.num_gpus[i]}"
+        assert len(args.tensor_parallel_size_of_each_op[i]) == args.num_ops_in_each_stage[i], f"tensor_parallel_size_of_each_op should have the same length as num_ops_in_each_stage: {len(args.tensor_parallel_size_of_each_op[i])} {args.num_ops_in_each_stage[i]}"
+        assert len(args.data_parallel_size_of_each_op[i]) == args.num_ops_in_each_stage[i], f"data_parallel_size_of_each_op should have the same length as num_ops_in_each_stage: {len(args.data_parallel_size_of_each_op[i])} {args.num_ops_in_each_stage[i]}"
+        assert len(args.recompute_ops[i]) == args.num_ops_in_each_stage[i], f"recompute_ops should have the same length as num_ops_in_each_stage: {len(args.recompute_ops[i])} {args.num_ops_in_each_stage[i]}"
+        assert len(args.algo_of_each_op[i]) == args.num_ops_in_each_stage[i], f"algo_of_each_op should have the same length as num_ops_in_each_stage: {len(args.algo_of_each_op[i])} {args.num_ops_in_each_stage[i]}"

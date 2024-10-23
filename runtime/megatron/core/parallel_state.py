@@ -152,7 +152,8 @@ def get_nccl_options(pg_name, nccl_comm_cfgs):
 
 def initialize_model_parallel_flexpipe(num_ops_in_each_stage: list[int],
                                        num_layers: int,
-                                       virtual_pipeline_model_parallel_size: int, 
+                                       num_gpus: list[int],
+                                       virtual_pipeline_model_parallel_size: int,
                                        tensor_parallel_size_of_each_op:list[list[int]],
                                        data_parallel_size_of_each_op: list[list[int]], 
                                        micro_batch_size: int
@@ -1140,6 +1141,7 @@ def is_pipeline_last_stage(ignore_virtual=False):
 
 def is_rank_in_embedding_group(ignore_virtual=False):
     """Return true if current rank is in embedding group, False otherwise."""
+    return False
     rank = torch.distributed.get_rank()
     global _EMBEDDING_GLOBAL_RANKS
     if ignore_virtual:
@@ -1156,6 +1158,7 @@ def is_rank_in_embedding_group(ignore_virtual=False):
 
 def is_rank_in_position_embedding_group():
     """Return true if current rank is in position embedding group, False otherwise."""
+    return False
     rank = torch.distributed.get_rank()
     global _POSITION_EMBEDDING_GLOBAL_RANKS
     return rank in _POSITION_EMBEDDING_GLOBAL_RANKS
