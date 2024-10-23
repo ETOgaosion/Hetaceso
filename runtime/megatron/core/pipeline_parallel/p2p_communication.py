@@ -920,7 +920,7 @@ def get_op_via_index(op_index, models):
     return None
 
 
-def send_shared_tensors(op, grads=False):
+def send_shared_tensors(op, models, grads=False):
     
     args = get_args()
     shared_tensor = op.get_shared_tensor(grads=grads)
