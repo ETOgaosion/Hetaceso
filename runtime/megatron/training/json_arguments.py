@@ -32,7 +32,7 @@ def validate_json_args(args):
     num_ops_total = 0
     for num_ops in args.num_ops_in_each_stage:
         num_ops_total += num_ops
-    assert num_ops_total == args.num_layers + 2, f"num_ops_in_each_stage should sum to num_layers + 2: {num_ops_total} {args.num_layers}"
+    assert num_ops_total == args.num_layers * 2 + 2, f"num_ops_in_each_stage should sum to num_layers * 2 + 2: {num_ops_total} {args.num_layers}"
     
     # tp and dp in group must be same
     for tp_list in args.tensor_parallel_size_of_each_op:
