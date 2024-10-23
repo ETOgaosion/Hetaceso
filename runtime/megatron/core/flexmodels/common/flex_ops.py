@@ -499,7 +499,7 @@ class FlexLayerNormPostProcess(FlexModule):
             }
         }
         self.shared_weights_info = {
-            "word_embedding": {
+            "word_embeddings": {
                 "root": False,
                 "sharing_with_ops": [0],
                 "shape": [config.padded_vocab_size, config.hidden_size],
