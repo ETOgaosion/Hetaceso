@@ -135,7 +135,7 @@ class FlexGPTModel(LanguageModule):
                 prev_name=prev_name,
                 config=self.config,
                 submodules=self.transformer_layer_spec.submodules,
-                parallel_output=self.parallel_output,
+                parallel_output=self.parallel_output
             )
         )
 

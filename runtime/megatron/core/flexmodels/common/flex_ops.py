@@ -436,6 +436,7 @@ class FlexLayerNormPostProcessInfo(OpInfo):
     config: TransformerConfig
     submodules: TransformerLayerSubmodules
     parallel_output: bool = True
+    num_tokentypes: int = 0
 
 
 class FlexLayerNormPostProcess(FlexModule):
@@ -445,10 +446,10 @@ class FlexLayerNormPostProcess(FlexModule):
         op_index: int,
         op_name: str,
         prev_name: str,
-        num_tokentypes: int,
         config: TransformerConfig,
         submodules: TransformerLayerSubmodules,
         parallel_output: bool,
+        num_tokentypes: int,
     ):
         super().__init__(config, op_type, op_index, op_name, prev_name)
 
