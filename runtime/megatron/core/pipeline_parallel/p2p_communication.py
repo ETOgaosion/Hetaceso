@@ -1139,8 +1139,10 @@ def initialize_weights_sharing(models):
                     if op.shared_weights_info[key]["root"]:
                         is_root = True
                 if is_root:
+                    print(f'{torch.distributed.get_rank()} is root, op_index = {op.op_index}')
                     send_shared_tensors(op, models, grads=False)
                 else:
+                    print(f'{torch.distributed.get_rank()} is not root, op_index = {op.op_index}')
                     recv_tensor = recv_shared_tensors(op, models, grads=False)
                     op.set_shared_tensor(recv_tensor, grads=False)
         
