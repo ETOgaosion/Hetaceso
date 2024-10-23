@@ -23,8 +23,8 @@
     "num_ops_in_each_stage": [
         3,
         2,
-        2,
-        3
+        3,
+        2
     ],
     "tensor_parallel_size_of_each_op": [
         [
