@@ -927,6 +927,7 @@ def send_shared_tensors(op, models, grads=False):
 
     for key in sorted(shared_tensor):
         for op_index in op.shared_weights_info[key]["sharing_with_ops"]:
+            print(f'{torch.distributed.get_rank()}, op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]: {op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]}, op.shared_weights_info[key]["sharing_weights_with_ranks": {op.shared_weights_info[key]["sharing_weights_with_ranks"]}')
             if not op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index]:
                 recv_ranks = op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]
                 if len(recv_ranks) > 0:
@@ -975,6 +976,7 @@ def recv_shared_tensors(op, models, grads=False):
         else:
             dtype = args.params_dtype        
         for op_index in op.shared_weights_info[key]["sharing_with_ops"]:
+            print(f'{torch.distributed.get_rank()}, op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]: {op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]}, op.shared_weights_info[key]["sharing_weights_with_ranks": {op.shared_weights_info[key]["sharing_weights_with_ranks"]}')
             if op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index]:
                 src_op = get_op_via_index(op_index, models)
                 recv_tensor = src_op.get_shared_tensor(grads=grads)
@@ -1139,10 +1141,8 @@ def initialize_weights_sharing(models):
                     if op.shared_weights_info[key]["root"]:
                         is_root = True
                 if is_root:
-                    print(f'{torch.distributed.get_rank()} is root, op_index = {op.op_index}')
                     send_shared_tensors(op, models, grads=False)
                 else:
-                    print(f'{torch.distributed.get_rank()} is not root, op_index = {op.op_index}')
                     recv_tensor = recv_shared_tensors(op, models, grads=False)
                     op.set_shared_tensor(recv_tensor, grads=False)
         
