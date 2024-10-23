@@ -64,6 +64,8 @@ FLEX_ARGS="
     --log-path ./logs \
 "
 
+mkdir -p logs
+mkdir -p logs/csv
 
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
