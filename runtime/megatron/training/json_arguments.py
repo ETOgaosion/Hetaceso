@@ -23,7 +23,7 @@ def validate_json_args(args):
     # len(num_gpus) must be equal to num_stages
     assert len(args.num_gpus) == args.num_stages, f"num_gpus should have the same length as num_stages: {len(args.num_gpus)} {args.num_stages}"
     
-    assert len(args.flex_recompute_activation) == args.num_stages, f"flex_recompute_activations should have the same length as num_stages: {len(args.flex_recompute_activations)} {args.num_stages}"
+    assert len(args.flex_recompute_activations) == args.num_stages, f"flex_recompute_activations should have the same length as num_stages: {len(args.flex_recompute_activations)} {args.num_stages}"
     
     assert len(args.resharding_stages) == args.num_stages, f"resharding_stages should have the same length as num_stages: {len(args.resharding_stages)} {args.num_stages}"
     
