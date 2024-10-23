@@ -165,7 +165,7 @@ class FlexEmbedding(FlexModule):
         self.shared_weights_info = {
             "word_embeddings": {
                 "root": True,
-                "shareing_with_ops": [config.num_layers * 2 + 2],
+                "sharing_with_ops": [config.num_layers * 2 + 2],
                 "shape": [config.padded_vocab_size, config.hidden_size],
                 "tp_split_dim": 0,
                 "dp_split_dim": -1,

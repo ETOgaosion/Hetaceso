@@ -366,7 +366,6 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
     else:
         pre_process = mpu.is_pipeline_first_stage(True)
         post_process = mpu.is_pipeline_last_stage(True)
-        print(f'{torch.distributed.get_rank()} pre_process: {pre_process} post_process: {post_process}')
         add_encoder = True
         add_decoder = True
         if model_type == ModelType.encoder_and_decoder:
