@@ -1,21 +1,18 @@
 #!/bin/bash
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export DEBUG_COMMUNICATE=1
-export DEBUG_MPU=1
 
 GPUS_PER_NODE=4
 # Change for multinode config
-MASTER_ADDR=localhost
+MASTER_ADDR=172.21.0.90
 MASTER_PORT=6000
-NNODES=1
-NODE_RANK=0
+NNODES=3
+NODE_RANK=$1
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
-
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16
-SEQ_LENGTH=1024
+SEQ_LENGTH=2048
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 MICRO_BATCH_SIZE=4
 GLOBAL_BATCH_SIZE=16
@@ -49,7 +46,7 @@ GPT_ARGS="
     --micro-batch-size $MICRO_BATCH_SIZE \
     --global-batch-size $GLOBAL_BATCH_SIZE \
     --lr 0.00015 \
-    --train-iters 5 \
+    --train-iters 20 \
     --lr-decay-iters 320000 \
     --lr-decay-style cosine \
     --min-lr 1.0e-5 \
@@ -60,7 +57,6 @@ GPT_ARGS="
     --tokenizer-type GPT2BPETokenizer \
     --use-mcore-models \
     --transformer-impl local \
-    --no-scatter-gather-tensors-in-pipeline \
 "
 
 FLEX_ARGS="
