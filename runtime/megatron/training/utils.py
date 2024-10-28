@@ -5,7 +5,7 @@
 import sys
 
 import torch
-
+import torch.distributed
 try:
     from apex.multi_tensor_apply import multi_tensor_applier
 except ImportError:
@@ -235,6 +235,13 @@ def get_batch_on_this_cp_rank(batch):
     # that we can get balanced workload among GPUs in a context parallel group.
     args = get_args()
     cp_size = args.context_parallel_size
+    # print(f"get_batch_on_this_cp_rank")
+    # my_rank = torch.distributed.get_rank()
+    # for key, val in batch.items():
+    #     if val is None:
+    #         print(f"[rank {my_rank}] {key}: {val}")
+    #     else:
+    #         print(f"[rank {my_rank}] {key}: {val.shape}")
     if cp_size > 1:
         cp_rank = mpu.get_context_parallel_rank()
         for key, val in batch.items():

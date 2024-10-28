@@ -11,8 +11,10 @@ import torch
 import torch.distributed
 import copy
 from megatron.core.utils import ensure_divisibility
-
 from .utils import GlobalMemoryBuffer
+
+DEBUG_MPU = os.environ.get("DEBUG_MPU", '0') == '1'
+
 class DataSlice:
     def __init__(self, bs: tuple[int] = None, seq: tuple[int] = None) -> None:
         # batch size slice
@@ -151,9 +153,11 @@ _BWD_RECV_INFO = None
 all_groups = {}
 
 _RANK_INFOS: list[RankInfo] = None
-# RESHARD[i]表示rank i需要前一个stage的哪些rank传输数据。每个元素的格式为(rank_j, ds_0, ds_1)。
+# FWD_RESHARD[i]表示rank i需要前一个stage的哪些rank传输数据。每个元素的格式为(rank_j, ds_0, ds_1)。
 # 其中ds_0表示rank_j的数据切片，ds_1表示要传输的数据切片，是rank i和rank j的数据切片的交集。
 _FWD_RESHARD: dict[int, list[tuple[int, DataSlice, DataSlice]]] = {} 
+# BWD_RESHARD[i]表示rank i需要后一个stage的哪些rank传输数据。每个元素的格式为(rank_j, ds_0, ds_1)。
+# 其中ds_0表示rank_j的数据切片，ds_1表示要传输的数据切片，是rank i和rank j的数据切片的交集。
 _BWD_RESHARD: dict[int, list[tuple[int, DataSlice, DataSlice]]] = {} 
 
 _RANKS_IN_EACH_PIPELINE_STAGE: list[list[int]] = None
@@ -165,6 +169,7 @@ _MPU_PIPELINE_MODEL_PARALLEL_RANK: int = None
 _TP_SIZE_PER_OP = None
 _DP_SIZE_PER_OP = None
 _CP_SIZE_PER_OP = None
+_PP_STAGE_PER_OP = None
 
 _ALL_TP_GROUP_RANKS: list[list[list[int]]]  = None
 _ALL_DP_GROUP_RANKS: list[list[list[int]]] = None 
@@ -263,16 +268,17 @@ def initialize_model_parallel_flexpipe2(
     pipeline_model_parallel_size = len(_NUM_OPS_IN_EACH_STAGE_LIST)
     _MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE = pipeline_model_parallel_size
 
-    global _TP_SIZE_PER_OP, _DP_SIZE_PER_OP, _CP_SIZE_PER_OP
+    global _TP_SIZE_PER_OP, _DP_SIZE_PER_OP, _CP_SIZE_PER_OP, _PP_STAGE_PER_OP
     _TP_SIZE_PER_OP = []
     _DP_SIZE_PER_OP = [] 
     _CP_SIZE_PER_OP = []
-
+    _PP_STAGE_PER_OP = []
     for i in range(pipeline_model_parallel_size):
         for _ in range(_NUM_OPS_IN_EACH_STAGE_LIST[i]):
             _TP_SIZE_PER_OP.append(_TP_SIZE_PER_STAGE[i])
             _DP_SIZE_PER_OP.append(_DP_SIZE_PER_STAGE[i])
             _CP_SIZE_PER_OP.append(_CP_SIZE_PER_STAGE[i])
+            _PP_STAGE_PER_OP.append(i)
 
 
     global _OPS_START_INDEX_LIST
@@ -572,8 +578,10 @@ def initialize_model_parallel_flexpipe2(
             i, data_parallel_split_of_each_stage,
             context_parallel_split_of_each_stage
         )
-    if rank == 0:
-        print(f'[DEBUG]|rank {torch.distributed.get_rank()}| \
+    
+    if DEBUG_MPU:
+        with open(f"./logs/debug_mpu_{rank}.log", "a+") as f:
+            f.write(f'[DEBUG]|rank {torch.distributed.get_rank()}| \
     RANK_INFOS: {_RANK_INFOS}| \
     FWD_RESHARD: {_FWD_RESHARD}| \
     BWD_RESHARD: {_BWD_RESHARD}| \
@@ -592,7 +600,7 @@ def initialize_model_parallel_flexpipe2(
     _CP_SIZE_PER_OP: {_CP_SIZE_PER_OP}| \
     _CHILD_RANKS: {_CHILD_RANKS}| \
     _PARENT_RANKS: {_PARENT_RANKS}| \
-')
+' + '\n')
 
     print(f'[DEBUG]|rank {torch.distributed.get_rank()}| \
     TENSOR_MODEL_PARALLEL_RANKS: {_TENSOR_MODEL_PARALLEL_RANKS}| \
@@ -750,13 +758,14 @@ def fwd_reshard_stage(
                 prev_stage_split_load_balance[prev_split_strategy[0]]
             ]
             if rank in _FWD_RESHARD:
-                _FWD_RESHARD[rank].append(
+                _FWD_RESHARD[rank]["split"].append(
                     (prev_rank, prev_split_strategy[0], prev_split_strategy[1])
                 )
             else:
-                _FWD_RESHARD[rank] = [
-                    (prev_rank, prev_split_strategy[0], prev_split_strategy[1])
-                ]
+                _FWD_RESHARD[rank] = {
+                    "data_slice": _RANK_INFOS[rank].ds,
+                    "split": [(prev_rank, prev_split_strategy[0], prev_split_strategy[1])]
+                }
 
     print(f"prev_stage_split:{prev_stage_split}")
 
@@ -895,9 +904,10 @@ def bwd_reshard_stage(
                     (next_rank, next_split_strategy[0], next_split_strategy[1])
                 )
             else:
-                _BWD_RESHARD[rank] = [
-                    (next_rank, next_split_strategy[0], next_split_strategy[1])
-                ]
+                _BWD_RESHARD[rank] = {
+                    "data_slice": _RANK_INFOS[rank].ds,
+                    "split": [(next_rank, next_split_strategy[0], next_split_strategy[1])]
+                }
 
     print(f"next_stage_split:{next_stage_split}")
 
@@ -2233,6 +2243,7 @@ def get_virtual_pipeline_backward_model_parallel_rank():
     else:
         return _VIRTUAL_PIPELINE_MODEL_PARALLEL_RANK
 
+# get the pipeline stage
 def get_pipeline_rank_via_op_index(op_index):
     global _NUM_OPS_IN_EACH_STAGE_LIST
     sum = 0
@@ -2241,7 +2252,7 @@ def get_pipeline_rank_via_op_index(op_index):
         if sum > op_index:
             return  i % len(_NUM_OPS_IN_EACH_STAGE_LIST)
 
-def get_ranks_via_pipeline_stage(pipeline_stage):
+def get_ranks_via_pipeline_stage(pipeline_stage: int) -> list[int]:
     return _RANKS_IN_EACH_PIPELINE_STAGE[pipeline_stage]
 
 def get_next_pipeline_model_parallel_rank():
@@ -2264,6 +2275,14 @@ def set_comm_info(bwd_send_info, fwd_recv_info, fwd_send_info, bwd_recv_info):
     _FWD_RECV_INFO = fwd_recv_info
     _FWD_SEND_INFO = fwd_send_info
     _BWD_RECV_INFO = bwd_recv_info
+    if DEBUG_MPU:
+        with open(f"./logs/debug_mpu_{torch.distributed.get_rank()}.log", "a+") as f:
+            f.write(f"FWD_SEND_INFO: {_FWD_SEND_INFO}\n" +
+                    f"BWD_SEND_INFO: {_BWD_SEND_INFO}\n" +
+                    f"FWD_RECV_INFO: {_FWD_RECV_INFO}\n" +
+                    f"BWD_RECV_INFO: {_BWD_RECV_INFO}\n" +
+                     '\n')
+
 
 def get_recv_info(forward):
     global _FWD_RECV_INFO, _BWD_RECV_INFO
@@ -2307,6 +2326,18 @@ def get_op_tp_size(op_index):
 def get_op_dp_size(op_index):
     assert op_index < len(_DP_SIZE_PER_OP), f"op index {op_index} out of range({len(_DP_SIZE_PER_OP)})."
     return _DP_SIZE_PER_OP[op_index]
+
+def get_op_cp_size(op_index):
+    assert op_index < len(_CP_SIZE_PER_OP), f"op index {op_index} out of range({len(_CP_SIZE_PER_OP)})."
+    return _CP_SIZE_PER_OP[op_index]   
+
+def get_p2p_fwd_reshard():
+    global _FWD_RESHARD
+    return _FWD_RESHARD
+
+def get_p2p_bwd_reshard():
+    global _BWD_RESHARD
+    return _BWD_RESHARD
 
 '''
 Currently not support resharding
@@ -2376,6 +2407,11 @@ def get_tensor_model_parallel_ranks_via_op_index(op_index):
     pp_stage = get_pipeline_model_parallel_rank()
     start_op_index = _OPS_START_INDEX_LIST[pp_stage]
     return _TENSOR_MODEL_PARALLEL_RANKS[op_index - start_op_index]
+
+def get_pipeline_stage_via_op_index(op_index: int) -> int:
+    assert _PP_STAGE_PER_OP is not None, \
+        'pipeline stage per op is not initialized'
+    return _PP_STAGE_PER_OP[op_index]
 
 def average_losses_across_data_parallel_group(losses):
     """Reduce a tensor of losses across all GPUs."""

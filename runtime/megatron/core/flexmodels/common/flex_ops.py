@@ -34,7 +34,6 @@ class OpInfo:
     prev_name: str
 
 
-
 class FlexModule(MegatronModule):
     def __init__(
         self,
@@ -54,7 +53,7 @@ class FlexModule(MegatronModule):
 
         self.tp_size = mpu.get_op_tp_size(op_index)
         self.dp_size = mpu.get_op_dp_size(op_index)
-
+        self.cp_size = mpu.get_op_cp_size(op_index)
         ## for profiling
         self.weight_size = 0
 
@@ -131,15 +130,29 @@ class FlexEmbedding(FlexModule):
         ) / self.tp_size + config.max_position_embeddings * config.hidden_size
 
         self.input_tensors_info = {
-            'input_ids': {'shape': [self.micro_batch_size, self.seq_length], 'tp_split_dim': -1, 'dp_split_dim': -1}, 
-            'position_ids': {'shape': [self.micro_batch_size, self.seq_length,], 'tp_split_dim': -1, 'dp_split_dim': -1}
+            "input_ids": {
+                "shape": [self.micro_batch_size, self.seq_length],
+                "tp_split_dim": -1,
+                "dp_split_dim": -1,
+                "cp_split_dim": -1,
+            },
+            "position_ids": {
+                "shape": [
+                    self.micro_batch_size,
+                    self.seq_length,
+                ],
+                "tp_split_dim": -1,
+                "dp_split_dim": -1,
+                "cp_split_dim": -1,
+            },
         }
-        
+
         self.output_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
                 "tp_split_dim": -1,
                 "dp_split_dim": 1,
+                "cp_split_dim": 0
             }
         }
 
@@ -232,18 +245,33 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             (config.kv_channels * config.num_attention_heads) * config.hidden_size
         ) / self.tp_size
         self.weight_size = qkv_weight + dense_weight
-        self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
-        self.output_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
+        self.input_tensors_info = {
+            "hidden_states": {
+                "shape": self.hidden_state_size,
+                "tp_split_dim": -1,
+                "dp_split_dim": 1,
+                "cp_split_dim": 0,
+            }
+        }
+        self.output_tensors_info = {
+            "hidden_states": {
+                "shape": self.hidden_state_size,
+                "tp_split_dim": -1,
+                "dp_split_dim": 1,
+                "cp_split_dim": 0
+            }
+        }
         self.input_extra_tensors_info = {
             "attention_mask": {
                 "shape": [
                     config.micro_batch_size // self.dp_size,
                     1,
-                    config.seq_length,
-                    config.seq_length,
+                    config.seq_length // self.cp_size,
+                    config.seq_length // self.cp_size,
                 ],
                 "tp_split_dim": -1,
                 "dp_split_dim": -1,
+                "cp_split_dim": -1,
                 "recv_from": 0,
             }
         }
@@ -349,6 +377,7 @@ class FlexLayerNormMlpDropout(FlexModule):
                 "shape": self.hidden_state_size,
                 "tp_split_dim": -1,
                 "dp_split_dim": 1,
+                "cp_split_dim": 0,
             }
         }
         self.output_tensors_info = {
@@ -356,6 +385,7 @@ class FlexLayerNormMlpDropout(FlexModule):
                 "shape": self.hidden_state_size,
                 "tp_split_dim": -1,
                 "dp_split_dim": 1,
+                "cp_split_dim": 0
             }
         }
 
@@ -430,17 +460,17 @@ class FlexLayerNormPostProcess(FlexModule):
             hidden_size=self.config.hidden_size,
             eps=self.config.layernorm_epsilon,
         )
-        
+
         if config.defer_embedding_wgrad_compute:
             self.embedding_activation_buffer = []
             self.grad_output_buffer = []
         else:
             self.embedding_activation_buffer = None
             self.grad_output_buffer = None
-        
+
         self.parallel_output = parallel_output
         self.fp16_lm_cross_entropy = config.fp16_lm_cross_entropy
-        
+
         self.output_layer = tensor_parallel.ColumnParallelLinear(
             config.hidden_size,
             config.padded_vocab_size,
@@ -456,20 +486,32 @@ class FlexLayerNormPostProcess(FlexModule):
 
         self.weight_size = config.padded_vocab_size * config.hidden_size / self.tp_size
 
-        self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
-        self.output_tensors_info = {'output_tensor': {'shape': [1], 'tp_split_dim': -1, 'dp_split_dim': -1}}
+        self.input_tensors_info = {
+            "hidden_states": {
+                "shape": self.hidden_state_size,
+                "tp_split_dim": -1,
+                "dp_split_dim": 1,
+                "cp_split_dim": 0,
+            }
+        }
+        self.output_tensors_info = {
+            "output_tensor": {
+                "shape": [1],
+                "tp_split_dim": -1,
+                "dp_split_dim": -1,
+                "cp_split_dim": -1,
+            }
+        }
         self.input_extra_tensors_info = {
             "labels": {
-                "shape": [
-                    config.micro_batch_size // self.dp_size,
-                    config.seq_length
-                ],
+                "shape": [config.micro_batch_size // self.dp_size, config.seq_length],
                 "tp_split_dim": -1,
                 "dp_split_dim": 0,
+                "cp_split_dim": 1,
                 "recv_from": 0,
             }
         }
-        
+
     def forward(
         self,
         input_tensors: Dict | list,
@@ -490,7 +532,7 @@ class FlexLayerNormPostProcess(FlexModule):
         weights = self.output_layer.weight
 
         output, _ = self.output_layer(final_layernorm_output, weights)
-        
+
         labels = input_extra_tensors["labels"]
 
         if labels is None:

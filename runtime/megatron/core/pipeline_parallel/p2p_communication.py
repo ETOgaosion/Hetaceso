@@ -27,7 +27,8 @@ from megatron.core.utils import debug_mem_report, report_memory
 import os
 import time
 import inspect
-
+from megatron.core.parallel_state import DataSlice
+import pdb
 DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '0') == '1'
 EXTRA_TENSOR_TRANSFER = os.environ.get("EXTRA_TENSOR_TRANSFER", '1') == '1'
 
@@ -50,21 +51,59 @@ Shape = Union[List[int], torch.Size]
 
 def print_tensor_dict_info(name, tensor_dict):
     args = get_args()
-    string = f"rank {torch.distributed.get_rank()} {name} dict: \n"
+    string = f"[ rank {torch.distributed.get_rank()} {name} dict: \n"
     for key in sorted(tensor_dict):
         if tensor_dict[key] is not None:
             string += f"{key}: {list(tensor_dict[key].size())} size = {reduce(operator.mul, list(tensor_dict[key].size()), 1)}\n"
         else:
             string += f"{key}: {None}\n"
-
-    with open(f"{args.log_path}{args.log_name}_debug_communicate_rank{torch.distributed.get_rank()}.log", "a+") as f:
+    string += " ]\n"
+    with open(f"{args.log_path}/{args.log_name}_debug_communicate_rank{torch.distributed.get_rank()}.log", "a+") as f:
         f.write(string+"\n")
 
 def print_communication_info(current_rank, op, other_rank, tensor_size):
     args = get_args()
     string = f"rank {current_rank} | {op} {other_rank}. size = {tensor_size}."
-    with open(f"{args.log_path}{args.log_name}_debug_communicate_rank{current_rank}.log", "a+") as f:
+    with open(f"{args.log_path}/{args.log_name}_debug_communicate_rank{current_rank}.log", "a+") as f:
         f.write(string+"\n")
+
+def print_tensor_split_info(current_rank, name, tensor_split):
+    args = get_args()        
+    string = f"[ rank {current_rank} split tensor: {name}\n"
+    for rank, tensor in tensor_split.items():
+        string += f"    send to rank {rank}; size = {tensor.size()} \n"
+    string += "  ]\n"
+    with open(f"{args.log_path}/{args.log_name}_debug_communicate_rank{current_rank}.log", "a+") as f:
+        f.write(string)
+def print_info(current_rank, info):
+    args = get_args()  
+    with open(f"{args.log_path}/{args.log_name}_debug_communicate_rank{current_rank}.log", "a+") as f:
+        f.write(f"{info}\n")   
+
+
+def _create_recv_placeholder2(forward=True):
+    args = get_args()
+    dtype = args.params_dtype
+    if args.fp32_residual_connection:
+        dtype = torch.float   
+    recv_info = mpu.get_recv_info(forward)
+
+    # {tensor_name: {recv_from_rank: Tensor} }
+    flatten_tensor_recv_prev = {}
+
+    for key in sorted(recv_info["tensors"]):
+        flatten_tensor_recv_prev[key] = {}
+        cp_split_dim: int = recv_info["tensors"][key]["cp_split_dim"]
+        dp_split_dim: int = recv_info["tensors"][key]["dp_split_dim"]
+        for chunk_info in recv_info["tensors"][key]["split"]:
+            shape = recv_info["tensors"][key]["shape"]
+            recv_from_rank = chunk_info["rank"]
+            ds_0, ds_1 = chunk_info["data_slices"]
+            shape[cp_split_dim] = ds_1.seq[1] - ds_1.seq[0]
+            shape[dp_split_dim] = ds_1.bs[1] - ds_1.bs[0]
+            assert recv_from_rank not in flatten_tensor_recv_prev[key], 'each chunk should be received from different ranks' 
+            flatten_tensor_recv_prev[key][recv_from_rank] = torch.empty(shape, requires_grad=True, device=torch.cuda.current_device(), dtype=dtype)
+    return flatten_tensor_recv_prev
 
 
 def _create_recv_placeholder(forward=True):
@@ -93,6 +132,86 @@ def _create_recv_placeholder(forward=True):
             flatten_tensor_recv_prev[key].append(torch.empty(recv_shape, requires_grad=True, device=torch.cuda.current_device(), dtype=dtype))
 
     return flatten_tensor_recv_prev
+
+def _partition2(tensor: torch.Tensor, info, forward: bool):
+    tp_split_dim: int = info["tp_split_dim"]
+    cp_split_dim: int = info["cp_split_dim"]
+    dp_split_dim: int = info["dp_split_dim"]
+    split_infos: list[dict[str,]] = info["split"]
+    assert tp_split_dim == -1, "Not split TP"
+
+    args = get_args()
+    assert (
+        args.scatter_gather_tensors_in_pipeline == False
+    ), "Not support scatter_gather_tensors_in_pipeline"
+
+    tensor_split = {}
+    for split_info in split_infos:
+        ds_0, ds_1 = split_info["data_slices"]
+        send_to_rank: int = split_info["rank"]
+        slices = [slice(None)] * tensor.ndimension()
+        if dp_split_dim != -1:
+            slices[dp_split_dim] = slice(ds_1.bs[0] - ds_0.bs[0], ds_1.bs[1] - ds_0.bs[0])
+        if cp_split_dim != -1:
+            slices[cp_split_dim] = slice(ds_1.seq[0] - ds_0.seq[0], ds_1.seq[1] - ds_0.seq[0])
+        
+        # if torch.distributed.get_rank() == 1:
+        #     pdb.set_trace()
+        assert send_to_rank not in tensor_split, "each send rank should be different"
+        # if forward and mpu.is_pipeline_first_stage(): # 第一个stage已经切过块了
+        #     tensor_split[send_to_rank] = tensor.contiguous()
+        # else:
+        tensor_split[send_to_rank] = tensor[slices].contiguous()
+
+    # torch.distributed.barrier()
+    
+    return tensor_split
+
+def _reshape2(recv_tensors, recv_info, forward):
+    tensor_dict = {}
+    extra_tensor_dict = {}
+    args = get_args()
+    origin_dtype = args.params_dtype
+    for key in sorted(recv_info["tensors"]):
+        recv_tensors_info = recv_info["tensors"][key]["split"]
+        origin_shape = recv_info["tensors"][key]["shape"]
+        tp_split_dim: int = recv_info["tensors"][key]["tp_split_dim"]
+        cp_split_dim: int = recv_info["tensors"][key]["cp_split_dim"]
+        dp_split_dim: int = recv_info["tensors"][key]["dp_split_dim"]
+        data_slice: DataSlice = recv_info["tensors"][key]["data_slice"]
+
+        if dp_split_dim != -1:
+            origin_shape[dp_split_dim] = data_slice.bs[1] - data_slice.bs[0]
+        if cp_split_dim != -1:
+            origin_shape[cp_split_dim] = data_slice.seq[1] - data_slice.seq[0]
+
+        origin_tensor = torch.empty(origin_shape, dtype=origin_dtype, device=torch.cuda.current_device(), requires_grad=True)
+        assert tp_split_dim == -1, "Not split TP"
+
+
+        for recv_tensor_info in recv_tensors_info:
+            ds_0, ds_1 = recv_tensor_info["data_slices"]
+
+            recv_rank: int = recv_tensor_info["rank"]
+
+            recv_tensor: torch.Tensor = recv_tensors[key][recv_rank]
+            
+            assert origin_tensor.ndimension() == recv_tensor.ndimension()
+
+            slices = [slice(None)] * recv_tensor.ndimension()
+            if dp_split_dim != -1:
+                slices[dp_split_dim] = slice(ds_1.bs[0] - data_slice.bs[0], ds_1.bs[1] - data_slice.bs[0])
+            if cp_split_dim != -1:
+                slices[cp_split_dim] = slice(ds_1.seq[0] - data_slice.seq[0], ds_1.seq[1] - data_slice.seq[0])
+            origin_tensor[slices] = recv_tensor
+        if recv_info["tensors"][key]["extra_tensor"]:
+                extra_tensor_dict[key] = origin_tensor
+        else:
+            tensor_dict[key] = origin_tensor
+    if DEBUG_COMMUNICATE:
+        print_tensor_dict_info("recieved tensors", tensor_dict)
+        print_tensor_dict_info("received extra tensors", extra_tensor_dict)
+    return tensor_dict, extra_tensor_dict
 
 def _partition(tensor, info, forward):
     """
@@ -221,19 +340,20 @@ def _communicate_flexpipe(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
     timers = get_timers()
-
-    prev_ranks = mpu.get_stage_comm_recv_ranks()
-    next_ranks = mpu.get_stage_comm_send_ranks()
-    num_parents = len(prev_ranks)
-    num_childs = len(next_ranks) 
+    if DEBUG_COMMUNICATE:
+        print_info(torch.distributed.get_rank(), "in communicate flexpipe")
+    # prev_ranks = mpu.get_stage_comm_recv_ranks()
+    # next_ranks = mpu.get_stage_comm_send_ranks()
+    # num_parents = len(prev_ranks)
+    # num_childs = len(next_ranks)
     tensor_recv_prev, extra_tensor_recv_prev, tensor_recv_next, extra_tensor_recv_next = None, None, None, None 
 
     # Create placeholder tensors for receive in forward and backward directions if needed.
     with torch.no_grad():
         if recv_prev:
-            flatten_tensor_recv_prev = _create_recv_placeholder(forward=True)
+            flatten_tensor_recv_prev = _create_recv_placeholder2(forward=True)
         if recv_next:
-            flatten_tensor_recv_next = _create_recv_placeholder(forward=False)
+            flatten_tensor_recv_next = _create_recv_placeholder2(forward=False)
 
     if tensor_send_prev is not None:
         send_info = mpu.get_send_info(forward=False)
@@ -241,26 +361,42 @@ def _communicate_flexpipe(
             ops = []
             with torch.no_grad():
                 if key in tensor_send_prev:
-                    tensor_partitioned = _partition(tensor_send_prev[key], send_info["tensors"][key], forward=False)
+                    tensor_partitioned = _partition2(tensor_send_prev[key], send_info["tensors"][key], forward=False)
+                    if DEBUG_COMMUNICATE:
+                        print_tensor_split_info(torch.distributed.get_rank(), key, tensor_partitioned)
                 elif key in extra_tensor_send_prev:
                     if EXTRA_TENSOR_TRANSFER:
-                        tensor_partitioned = _partition(extra_tensor_send_prev[key], send_info["tensors"][key], forward= False)
+                        tensor_partitioned = _partition2(extra_tensor_send_prev[key], send_info["tensors"][key], forward= False)
+                        if DEBUG_COMMUNICATE:
+                            print_tensor_split_info(torch.distributed.get_rank(), key, tensor_partitioned)
                     else:
                         continue
                 else:
-                    print(f"[rank {torch.distributed.get_rank()}] trying to send to prev, tensor name = {key}. send_info = {send_info['tensors']}")
-            for i in range(num_parents):
-                send_prev_op = torch.distributed.P2POp(torch.distributed.isend, tensor_partitioned[i], prev_ranks[i])
+                    print(
+                        f"[rank {torch.distributed.get_rank()}] trying to send to prev, tensor name = {key}. send_info = {send_info['tensors']}"
+                    )
+            for send_to_rank in sorted(tensor_partitioned.keys()):
+                send_prev_op = torch.distributed.P2POp(torch.distributed.isend, tensor_partitioned[send_to_rank], send_to_rank)
                 ops.append(send_prev_op)  
                 if DEBUG_COMMUNICATE:
-                    print_communication_info(torch.distributed.get_rank(), f"send [{key} ({tensor_partitioned[i].dtype})] to ", prev_ranks[i], list(tensor_partitioned[i].size()))
+                    print_communication_info(
+                        torch.distributed.get_rank(),
+                        f"|0| send [{key} ({tensor_partitioned[send_to_rank].dtype})] to ",
+                        send_to_rank,
+                        list(tensor_partitioned[send_to_rank].size()),
+                    )
             if recv_prev:
                 recv_info = mpu.get_recv_info(forward=True)
-                for i in range(num_parents):
-                    recv_prev_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_prev[key][i], prev_ranks[i])
+                for recv_from_rank in sorted(flatten_tensor_recv_prev[key]):
+                    recv_prev_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_prev[key][recv_from_rank], recv_from_rank)
                     ops.append(recv_prev_op)
                     if DEBUG_COMMUNICATE:
-                        print_communication_info(torch.distributed.get_rank(), f"recv [{key}] from ", prev_ranks[i], list(flatten_tensor_recv_prev[key][i].size()))                
+                        print_communication_info(
+                            torch.distributed.get_rank(),
+                            f"|0| recv [{key}] from ",
+                            recv_from_rank,
+                            list(flatten_tensor_recv_prev[key][recv_from_rank].size()),
+                        )
 
             reqs = torch.distributed.batch_isend_irecv(ops)
             for req in reqs:
@@ -272,16 +408,21 @@ def _communicate_flexpipe(
             if recv_info["tensors"][key]["extra_tensor"] and not EXTRA_TENSOR_TRANSFER:
                 continue
             ops = []    
-            for i in range(num_parents):
-                recv_prev_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_prev[key][i], prev_ranks[i])
+            for recv_from_rank in sorted(flatten_tensor_recv_prev[key]):
+                recv_prev_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_prev[key][recv_from_rank], recv_from_rank)
                 ops.append(recv_prev_op)
                 if DEBUG_COMMUNICATE:
-                    print_communication_info(torch.distributed.get_rank(), f"recv [{key}] from ", prev_ranks[i], list(flatten_tensor_recv_prev[key][i].size()))
+                    print_communication_info(
+                        torch.distributed.get_rank(),
+                        f"|1| recv [{key}] from ",
+                        recv_from_rank,
+                        list(flatten_tensor_recv_prev[key][recv_from_rank].size()),
+                    )
 
             reqs = torch.distributed.batch_isend_irecv(ops)
             for req in reqs:
                 req.wait()  
-            # torch.cuda.synchronize()        
+            # torch.cuda.synchronize()
 
     if tensor_send_next is not None:
         send_info = mpu.get_send_info(forward=True)
@@ -289,24 +430,38 @@ def _communicate_flexpipe(
             ops = []
             with torch.no_grad():
                 if key in tensor_send_next:
-                    tensor_partitioned = _partition(tensor_send_next[key], send_info["tensors"][key], forward=True)
+                    tensor_partitioned = _partition2(tensor_send_next[key], send_info["tensors"][key], forward=True)
+                    if DEBUG_COMMUNICATE:
+                        print_tensor_split_info(torch.distributed.get_rank(), key, tensor_partitioned)
                 elif key in extra_tensor_send_next:
                     if EXTRA_TENSOR_TRANSFER:
-                        tensor_partitioned = _partition(extra_tensor_send_next[key], send_info["tensors"][key], forward=True) 
+                        tensor_partitioned = _partition2(extra_tensor_send_next[key], send_info["tensors"][key], forward=True) 
+                        if DEBUG_COMMUNICATE:
+                            print_tensor_split_info(torch.distributed.get_rank(), key, tensor_partitioned)
                     else:
                         continue
-            for i in range(num_childs):
-                send_next_op = torch.distributed.P2POp(torch.distributed.isend, tensor_partitioned[i], next_ranks[i])
+            for send_to_rank in sorted(tensor_partitioned.keys()):
+                send_next_op = torch.distributed.P2POp(torch.distributed.isend, tensor_partitioned[send_to_rank], send_to_rank)
                 ops.append(send_next_op)  
                 if DEBUG_COMMUNICATE:
-                    print_communication_info(torch.distributed.get_rank(), f"send [{key}] to ", next_ranks[i], list(tensor_partitioned[i].size()))
+                    print_communication_info(
+                        torch.distributed.get_rank(),
+                        f"|1| send [{key}] to ",
+                        send_to_rank,
+                        list(tensor_partitioned[send_to_rank].size()),
+                    )
             if recv_next:
                 recv_info = mpu.get_recv_info(forward=False)
-                for i in range(num_childs):
-                    recv_next_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_next[key][i], next_ranks[i])
+                for recv_from_rank in sorted(flatten_tensor_recv_next[key].keys()):
+                    recv_next_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_next[key][recv_from_rank], recv_from_rank)
                     ops.append(recv_next_op)
                     if DEBUG_COMMUNICATE:
-                        print_communication_info(torch.distributed.get_rank(), f"recv [{key}] from ", next_ranks[i], list(flatten_tensor_recv_next[key][i].size()))                
+                        print_communication_info(
+                            torch.distributed.get_rank(),
+                            f"|2| recv [{key}] from ",
+                            recv_from_rank,
+                            list(flatten_tensor_recv_next[key][recv_from_rank].size()),
+                        )
 
             reqs = torch.distributed.batch_isend_irecv(ops)
             for req in reqs:
@@ -319,11 +474,11 @@ def _communicate_flexpipe(
             if recv_info["tensors"][key]["extra_tensor"] and not EXTRA_TENSOR_TRANSFER:
                 continue            
             ops = []          
-            for i in range(num_childs):
-                recv_next_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_next[key][i], next_ranks[i])
+            for recv_from_rank in sorted(flatten_tensor_recv_next[key].keys()):
+                recv_next_op = torch.distributed.P2POp(torch.distributed.irecv, flatten_tensor_recv_next[key][recv_from_rank], recv_from_rank)
                 ops.append(recv_next_op)
                 if DEBUG_COMMUNICATE:
-                    print_communication_info(torch.distributed.get_rank(), f"recv [{key}] from ", next_ranks[i], list(flatten_tensor_recv_next[key][i].size()))  
+                    print_communication_info(torch.distributed.get_rank(), f"|3| recv [{key}] from ", recv_from_rank, list(flatten_tensor_recv_next[key][recv_from_rank].size()))  
 
             reqs = torch.distributed.batch_isend_irecv(ops)
             for req in reqs:
@@ -334,12 +489,12 @@ def _communicate_flexpipe(
     #         req.wait()
     # To protect against race condition when using batch_isend_irecv().
     torch.cuda.synchronize()
-
+    print_info(torch.distributed.get_rank(), "after cuda synchronize")
     with torch.no_grad():
         if recv_prev:
-            tensor_recv_prev, extra_tensor_recv_prev = _reshape(flatten_tensor_recv_prev, recv_info, forward=True)
+            tensor_recv_prev, extra_tensor_recv_prev = _reshape2(flatten_tensor_recv_prev, recv_info, forward=True)
         if recv_next:
-            tensor_recv_next, extra_tensor_recv_next = _reshape(flatten_tensor_recv_next, recv_info, forward=False)
+            tensor_recv_next, extra_tensor_recv_next = _reshape2(flatten_tensor_recv_next, recv_info, forward=False)
 
     if recv_prev:
         for key in sorted(tensor_recv_prev):
@@ -352,6 +507,8 @@ def _communicate_flexpipe(
         for key in sorted(extra_tensor_recv_next):
             extra_tensor_recv_next[key].requires_grad = True                    
 
+    if DEBUG_COMMUNICATE:
+        print_info(torch.distributed.get_rank(), "out communicate flexpipe")    
     return tensor_recv_prev, extra_tensor_recv_prev, tensor_recv_next, extra_tensor_recv_next
 
 

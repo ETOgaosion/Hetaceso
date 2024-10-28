@@ -1,6 +1,8 @@
 #!/bin/bash
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
+export DEBUG_COMMUNICATE=1
+export DEBUG_MPU=1
 
 GPUS_PER_NODE=4
 # Change for multinode config
@@ -58,6 +60,7 @@ GPT_ARGS="
     --tokenizer-type GPT2BPETokenizer \
     --use-mcore-models \
     --transformer-impl local \
+    --no-scatter-gather-tensors-in-pipeline \
 "
 
 FLEX_ARGS="
