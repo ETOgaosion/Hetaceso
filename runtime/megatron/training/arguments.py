@@ -70,8 +70,11 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args.micro_batch_size = 1
         args.num_ops_in_each_stage = [1]
         args.virtual_pipeline_model_parallel_size = 1
-        args.tensor_parallel_size_of_each_op = [[args.prof_tp_size]]
-        args.data_parallel_size_of_each_op = [[1]]
+        args.tensor_parallel_size_of_each_stage = [args.prof_tp_size]
+        args.data_parallel_size_of_each_stage = [1]
+        args.context_parallel_size_of_each_stage = [1]
+        args.data_parallel_split_of_each_stage = [[1]]
+        args.context_parallel_split_of_each_stage = [[args.seq_length]]
         args.resharding_stages = [True]     # TOCHECK: is this correct? gpt seems no need to reshard
 
         if len(args.prof_repeat_times) > 1:

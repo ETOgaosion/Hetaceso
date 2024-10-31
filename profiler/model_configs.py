@@ -12,8 +12,9 @@ model_prof_configs = {
     "gpt": {
         "dtype": "fp16",
         "model_size": ["350M", "1_3B", "2_6B", "6_7B", "13B", "scale-layer"],
-        "mbs": [1, 2, 4, 8],
-        "algo": [0, 1]
+        # "mbs": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+        "mbs": [8],
+        "algo": [0]
     },
     "t5": {
         "dtype": "fp16",

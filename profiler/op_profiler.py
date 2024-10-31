@@ -142,7 +142,6 @@ def get_model(model_name, model_size):
             pre_process=True,
             post_process=True,
             parallel_output=True,
-            share_embeddings_and_output_weights=not args.untie_embeddings_and_output_weights,
             profiling=True
         )
         args.model_name = model_name
@@ -379,16 +378,16 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
         torch.distributed.all_reduce(tensor_value, op=torch.distributed.ReduceOp.AVG)
         avg_warmup_time = tensor_value.item()
 
-        if args.prof_repeat_threshold is not None and avg_warmup_time >= args.prof_repeat_threshold:
-            remaining_fwd_times = args.prof_repeat_times[1]
-            remaining_bwd_times = args.prof_repeat_times[1]    
-        else:
-            remaining_fwd_times = args.prof_repeat_times[0]
-            remaining_bwd_times = args.prof_repeat_times[0]
+        # if args.prof_repeat_threshold is not None and avg_warmup_time >= args.prof_repeat_threshold:
+        #     remaining_fwd_times = args.prof_repeat_times[1]
+        #     remaining_bwd_times = args.prof_repeat_times[1]    
+        # else:
+        remaining_fwd_times = args.prof_repeat_times[0]
+        remaining_bwd_times = args.prof_repeat_times[0]
 
-        if args.prof_warmup_threshold is not None and avg_warmup_time >= args.prof_warmup_threshold:
-            remaining_fwd_times = max(remaining_fwd_times - args.prof_warmup_times, 0)
-            sum_fwd_time += sum_warmup_time
+        # if args.prof_warmup_threshold is not None and avg_warmup_time >= args.prof_warmup_threshold:
+        #     remaining_fwd_times = max(remaining_fwd_times - args.prof_warmup_times, 0)
+        #     sum_fwd_time += sum_warmup_time
 
         ##### forward, sync after all runs
         torch.cuda.synchronize()

@@ -68,8 +68,8 @@ do
         --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_op_profile.pkl \
         --prof-model-name $MODEL_NAME \
         --prof-model-size $MODEL_SIZE \
-        --prof-warmup-times 1 \
-        --prof-repeat-times 1 \
+        --prof-warmup-times 10 \
+        --prof-repeat-times 800 \
         2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_op_tp${tp_size}.log
 
     echo [TIME] after profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
