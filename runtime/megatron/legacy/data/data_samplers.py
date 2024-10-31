@@ -9,7 +9,8 @@ import numpy as np
 from torch.utils.data import Dataset
 from megatron.training import get_args
 from megatron.core import mpu
-
+import torch.distributed
+from megatron.core.parallel_state import RankInfo
 
 def build_pretraining_data_loader(dataset, consumed_samples):
     """Build dataloader given an input dataset."""
@@ -17,7 +18,12 @@ def build_pretraining_data_loader(dataset, consumed_samples):
     if dataset is None:
         return None
     args = get_args()
-    micro_batch_size = args.micro_batch_size // len(mpu.get_data_parallel_ranks())
+    # micro_batch_size = args.micro_batch_size // len(mpu.get_data_parallel_ranks())
+    # my_rank = 
+    # rank_info: RankInfo = mpu.get_rank_infos()[torch.distributed.get_rank()]
+
+    micro_batch_size = args.micro_batch_size
+
     # Megatron sampler
     if args.dataloader_type == 'single':
         batch_sampler = MegatronPretrainingSampler(
@@ -31,7 +37,7 @@ def build_pretraining_data_loader(dataset, consumed_samples):
             dataset,
             total_samples=len(dataset),
             consumed_samples=consumed_samples,
-            micro_batch_size=micro_batch_size,
+            micro_batch_size=micro_batch_size // len(mpu.get_data_parallel_ranks()),
             data_parallel_rank=mpu.get_data_parallel_rank(),
             data_parallel_size=mpu.get_data_parallel_world_size(),
             data_sharding=args.data_sharding)
@@ -58,10 +64,11 @@ class MegatronPretrainingSampler:
         # Keep a copy of input params for later use.
         self.total_samples = total_samples
         self.consumed_samples = consumed_samples
+        # the micro_batch_size not be splited by DP
         self.micro_batch_size = micro_batch_size
         self.data_parallel_rank = data_parallel_rank
-        self.micro_batch_times_data_parallel_size = \
-            self.micro_batch_size * data_parallel_size
+        # self.micro_batch_times_data_parallel_size = \
+        #     self.micro_batch_size * data_parallel_size
         self.drop_last = drop_last
 
         # Sanity checks.
@@ -76,20 +83,25 @@ class MegatronPretrainingSampler:
             'data_parallel_rank should be smaller than data size: {}, ' \
             '{}'.format(self.data_parallel_rank, data_parallel_size)
 
+        rank_info: RankInfo = mpu.get_rank_infos()[torch.distributed.get_rank()]
+        self.start_idx = rank_info.ds.bs[0]
+        self.end_idx = rank_info.ds.bs[1]
+
     def __len__(self):
         return self.total_samples
 
     def get_start_end_idx(self):
-        start_idx = self.data_parallel_rank * self.micro_batch_size
-        end_idx = start_idx + self.micro_batch_size
-        return start_idx, end_idx
+        # start_idx = self.data_parallel_rank * self.micro_batch_size
+        # end_idx = start_idx + self.micro_batch_size
+
+        return self.start_idx, self.end_idx
 
     def __iter__(self):
         batch = []
         # Last batch will be dropped if drop_last is not set False
         for idx in range(self.consumed_samples, self.total_samples):
             batch.append(idx)
-            if len(batch) == self.micro_batch_times_data_parallel_size:
+            if len(batch) == self.micro_batch_size:
                 start_idx, end_idx = self.get_start_end_idx()
                 yield batch[start_idx:end_idx]
                 batch = []
@@ -121,7 +133,9 @@ class RandomSeedDataset(Dataset):
         np.random.seed(seed)
         return self.dataset[idx]
 
-
+'''
+对Dataloader加载batch size的功能上是正确的，但是考虑“算法正确性”是有点问题的。
+'''
 class MegatronPretrainingRandomSampler:
 
     def __init__(self, dataset, total_samples, consumed_samples, micro_batch_size,
@@ -134,8 +148,8 @@ class MegatronPretrainingRandomSampler:
         self.data_parallel_rank = data_parallel_rank
         self.data_parallel_size = data_parallel_size
         self.data_sharding = data_sharding
-        self.micro_batch_times_data_parallel_size = \
-            self.micro_batch_size * data_parallel_size
+        # self.micro_batch_times_data_parallel_size = \
+        #     self.micro_batch_size * data_parallel_size
         self.last_batch_size = \
             self.total_samples % self.micro_batch_times_data_parallel_size
 
@@ -162,6 +176,7 @@ class MegatronPretrainingRandomSampler:
 
         # data sharding and random sampling
         if self.data_sharding:
+            assert False, "not Implemented data sharding"
             bucket_size = (self.total_samples // self.micro_batch_times_data_parallel_size) \
                            * self.micro_batch_size
             bucket_offset = current_epoch_samples // self.data_parallel_size
@@ -172,6 +187,7 @@ class MegatronPretrainingRandomSampler:
             random_idx = torch.randperm(bucket_size, generator=g).tolist()
             idx_range = [start_idx + x for x in random_idx[bucket_offset:]]
         else:
+
             full_bucket_size = (self.total_samples // self.micro_batch_size) \
                                 * self.micro_batch_size
             full_bucket_offset = current_epoch_samples

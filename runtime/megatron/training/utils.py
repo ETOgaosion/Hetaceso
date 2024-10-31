@@ -5,7 +5,7 @@
 import sys
 
 import torch
-
+import torch.distributed
 try:
     from apex.multi_tensor_apply import multi_tensor_applier
 except ImportError:
@@ -25,7 +25,7 @@ from megatron.core import mpu
 from megatron.core.tensor_parallel import param_is_not_tensor_parallel_duplicate
 from megatron.legacy.model import Float16Module
 from megatron.legacy.model.module import param_is_not_shared
-
+from megatron.core.parallel_state import RankInfo
 
 ALL_MODULE_WRAPPER_CLASSNAMES = (DDP, Float16Module)
 
@@ -234,20 +234,48 @@ def get_batch_on_this_cp_rank(batch):
     # and chunk_3 are assigned to GPU0, chunk_1 and chunk_2 are assigned to GPU1, so
     # that we can get balanced workload among GPUs in a context parallel group.
     args = get_args()
-    cp_size = args.context_parallel_size
+    # cp_size = args.context_parallel_size
+    # print(f"get_batch_on_this_cp_rank")
+    # my_rank = torch.distributed.get_rank()
+    # for key, val in batch.items():
+    #     if val is None:
+    #         print(f"[rank {my_rank}] {key}: {val}")
+    #     else:
+    #         print(f"[rank {my_rank}] {key}: {val.shape}")
+
+    # if cp_size > 1:
+    #     cp_rank = mpu.get_context_parallel_rank()
+    #     for key, val in batch.items():
+    #         if val is not None:
+    #             seq_dim = 1 if key != 'attention_mask' else 2
+    #             val = val.view(
+    #                 *val.shape[0:seq_dim],
+    #                 2 * cp_size,
+    #                 val.shape[seq_dim] // (2 * cp_size),
+    #                 *val.shape[(seq_dim + 1) :],
+    #             )
+    #             index = torch.tensor([cp_rank, (2 * cp_size - cp_rank - 1)], 
+    #                                  device="cpu", pin_memory=True).cuda(non_blocking=True)
+    #             val = val.index_select(seq_dim, index)
+    #             val = val.view(*val.shape[0:seq_dim], -1, *val.shape[(seq_dim + 2) :])
+    #             batch[key] = val
+
+    my_rank = torch.distributed.get_rank()
+    cp_size = mpu.get_op_cp_size(mpu.get_op_start_index(my_rank))
     if cp_size > 1:
-        cp_rank = mpu.get_context_parallel_rank()
+        rank_info:RankInfo = mpu.get_rank_infos[my_rank]
+        start_idx = rank_info.ds.seq[0] // 2
+        end_idx = rank_info.ds.seq[1] // 2
         for key, val in batch.items():
             if val is not None:
                 seq_dim = 1 if key != 'attention_mask' else 2
-                val = val.view(
-                    *val.shape[0:seq_dim],
-                    2 * cp_size,
-                    val.shape[seq_dim] // (2 * cp_size),
-                    *val.shape[(seq_dim + 1) :],
-                )
-                index = torch.tensor([cp_rank, (2 * cp_size - cp_rank - 1)], 
-                                     device="cpu", pin_memory=True).cuda(non_blocking=True)
+                seq_length = val.shape[seq_dim]
+                index = torch.tensor(
+                    list(range(start_idx, end_idx))
+                    + list(range(seq_length - end_idx, seq_length - start_idx)),
+                    device="cpu",
+                    pin_memory=True,
+                ).cuda(non_blocking=True)
                 val = val.index_select(seq_dim, index)
                 val = val.view(*val.shape[0:seq_dim], -1, *val.shape[(seq_dim + 2) :])
                 batch[key] = val

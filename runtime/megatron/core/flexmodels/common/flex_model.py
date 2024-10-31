@@ -76,6 +76,85 @@ def get_next_stage_index(pipeline_rank, virtual_pipeline_rank):
     )
     return op_start_index_next_stage, op_end_index_next_stage
 
+def initialize_comm_info2(
+    flex_config: FlexModelConfig,
+    tensors_info,
+    dst_stage: int,
+    src_op_index: int,
+    dst_op_index: int,
+):
+    '''
+    src_op_index: the op in my rank
+    dst_op_index: the op in prev/next rank
+    '''
+    num_ops = sum(mpu.get_num_ops_list())
+    if dst_op_index < 0:
+        dst_op_index = num_ops - 1
+    elif dst_op_index > num_ops - 1:
+        dst_op_index = 0
+
+    if src_op_index < dst_op_index:
+      send_reshard = mpu.get_p2p_fwd_reshard()
+      recv_reshard = mpu.get_p2p_bwd_reshard()
+    else:
+      send_reshard = mpu.get_p2p_bwd_reshard()
+      recv_reshard = mpu.get_p2p_fwd_reshard()
+    assert dst_stage == mpu.get_pipeline_stage_via_op_index(dst_op_index), 'dst_stage should be the same'
+    dst_ranks: list[int] = mpu.get_ranks_via_pipeline_stage(dst_stage)
+    src_stage: int = mpu.get_pipeline_stage_via_op_index(src_op_index)
+    src_ranks: list[int] = mpu.get_ranks_via_pipeline_stage(src_stage)
+    my_rank: int = torch.distributed.get_rank()
+    assert my_rank in src_ranks
+    
+
+    recv_info = {"size": 0, "tensors": {}}
+    send_info = {"tensors": {}}
+
+    for key in sorted(tensors_info):
+        if key in ["input_tensor"]:
+            # Theoretically it shouldn't be here
+            continue
+        tp_split_dim = tensors_info[key]["tp_split_dim"]
+        dp_split_dim = tensors_info[key]["dp_split_dim"]
+        cp_split_dim = tensors_info[key]["cp_split_dim"]
+        assert tp_split_dim == -1, "Not split TP"
+        recv_info["tensors"][key] = {
+            "tp_split_dim": tp_split_dim,
+            "dp_split_dim": dp_split_dim,
+            "cp_split_dim": cp_split_dim,
+            "shape": tensors_info[key]["shape"],
+            "data_slice": recv_reshard[my_rank]["data_slice"],
+            "split": [],
+        }
+        send_info["tensors"][key] = {
+            "tp_split_dim": tp_split_dim,
+            "dp_split_dim": dp_split_dim,
+            "cp_split_dim": cp_split_dim,
+            "shape": tensors_info[key]["shape"],
+            "split": []
+        }
+
+        for dst_rank in dst_ranks:
+            for (send_rank, ds_0, ds_1) in send_reshard[dst_rank]["split"]:
+                if send_rank != my_rank:
+                    continue
+                send_info["tensors"][key]["split"].append(
+                    {
+                        "data_slices": (ds_0, ds_1),
+                        "rank": dst_rank
+                    }
+                )
+        
+        for (recv_from_rank, ds_0, ds_1) in recv_reshard[my_rank]["split"]:
+            recv_info["tensors"][key]["split"].append(
+                {
+                    "data_slices": (ds_0, ds_1),
+                    "rank": recv_from_rank
+                }
+            )
+        recv_info["size"] += reduce(operator.mul, tensors_info[key]["shape"], 1)
+    return send_info, recv_info
+
 
 ## we don't consider any communication optimization in this place,
 ## calculate all the shape as if there is no communication optimization,
@@ -83,9 +162,9 @@ def get_next_stage_index(pipeline_rank, virtual_pipeline_rank):
 def initialize_comm_info(
     flex_config: FlexModelConfig,
     tensors_info,
-    dst_stage,
-    src_op_index=0,
-    dst_op_index=0,
+    dst_stage: int,
+    src_op_index: int = 0,
+    dst_op_index: int = 0,
 ):
 
     num_ops = sum(mpu.get_num_ops_list())
@@ -211,8 +290,8 @@ def initialize_comm_info(
 
     return send_info, recv_info
 
-
 def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
+    # get input_tensors_info and output_tensors_info
     pipeline_rank = mpu.get_pipeline_model_parallel_rank()
     virtual_pipeline_rank = mpu.get_virtual_pipeline_model_parallel_rank()
     op_start_index = mpu.get_op_start_index(pipeline_rank, virtual_pipeline_rank)
@@ -223,6 +302,7 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
         op_end_index - op_start_index - 1
     ].output_tensors_info
 
+    # get input_extra_tensor_dict
     input_extra_tensors_dict = {}
     if pipeline_rank > 0 or virtual_pipeline_rank > 0:
         op_start_index_prev_stage, op_end_index_prev_stage = get_prev_stage_index(
@@ -230,9 +310,10 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
         )
         for op_index in range(op_start_index, op_end_index):
             op = model_chunk_op_list[op_index - op_start_index]
+            # if the op in my stage rank need input_extra_tensor recved from prev stage
             for key in sorted(op.input_extra_tensors_info):
                 op_index_recv_from = op_index + op.input_extra_tensors_info[key]["recv_from"]
-                
+
                 if op_index_recv_from < op_start_index:
                     assert (
                         op_index_recv_from >= op_start_index_prev_stage
@@ -243,7 +324,7 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
                         "src_op": op_index,
                         "dst_op": op_index_recv_from,
                     }
-
+    # get output_extra_tensors_dict
     output_extra_tensors_dict = {}
     if (
         pipeline_rank < mpu.get_pipeline_model_parallel_world_size() - 1
@@ -255,6 +336,7 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
         )
         for op_index in range(op_start_index, op_end_index):
             op = model_chunk_op_list[op_index - op_start_index]
+            # if the op in my stage rank need output_extra_tensor sended to next stage
             for key in sorted(op.output_extra_tensors_info):
                 op_index_send_to = (
                     op_index + op.output_extra_tensors_info[key]["send_to"]
@@ -281,14 +363,14 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
     prev_stage = mpu.get_prev_pipeline_model_parallel_rank()
     next_stage = mpu.get_next_pipeline_model_parallel_rank()
 
-    bwd_send_info, fwd_recv_info = initialize_comm_info(
+    bwd_send_info, fwd_recv_info = initialize_comm_info2(
         flex_config,
         input_tensors_info,
         prev_stage,
         src_op_index=model_chunk_op_list[0].op_index,
         dst_op_index=model_chunk_op_list[0].op_index - 1,
     )
-    fwd_send_info, bwd_recv_info = initialize_comm_info(
+    fwd_send_info, bwd_recv_info = initialize_comm_info2(
         flex_config,
         output_tensors_info,
         next_stage,
@@ -297,7 +379,7 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
     )
 
     for key in input_extra_tensors_dict:
-        _bwd_send_info, _fwd_recv_info = initialize_comm_info(
+        _bwd_send_info, _fwd_recv_info = initialize_comm_info2(
             flex_config,
             input_extra_tensors_dict[key]["info"],
             prev_stage,
@@ -309,7 +391,7 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
         bwd_send_info["tensors"][key] = _bwd_send_info["tensors"][key]
 
     for key in output_extra_tensors_dict:
-        _fwd_send_info, _bwd_recv_info = initialize_comm_info(
+        _fwd_send_info, _bwd_recv_info = initialize_comm_info2(
             flex_config,
             output_extra_tensors_dict[key]["info"],
             next_stage,
@@ -319,7 +401,16 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
         bwd_recv_info["size"] += _bwd_recv_info["size"]
         bwd_recv_info["tensors"][key] = _bwd_recv_info["tensors"][key]
         fwd_send_info["tensors"][key] = _fwd_send_info["tensors"][key]
+    if mpu.is_pipeline_first_stage():
+        bwd_send_info["tensors"] = {}
+        fwd_recv_info["tensors"] = {}
+        fwd_recv_info["size"] = 0
+    elif mpu.is_pipeline_last_stage():
+        fwd_send_info["tensors"] = {}
+        bwd_recv_info["tensors"] = {}
+        bwd_recv_info["size"] = 0
 
+    # mark the tensor is extra_tensor or not
     for key in fwd_recv_info["tensors"]:
         if key in input_extra_tensors_dict:
             fwd_recv_info["tensors"][key]["extra_tensor"] = True
