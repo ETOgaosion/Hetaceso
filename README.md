@@ -2,30 +2,56 @@
 
 ## Environment Setup
 
-execute:
+Clone the project:
+
+```sh
+git clone https://github.com/ETOgaosion/Hetaceso.git --recurse-submodules
+```
+
+If you forget to clone submodules, please do:
+
+```sh
+git submodules update --init --recursive
+```
+
+Then start docker, and enter the container::
 
 ```sh
 chmod +x script/*.sh
 ./script/start_docker.sh
+docker exec -it hetaceso-[USERNAME] bash
 ```
+
+In the container, check the network:
+
+```sh
+root# curl google.com
+<HTML><HEAD><meta http-equiv="content-type" content="text/html;charset=utf-8">
+<TITLE>301 Moved</TITLE></HEAD><BODY>
+<H1>301 Moved</H1>
+The document has moved
+<A HREF="http://www.google.com/">here</A>.
+</BODY></HTML>
+```
+
+Install Transformer Engine in this project:
+
+```sh
+pip install -e external/TransformerEngine
+```
+
+It takes 10s minutes to finish setup.
 
 ## TODO
 
 - [ ] Imbalanced assignment of dp/sp workloads
-- [ ] Share weights between embedding layer and post process output layer, use Megatron's `_allreduce_word_embedding_grads` mechanism and `_EMBEDDING_GROUP` in parallel_state.py. Need to add first and last pp rank into it. Currently use `untie_embeddings_and_output_weights` to disable weight sharing, remove it if finish implementation.
-    - [ ] allreduce position embedding grads not supported either
-- [ ] Other Configurations debug
-    - [ ] flexible recompute
 - [ ] Megatron new features support
     - [ ] RoPE (with CP)
     - [ ] MoE
     - [ ] overlap
     - [ ] Zero-1 (Distributed Saved Activation)
-- [ ] Connect with Transformer Engine/Fused Attention and Add support for Megatron-CP
-- [ ] Add support for Double-CP (Ring-Ulysses)
+- [ ] Support for Double-CP (Ring-Ulysses)
 - [ ] Support Profile and Search
-- [ ] Optimize codes
-    - [ ] Use dry run instead of hard-coded tensor shapes
 
 ## Develop Norm
 
