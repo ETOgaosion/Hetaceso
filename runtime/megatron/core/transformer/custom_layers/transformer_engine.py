@@ -422,9 +422,11 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
             if getattr(TEDotProductAttention, "cp_stream") is None:
                 TEDotProductAttention.cp_stream = torch.cuda.Stream()
             extra_kwargs["cp_group"] = get_context_parallel_group(check_initialized=False)
+            print(f"cp_group: {extra_kwargs['cp_group']}")
             extra_kwargs["cp_global_ranks"] = get_context_parallel_global_ranks(
                 check_initialized=False
             )
+            print(f"cp_global_ranks: {extra_kwargs['cp_global_ranks']}")
             extra_kwargs["cp_stream"] = TEDotProductAttention.cp_stream
         else:
             assert (

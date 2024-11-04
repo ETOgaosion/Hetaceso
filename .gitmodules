@@ -7,3 +7,6 @@
 [submodule "doc"]
 	path = doc
 	url = git@github.com:ETOgaosion/Hetaceso-doc.git
+[submodule "external/TransformerEngine"]
+	path = external/TransformerEngine
+	url = git@github.com:ETOgaosion/TransformerEngine.git
