@@ -1,0 +1,552 @@
+zkyd:66960:66960 [1] NCCL INFO cudaDriverVersion 12040
+zkyd:66960:66960 [1] NCCL INFO Bootstrap : Using eno2:10.156.154.242<0>
+zkyd:66961:66961 [2] NCCL INFO init.cc:1785 Cuda Host Alloc Size 4 pointer 0x7fcec2400000
+zkyd:66964:68261 [5] NCCL INFO Plugin Path : /opt/hpcx/nccl_rdma_sharp_plugin/lib/libnccl-net.so
+zkyd:66964:68261 [5] NCCL INFO P2P plugin IBext_v8
+zkyd:66964:68261 [5] NCCL INFO NET/IB : No device found.
+zkyd:66964:68261 [5] NCCL INFO NCCL_IB_DISABLE set by environment to 1.
+zkyd:66964:68261 [5] NCCL INFO NET/Socket : Using [0]eno2:10.156.154.242<0> [1]enxb03af2b6059f:169.254.3.1<0> [2]virbr0:192.168.122.1<0>
+zkyd:66964:68261 [5] NCCL INFO Using non-device net plugin version 0
+zkyd:66964:68261 [5] NCCL INFO Using network Socket
+zkyd:66963:68257 [4] NCCL INFO ncclCommInitRank comm 0x55f965d15360 rank 4 nranks 8 cudaDev 4 nvmlDev 4 busId 81000 commId 0xc0336b2887d3565a - Init START
+zkyd:66960:68260 [1] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 0 'eno2'
+zkyd:66960:68260 [1] NCCL INFO Could not get speed from /sys/class/net/enxb03af2b6059f/speed. Defaulting to 10 Gbps.
+zkyd:66960:68260 [1] NCCL INFO Topology detection: network path /sys/devices/pci0000:20/0000:20:08.1/0000:27:00.3/usb1/1-1/1-1.2/1-1.2:2.0 is not a PCI device (usb). Attaching to first CPU
+zkyd:66960:68260 [1] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 1 'enxb03af2b6059f'
+zkyd:66960:68260 [1] NCCL INFO Could not get speed from /sys/class/net/virbr0/speed. Defaulting to 10 Gbps.
+zkyd:66960:68260 [1] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 2 'virbr0'
+zkyd:66960:68260 [1] NCCL INFO NCCL_P2P_LEVEL set by environment to LOC
+zkyd:66960:68260 [1] NCCL INFO === System : maxBw 24.0 totalBw 24.0 ===
+zkyd:66960:68260 [1] NCCL INFO CPU/0-0 (1/2/-1)
+zkyd:66960:68260 [1] NCCL INFO + PCI[5000.0] - NIC/0-0
+zkyd:66960:68260 [1] NCCL INFO + PCI[24.0] - GPU/0-1000 (0)
+zkyd:66960:68260 [1] NCCL INFO + PCI[24.0] - GPU/0-25000 (1)
+zkyd:66960:68260 [1] NCCL INFO + PCI[24.0] - GPU/0-41000 (2)
+zkyd:66960:68260 [1] NCCL INFO + PCI[24.0] - GPU/0-61000 (3)
+zkyd:66960:68260 [1] NCCL INFO + SYS[16.0] - CPU/1
+zkyd:66960:68260 [1] NCCL INFO CPU/0-1 (1/2/-1)
+zkyd:66960:68260 [1] NCCL INFO + PCI[24.0] - GPU/0-81000 (4)
+zkyd:66960:68260 [1] NCCL INFO + PCI[24.0] - GPU/0-a1000 (5)
+zkyd:66960:68260 [1] NCCL INFO + PCI[24.0] - GPU/0-c1000 (6)
+zkyd:66960:68260 [1] NCCL INFO + PCI[24.0] - GPU/0-e1000 (7)
+zkyd:66960:68260 [1] NCCL INFO + SYS[16.0] - CPU/0
+zkyd:66960:68260 [1] NCCL INFO + PCI[0.4] - PCI/0-e2000 (12d8240400000000)
+zkyd:66960:68260 [1] NCCL INFO              + PCI[0.4] - NIC/0-e5000
+zkyd:66960:68260 [1] NCCL INFO ==========================================
+zkyd:66960:68260 [1] NCCL INFO GPU/1000 :GPU/0-1000 (0/5000.0/LOC) GPU/0-25000 (2/24.0/PHB) GPU/0-41000 (2/24.0/PHB) GPU/0-61000 (2/24.0/PHB) GPU/0-81000 (3/16.0/SYS) GPU/0-a1000 (3/16.0/SYS) GPU/0-c1000 (3/16.0/SYS) GPU/0-e1000 (3/16.0/SYS) CPU/0-0 (1/24.0/PHB) CPU/0-1 (2/16.0/SYS) 
+zkyd:66960:68260 [1] NCCL INFO GPU/25000 :GPU/0-1000 (2/24.0/PHB) GPU/0-25000 (0/5000.0/LOC) GPU/0-41000 (2/24.0/PHB) GPU/0-61000 (2/24.0/PHB) GPU/0-81000 (3/16.0/SYS) GPU/0-a1000 (3/16.0/SYS) GPU/0-c1000 (3/16.0/SYS) GPU/0-e1000 (3/16.0/SYS) CPU/0-0 (1/24.0/PHB) CPU/0-1 (2/16.0/SYS) 
+zkyd:66960:68260 [1] NCCL INFO GPU/41000 :GPU/0-1000 (2/24.0/PHB) GPU/0-25000 (2/24.0/PHB) GPU/0-41000 (0/5000.0/LOC) GPU/0-61000 (2/24.0/PHB) GPU/0-81000 (3/16.0/SYS) GPU/0-a1000 (3/16.0/SYS) GPU/0-c1000 (3/16.0/SYS) GPU/0-e1000 (3/16.0/SYS) CPU/0-0 (1/24.0/PHB) CPU/0-1 (2/16.0/SYS) 
+zkyd:66960:68260 [1] NCCL INFO GPU/61000 :GPU/0-1000 (2/24.0/PHB) GPU/0-25000 (2/24.0/PHB) GPU/0-41000 (2/24.0/PHB) GPU/0-61000 (0/5000.0/LOC) GPU/0-81000 (3/16.0/SYS) GPU/0-a1000 (3/16.0/SYS) GPU/0-c1000 (3/16.0/SYS) GPU/0-e1000 (3/16.0/SYS) CPU/0-0 (1/24.0/PHB) CPU/0-1 (2/16.0/SYS) 
+zkyd:66960:68260 [1] NCCL INFO GPU/81000 :GPU/0-1000 (3/16.0/SYS) GPU/0-25000 (3/16.0/SYS) GPU/0-41000 (3/16.0/SYS) GPU/0-61000 (3/16.0/SYS) GPU/0-81000 (0/5000.0/LOC) GPU/0-a1000 (2/24.0/PHB) GPU/0-c1000 (2/24.0/PHB) GPU/0-e1000 (2/24.0/PHB) CPU/0-0 (2/16.0/SYS) CPU/0-1 (1/24.0/PHB) 
+zkyd:66960:68260 [1] NCCL INFO GPU/A1000 :GPU/0-1000 (3/16.0/SYS) GPU/0-25000 (3/16.0/SYS) GPU/0-41000 (3/16.0/SYS) GPU/0-61000 (3/16.0/SYS) GPU/0-81000 (2/24.0/PHB) GPU/0-a1000 (0/5000.0/LOC) GPU/0-c1000 (2/24.0/PHB) GPU/0-e1000 (2/24.0/PHB) CPU/0-0 (2/16.0/SYS) CPU/0-1 (1/24.0/PHB) 
+zkyd:66960:68260 [1] NCCL INFO GPU/C1000 :GPU/0-1000 (3/16.0/SYS) GPU/0-25000 (3/16.0/SYS) GPU/0-41000 (3/16.0/SYS) GPU/0-61000 (3/16.0/SYS) GPU/0-81000 (2/24.0/PHB) GPU/0-a1000 (2/24.0/PHB) GPU/0-c1000 (0/5000.0/LOC) GPU/0-e1000 (2/24.0/PHB) CPU/0-0 (2/16.0/SYS) CPU/0-1 (1/24.0/PHB) 
+zkyd:66960:68260 [1] NCCL INFO GPU/E1000 :GPU/0-1000 (3/16.0/SYS) GPU/0-25000 (3/16.0/SYS) GPU/0-41000 (3/16.0/SYS) GPU/0-61000 (3/16.0/SYS) GPU/0-81000 (2/24.0/PHB) GPU/0-a1000 (2/24.0/PHB) GPU/0-c1000 (2/24.0/PHB) GPU/0-e1000 (0/5000.0/LOC) CPU/0-0 (2/16.0/SYS) CPU/0-1 (1/24.0/PHB) 
+zkyd:66960:68260 [1] NCCL INFO Setting affinity for GPU 1 to ffff,0000ffff
+zkyd:66960:68260 [1] NCCL INFO NVLS multicast support is not available on dev 1
+zkydzkyd:66966:68263 [7] NCCL INFO Pattern 4, crossNic 0, nChannels 1, bw 15.000000/15.000000, type SYS/PIX, sameChannels 1
+zkyd:66966:68263 [7] NCCL INFO  0 : GPU/0 GPU/1 GPU/2 GPU/3 GPU/4 GPU/5 GPU/6 GPzkydzkyd:66966:68263 [7] NCCL INFO Pattern 1, crossNic 0, nChannels 1, bw 15.000000/15.000000, type SYS/PIX, sameChannels 1
+zkyd:66966:68263 [7] NCCL INFO  0 : GPU/0 GPU/1 GPU/2 GPU/3 GPU/4 GPU/5 GPU/6 GPzkyd:66960:68260 [1] NCCL INFO comm 0x55d824e0e6b0 rank 1 nzkyd:66959:68256 [0] NCCL INFO comm 0x557b20aa24c0 rank 0 nRanks 8 nNodes 1 localRanks 8 localRank 0 MNzkyd:6zkyd:66959:68256 [0] NCCL INFO Tree 0 : -1 -> 0zkyd:66962:6zkyd:66959:68256 [0] NCCL INFO Tree 1 : -1 -> 0 -> 1/-1/-1
+zkyd:66959:68256 [0] NCCL INFO Channel 00/02 :    0   1   2  zkyd:66961:68262 [2] NCCL INFO UDS: Creating service thread comm 0x563bcc942b10 rank 2
+zkyd:66961:68262 [2] NCCL INFO misc/utils.cc:235 memory stack hunk malloc(65536)
+zkyd:66961:68262 [2] NCCL INFO channel.cc:41 Cuda Alloc Size 4864 pointer 0x7fce88e00000
+zkyd:66961:68262 [2] NCCL INFO channel.cc:44 Cuda Alloc Size 136 pointer 0x7fce88e01400
+zkyd:66961:68262 [2] NCCL INFO channel.cc:55 Cuda Alloc Size 32 pointer 0x7fce88e01600
+zkyd:66961:68262 [2] NCCL INFO channel.cc:41 Cuda Alloc Size 4864 pointer 0x7fce88e01800
+zkyd:66961:68262 [2] NCCL INFO channel.cc:44 Cuda Alloc Size 136 pointer 0x7fce88e02c00
+zkyd:66961:68262 [2] NCCL INFO channel.cc:55 Cuda Alloc Size 32 pointer 0x7fce88e02e00
+zkyd:66961:68262 [2] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-NOtG3X
+zkyd:66961:68262 [2] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-GQRsu9
+zkyd:66962:68259 [3] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-J8ZtWg
+zkyd:66962:68259 [3] NCCL INFO Channel 00 : 3[3] -> 4[4] via SHM/direct/direct
+zkyd:66962:68259 [3] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-qwg9Qx
+zkyd:66962:68259 [3] NCCL INFO Channel 01 : 3[3] -> 4[4] via SHM/direct/direct
+zkyd:66966:68263 [7] NCCL INFO Connected all 
+zkyd:66965:68258 [6] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-UiC
+zkyd:66961:68262 [2] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-u3QQl0
+zkyd:66961:68262 [2] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-5BhJpZ
+zkyd:66961:68262 [2] NCCL INFO Channel 00 : 2[2] -> 1[1] via SHM/zkyd:66966:68263 [7] NCCL INFO Connected all trees
+zkyd:66966:68263 [7] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+zkyd:66966:68263 [7] NCCL INFO 2 coll channels, 2 colzkyd:zkyd:66961:68262 [2] NCCL INFO Connected all trees
+zkyd:66961:68262 [2] NCCL INFO threadThresholds 8/8/64 | 64/8/64 zkyd:66960:68260 [1] NCCL INFO Connected all trees
+zkyd:66960:68260 [1] NCCL INFO threadThresholds 8/8/64 | 64/8/64 | 512 | 512
+zkyd:669zkyd:66966:68553 [7] NCCL INFO New proxy send connection 0 from local rank 7, transport 2
+zkyd:66961:68566 [2] NCCL INFO Allocated 7340388 bytes of shared memory in /dev/shm/nccl-OiQtzr
+zkyd:66961:68566 [2] NCCL INFO New proxy send connection 0 from local rank 2, transport 2
+zkyd:66961:68566 [2] NCCL INFO proxyProgressAsync opId=0x7fce93c51ef0 op.type=1 op.reqBuff=0x7fce74004ee0 op.respSize=16 done
+zkyd:66961:68262 [2] NCCL INFO ncclPollProxyResponse Received new opId=0x7fce93c51ef0
+zkyd:66961:68262 [2] NCCL INFO resp.opId=0x7fce93c51ef0 matches expected opId=0x7fce93c51ef0
+zkyd:66961:68566 [2] NCCL INFO Received and initiated operation=Init res=0
+zkyd:66961:68262 [2] NCCL INFO Connected to proxy localRank 2 -> connection 0x7fce74004f40
+zkyd:66961:68566 [2] NCCL INFO transport/net.cc:510 Cuda Alloc Size 4194304 pointer 0x7fce89200000
+zkyd:66961:68566 [2] NCCL INFO proxyProgressAsync opId=0x7fce93c51ef0 op.type=2 op.reqBuff=0x7fce74008ec0 op.respSize=0 done
+zkyd:66961:68262 [2] NCCL INFO ncclPollProxyResponse Received new opId=0x7fce93c51ef0
+zkyd:66961:68566 [2] NCCL INFO Received and initiated operation=SharedInit res=0
+zkyd:66961:68262 [2] NCCL INFO resp.opId=0x7fce93c51ef0 matches expected opId=zkyd:66966:68263 [7] NCCL INFO init.cc:430 Cuda Host Alloc Size 2147483648 pointer 0x7f4be0000000
+zkyd:66966:68263 [7] NCCL INFO init.cc:436 Cuda Host Alloc Size 128 pointer 0x7f4cbc400200
+zkyd:66966:68263 [7] NCCL INFO TUNER/Plugin: Failed to find ncclTunerPlugin_v2, using internal tuner instead.
+zkyd:66966:68263 [7] NCCL INFO ncclCommInitRank comm 0x562e53999a80 rank 7 nzkydzkyd:66963:68257 [4] NCCL INFO TUNER/Plugin: Failed to find ncclTunerPlugin_v2, using internal tuner instezkyd:66962:68259 [3] NCCL INFO ncclCommInitRank comm 0x562fe205bbe0 rank 3 nranks 8 cudaDev 3 nvmlDev 3 busId 61000 commId 0xc0336b2887d3565a - Init COMPLETE
+zkyd:66962:66962 [3] NCCL INFO AllReduce: opCount 0 sendbuff 0x7f4ec6200200 reczkyd:66966:66966 [7] NCCL INFO AllReduce: opCount 1 sendbuff 0x7f4cbc200000 recvbuff 0x7f4cbc200000 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount 2 sendbuff 0x7f4cbc200000 recvbuff 0x7f4cbc200000 count 1 datatype 8 op 3 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount 3 sendbuff 0x7f4cbc200200 recvbuff 0x7f4cbc200200 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount 4 sendbuff 0x7f4cbc200400 recvbuff 0x7f4cbc200400 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO Recv: opCount 5 sendbuff (nil) recvbuff 0x7f4ba0000000 count 51511296 datatype 6 op 0 root 3 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:70912 [7] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-lzQWpw
+zkyd:66966:70912 [7] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-Sdsehi
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount 6 sendbuff 0x7f4cbc200200 recvbuff 0x7f4cbc200200 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount 7 sendbuff 0x7f4cbc208a00 recvbuff 0x7f4cbc208a00 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount 8 sendbuff 0x7f4cbc200200 recvbuff 0x7f4cbc200200 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount 9 sendbuff 0x7f4cbc208a00 recvbuff 0x7f4cbc208a00 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount a sendbuff 0x7f4cbc200200 recvbuff 0x7f4cbc200200 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO Broadcast: opCount b sendbuff 0x7f4cbc200200 recvbuff 0x7f4cbc200200 count 24 datatype 0 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount c sendbuff 0x7f4cbc208a00 recvbuff 0x7f4cbc208a00 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount d sendbuff 0x7f4cbc200200 recvbuff 0x7f4cbc200200 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllGather: opCount e sendbuff 0x7f4cbc200238 recvbuff 0x7f4cbc200200 count 8 datatype 0 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount f sendbuff 0x7f4cbc208a00 recvbuff 0x7f4cbc208a00 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount 10 sendbuff 0x7f4cbc200200 recvbuff 0x7f4cbc200200 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO AllReduce: opCount 11 sendbuff 0x7f4cbc208a00 recvbuff 0x7f4cbc208a00 count 1 datatype 1 op 0 root 0 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+zkyd:66966:66966 [7] NCCL INFO Recv: opCount 12 sendbuff (nil) recvbuff 0x7f4c74600000 count 1048576 datatype 6 op 0 root 3 comm 0x562e53999a80 [nranks=8] stream 0x562e5399eb80
+L INFO Azkyd:66966:68557 [7] NCCL INFO [Proxy Service UDS] exit: stop 0 abortFlag 1
+zkyd:66966:68553 [7] NCCL INFO [Service thread] Connection closed by localRank 7
+zkyd:66966:66966 [7] NCCL INFO NCCL version 2.21.5+cuda12.4
+zkyd:66966:66966 [7] NCCL INFO init.cc:1785 Cuda Host Alloc Size 4 pointer 0x7f4cbc470600
+zkyd:66966:92512 [7] NCCL INFO Using non-device net plugin version 0
+zkyd:66966:92512 [7] NCCL INFO Using network Socket
+zkyd:66966:92512 [7] NCCL INFO ncclCommInitRank comm 0x562e58dc08f0 rank 0 nranks 1 cudaDev 7 nvmlDev 7 busId e1000 commId 0x5371b12eab786374 - Init START
+zkyd:66966:92512 [7] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 0 'eno2'
+zkyd:66966:92512 [7] NCCL INFO Could not get speed from /sys/class/net/enxb03af2b6059f/speed. Defaulting to 10 Gbps.
+zkyd:66966:92512 [7] NCCL INFO Topology detection: network path /sys/devices/pci0000:20/0000:20:08.1/0000:27:00.3/usb1/1-1/1-1.2/1-1.2:2.0 is not a PCI device (usb). Attaching to first CPU
+zkyd:66966:92512 [7] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 1 'enxb03af2b6059f'
+zkyd:66966:92512 [7] NCCL INFO Could not get speed from /sys/class/net/virbr0/speed. Defaulting to 10 Gbps.
+zkyd:66966:92512 [7] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 2 'virbr0'
+zkyd:66966:92512 [7] NCCL INFO === System : maxBw 5000.0 totalBw 5000.0 ===
+zkyd:66966:92512 [7] NCCL INFO CPU/0-1 (1/2/-1)
+zkyd:66966:92512 [7] NCCL INFO + PCI[5000.0] - NIC/0-0
+zkyd:66966:92512 [7] NCCL INFO + PCI[24.0] - GPU/0-e1000 (0)
+zkyd:66966:92512 [7] NCCL INFO + PCI[0.4] - PCI/0-e2000 (12d8240400000000)
+zkyd:66966:92512 [7] NCCL INFO              + PCI[0.4] - NIC/0-e5000
+zkyd:66966:92512 [7] NCCL INFO ==========================================
+zkyd:66966:92512 [7] NCCL INFO GPU/E1000 :GPU/0-e1000 (0/5000.0/LOC) CPU/0-1 (1/24.0/PHB) 
+zkyd:66966:92512 [7] NCCL INFO Setting affinity for GPU 7 to ffff0000,ffff0000
+zkyd:66966:92512 [7] NCCL INFO Pattern 4, crossNic 0, nChannels 16, bw 40.000000/40.000000, type LOC/PIX, sameChannels 1
+zkyd:66966:92512 [7] NCCL INFO  0 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  1 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  2 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  3 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  4 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  5 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  6 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  7 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  8 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  9 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 10 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 11 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 12 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 13 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 14 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 15 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO Pattern 3, crossNic 0, nChannels 16, bw 40.000000/40.000000, type LOC/PIX, sameChannels 1
+zkyd:66966:92512 [7] NCCL INFO  0 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  1 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  2 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  3 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  4 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  5 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  6 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  7 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  8 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO  9 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 10 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 11 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 12 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 13 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 14 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO 15 : GPU/0
+zkyd:66966:92512 [7] NCCL INFO comm 0x562e58dc08f0 rank 0 nRanks 1 nNodes 1 localRanks 1 localRank 0 MNNVL 0
+zkyd:66966:92512 [7] NCCL INFO Tree 0 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 16 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 1 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 17 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 2 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 18 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 3 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 19 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 4 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 20 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 5 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 21 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 6 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 22 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 7 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 23 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 8 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 24 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 9 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 25 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 10 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 26 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 11 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 27 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 12 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 28 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 13 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 29 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 14 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 30 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 15 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Tree 31 : -1 -> 0 -> -1/-1/-1
+zkyd:66966:92512 [7] NCCL INFO Channel 00/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 01/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 02/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 03/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 04/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 05/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 06/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 07/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 08/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 09/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 10/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 11/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 12/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 13/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 14/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 15/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 16/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 17/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 18/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 19/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 20/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 21/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 22/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 23/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 24/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 25/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 26/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 27/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 28/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 29/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 30/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Channel 31/32 :    0
+zkyd:66966:92512 [7] NCCL INFO Ring 00 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 01 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 02 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 03 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 04 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 05 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 06 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 07 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 08 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 09 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 10 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 11 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 12 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 13 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 14 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 15 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 16 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 17 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 18 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 19 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 20 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 21 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 22 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 23 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 24 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 25 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 26 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 27 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 28 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 29 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 30 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Ring 31 : 0 -> 0 -> 0
+zkyd:66966:92512 [7] NCCL INFO Trees [0] -1/-1/-1->0->-1 [1] -1/-1/-1->0->-1 [2] -1/-1/-1->0->-1 [3] -1/-1/-1->0->-1 [4] -1/-1/-1->0->-1 [5] -1/-1/-1->0->-1 [6] -1/-1/-1->0->-1 [7] -1/-1/-1->0->-1 [8] -1/-1/-1->0->-1 [9] -1/-1/-1->0->-1 [10] -1/-1/-1->0->-1 [11] -1/-1/-1->0->-1 [12] -1/-1/-1->0->-1 [13] -1/-1/-1->0->-1 [14] -1/-1/-1->0->-1 [15] -1/-1/-1->0->-1 [16] -1/-1/-1->0->-1 [17] -1/-1/-1->0->-1 [18] -1/-1/-1->0->-1 [19] -1/-1/-1->0->-1 [20] -1/-1/-1->0->-1 [21] -1/-1/-1->0->-1 [22] -1/-1/-1->0->-1 [23] -1/-1/-1->0->-1 [24] -1/-1/-1->0->-1 [25] -1/-1/-1->0->-1 [26] -1/-1/-1->0->-1 [27] -1/-1/-1->0->-1 [28] -1/-1/-1->0->-1 [29] -1/-1/-1->0->-1 [30] -1/-1/-1->0->-1 [31] -1/-1/-1->0->-1
+zkyd:66966:92512 [7] NCCL INFO P2P Chunksize set to 131072
+zkyd:66966:92512 [7] NCCL INFO UDS: Creating service thread comm 0x562e58dc08f0 rank 0
+zkyd:66966:92512 [7] NCCL INFO misc/utils.cc:235 memory stack hunk malloc(65536)
+zkyd:66966:92512 [7] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f4c80e00000
+zkyd:66966:92512 [7] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f4c80e00400
+zkyd:66966:68163 [7] NCCL INFO comm 0x562e53999a80 rank 7 nranks 8 cudaDev 7 busId e1000 - Abort COMPLETE
+zkyd:66966:92512 [7] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f4c80e00600
+zkyd:66966:92512 [7] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f4c80e00800
+zkyd:66966:92512 [7] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f4c80e00c00
+zkyd:66966:92512 [7] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f4c80e00e00
+8e06e00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e07000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e07400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e07600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e07800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e07c00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e07e00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e08000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e08400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e08600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e08800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e08c00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e08e00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e09000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e09400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e09600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e09800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e09c00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e09e00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0a000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0a400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0a600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0a800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0ac00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0ae00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0b000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0b400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0b600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0b800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0bc00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0be00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0c000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0c400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0c600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0c800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0cc00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0ce00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0d000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0d400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0d600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0d800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0dc00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0de00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0e000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0e400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0e600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0e800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0ec00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0ee00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0f000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0f400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0f600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e0f800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e0fc00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e0fe00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e10000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e10400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e10600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e10800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e10c00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e10e00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e11000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e11400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e11600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e11800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e11c00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e11e00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e12000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e12400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e12600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e12800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e12c00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e12e00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e13000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e13400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e13600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e13800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e13c00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e13e00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e14000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e14400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e14600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e14800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e14c00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e14e00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e15000
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e15400
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e15600
+zkyd:66964:92485 [5] NCCL INFO channel.cc:41 Cuda Alloc Size 608 pointer 0x7f57e8e15800
+zkyd:66964:92485 [5] NCCL INFO channel.cc:44 Cuda Alloc Size 24 pointer 0x7f57e8e15c00
+zkyd:66964:92485 [5] NCCL INFO channel.cc:55 Cuda Alloc Size 4 pointer 0x7f57e8e15e00
+zkyd:66964:92485 [5] NCCL INFO Connected all rings
+zkyd:66964:92485 [5] NCCL INFO Connected all trees
+zkyd:66964:92485 [5] NCCL INFO 32 coll channels, 32 collnet channels, 0 nvls channels, 32 p2p channels, 32 p2p channels per peer
+zkyd:66964:92486 [5] NCCL INFO Mem Realloc old size 0, new size 8 pointer 0x7f56ac004f30
+zkyd:66964:68556 [5] NCCL INFO [Proxy Service UDS] exit: stop 1 abortFlag 1
+zkyd:66964:92486 [5] NCCL INFO Allocated 7340388 bytes of shared memory in /dev/shm/nccl-Ha8X60
+zkyd:66964:92486 [5] NCCL INFO New proxy send connection 0 from local rank 0, transport 2
+zkyd:66964:92486 [5] NCCL INFO proxyProgressAsync opId=0x7f56b0092bb0 op.type=1 op.reqBuff=0x7f56ac000bb0 op.respSize=16 done
+zkyd:66964:92485 [5] NCCL INFO ncclPollProxyResponse Received new opId=0x7f56b0092bb0
+zkyd:66964:92485 [5] NCCL INFO resp.opId=0x7f56b0092bb0 matches expected opId=0x7f56b0092bb0
+zkyd:66964:92486 [5] NCCL INFO Received and initiated operation=Init res=0
+zkyd:66964:92485 [5] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f56ac004f50
+zkyd:66964:92486 [5] NCCL INFO transport/net.cc:510 Cuda Alloc Size 67108864 pointer 0x7f573c400000
+zkyd:66964:92486 [5] NCCL INFO proxyProgressAsync opId=0x7f56b0092bb0 op.type=2 op.reqBuff=0x7f56ac008ee0 op.respSize=0 done
+zkyd:66964:92485 [5] NCCL INFO ncclPollProxyResponse Received new opId=0x7f56b0092bb0
+zkyd:66964:92485 [5] NCCL INFO resp.opId=0x7f56b0092bb0 matches expected opId=0x7f56b0092bb0
+zkyd:66964:92486 [5] NCCL INFO Received and initiated operation=SharedInit res=0
+zkyd:66964:92485 [5] NCCL INFO init.cc:402 Cuda Alloc Size 11856 pointer 0x7f57e8e16000
+zkyd:66965:68181 [6] NCCL INFO comm 0x556c1c42bd60 rank 6 nranks 8 cudaDev 6 busId c1000 - Abort COMPLETE
+.cc:436 Cuda Host Alloc Size 128 pointer 0x7fcec248c800
+zkyd:66961:72754 [2] NCCL INFO ncclCommInitRank comm 0x563bd1b4c310 rank 0 nranks 1 cudaDev 2 nvmlDev 2 busId 41000 commId 0xc6f1da1d16a71d5d - Init COMPLETE
+zkyd:66961:66961 [2] NCCL INFO Broadcast: opCount 0 sendbuff 0x7fcec2216a00 recvbuff 0x7fcec2216a00 count 32768 datatype 0 op 0 root 0 comm 0x563bd1b4c310 [nranks=1] stream 0x563bcc953ce0
+zkyd:66961:66961 [2] NCCL INFO Broadcast: opCount 0 sendbuff 0x7fce81400000 recvbuff 0x7fce81400000 count 4194304 datatype 0 op 0 root 0 comm 0x563bd1b4c310 [nranks=1] stream 0x563bcc953ce0
+zkyd:66961:66961 [2] NCCL INFO Broadcast: opCount 0 sendbuff 0x7fcec222aa00 recvbuff 0x7fcec222aa00 count 32768 datatype 0 op 0 root 0 comm 0x563bd1b4c310 [nranks=1] stream 0x563bcc953ce0
+zkyd:66961:66961 [2] NCCL INFO init.cc:1785 Cuda Host Alloc Size 4 pointer 0x7fcec248ca00
+zkyd:66961:74762 [2] NCCL INFO Using non-device net plugin version 0
+zkyd:66961:74762 [2] NCCL INFO Using network Socket
+zkyd:66962:74734 [3] NCCL INFO ncclCommInitRank comm 0x562ff5039a50 rank 1 nranks 2 cudaDev 3 nvmlDev 3 busId 61000 commId 0x84551f7d95c1623a - Init START
+zkyd:66962:74734 [3] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 0 'eno2'
+zkyd:66962:74734 [3] NCCL INFO Could not get speed from /sys/class/net/enxb03af2b6059f/speed. Defaulting to 10 Gbps.
+zkyd:66962:74734 [3] NCCL INFO Topology detection: network path /sys/devices/pci0000:20/0000:20:08.1/0000:27:00.3/usb1/1-1/1-1.2/1-1.2:2.0 is not a PCI device (usb). Attaching to first CPU
+zkyd:66962:74734 [3] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 1 'enxb03af2b6059f'
+zkyd:66962:74734 [3] NCCL INFO Could not get speed from /sys/class/net/virbr0/speed. Defaulting to 10 Gbps.
+zkyd:66962:74734 [3] NCCL INFO NET/Socket : GPU Direct RDMA Disabled for HCA 2 'virbr0'
+zkyd:66962:74734 [3] NCCL INFO === System : maxBw 24.0 totalBw 24.0 ===
+zkyd:66962:74734 [3] NCCL INFO CPU/0-0 (1/2/-1)
+zkyd:66962:74734 [3] NCCL INFO + PCI[5000.0] - NIC/0-0
+zkyd:66962:74734 [3] NCCL INFO + PCI[24.0] - GPU/0-1000 (0)
+zkyd:66962:74734 [3] NCCL INFO + PCI[24.0] - GPU/0-61000 (1)
+zkyd:66962:74734 [3] NCCL INFO + SYS[16.0] - CPU/1
+zkyd:66962:74734 [3] NCCL INFO CPU/0-1 (1/2/-1)
+zkyd:66962:74734 [3] NCCL INFO + SYS[16.0] - CPU/0
+zkyd:66962:74734 [3] NCCL INFO + PCI[0.4] - PCI/0-e2000 (12d8240400000000)
+zkyd:66962:74734 [3] NCCL INFO              + PCI[0.4] - NIC/0-e5000
+zkyd:66962:74734 [3] NCCL INFO ==========================================
+zkyd:66962:74734 [3] NCCL INFO GPU/1000 :GPU/0-1000 (0/5000.0/LOC) GPU/0-61000 (2/24.0/PHB) CPU/0-0 (1/24.0/PHB) CPU/0-1 (2/16.0/SYS) 
+zkyd:66962:74734 [3] NCCL INFO GPU/61000 :GPU/0-1000 (2/24.0/PHB) GPU/0-61000 (0/5000.0/LOC) CPU/0-0 (1/24.0/PHB) CPU/0-1 (2/16.0/SYS) 
+zkyd:66962:74734 [3] NCCL INFO Setting affinity for GPU 3 to ffff,0000ffff
+zkyd:66962:74734 [3] NCCL INFO Pattern 4, crossNic 0, nChannels 2, bw 12.000000/12.000000, type PHB/PIX, sameChannels 1
+zkyd:66962:74734 [3] NCCL INFO  0 : GPU/0 GPU/1
+zkyd:66962:74734 [3] NCCL INFO  1 : GPU/0 GPU/1
+zkyd:66962:74734 [3] NCCL INFO Pattern 1, crossNic 0, nChannels 2, bw 20.000000/20.000000, type PHB/PIX, sameChannels 0
+zkyd:66962:74734 [3] NCCL INFO  0 : GPU/0 GPU/1
+zkyd:66962:74734 [3] NCCL INFO  1 : GPU/1 GPU/0
+zkyd:66962:74734 [3] NCCL INFO comm 0x562ff5039a50 rank 1 nRanks 2 nNodes 1 localRanks 2 localRank 1 MNNVL 0
+zkyd:66962:74734 [3] NCCL INFO Tree 0 : 0 -> 1 -> -1/-1/-1
+zkyd:66962:74734 [3] NCCL INFO Tree 2 : 0 -> 1 -> -1/-1/-1
+zkyd:66962:74734 [3] NCCL INFO Tree 1 : -1 -> 1 -> 0/-1/-1
+zkyd:66962:74734 [3] NCCL INFO Tree 3 : -1 -> 1 -> 0/-1/-1
+zkyd:66962:74734 [3] NCCL INFO Ring 00 : 0 -> 1 -> 0
+zkyd:66962:74734 [3] NCCL INFO Ring 01 : 0 -> 1 -> 0
+zkyd:66962:74734 [3] NCCL INFO Ring 02 : 0 -> 1 -> 0
+zkyd:66962:74734 [3] NCCL INFO Ring 03 : 0 -> 1 -> 0
+zkyd:66962:74734 [3] NCCL INFO Trees [0] -1/-1/-1->1->0 [1] 0/-1/-1->1->-1 [2] -1/-1/-1->1->0 [3] 0/-1/-1->1->-1
+zkyd:66962:74734 [3] NCCL INFO P2P Chunksize set to 131072
+zkyd:66962:74734 [3] NCCL INFO UDS: Creating service thread comm 0x562ff5039a50 rank 1
+zkyd:66962:74734 [3] NCCL INFO misc/utils.cc:235 memory stack hunk malloc(65536)
+zkyd:66962:74734 [3] NCCL INFO channel.cc:41 Cuda Alloc Size 1216 pointer 0x7f4e8ce19000
+zkyd:66962:74734 [3] NCCL INFO channel.cc:44 Cuda Alloc Size 40 pointer 0x7f4e8ce19600
+zkyd:66962:74734 [3] NCCL INFO channel.cc:55 Cuda Alloc Size 8 pointer 0x7f4e8ce19800
+zkyd:66962:74734 [3] NCCL INFO channel.cc:41 Cuda Alloc Size 1216 pointer 0x7f4e8ce19a00
+zkyd:66962:74734 [3] NCCL INFO channel.cc:44 Cuda Alloc Size 40 pointer 0x7f4e8ce1a000
+zkyd:66962:74734 [3] NCCL INFO channel.cc:55 Cuda Alloc Size 8 pointer 0x7f4e8ce1a200
+zkyd:66962:74734 [3] NCCL INFO channel.cc:41 Cuda Alloc Size 1216 pointer 0x7f4e8ce1a400
+zkyd:66962:74734 [3] NCCL INFO channel.cc:44 Cuda Alloc Size 40 pointer 0x7f4e8ce1aa00
+zkyd:66962:74734 [3] NCCL INFO channel.cc:55 Cuda Alloc Size 8 pointer 0x7f4e8ce1ac00
+zkyd:66962:74734 [3] NCCL INFO channel.cc:41 Cuda Alloc Size 1216 pointer 0x7f4e8ce1ae00
+zkyd:66962:74734 [3] NCCL INFO channel.cc:44 Cuda Alloc Size 40 pointer 0x7f4e8ce1b400
+zkyd:66962:74734 [3] NCCL INFO channel.cc:55 Cuda Alloc Size 8 pointer 0x7f4e8ce1b600
+zkyd:66962:74734 [3] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-SHARqr
+zkyd:66962:74734 [3] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-yIRh4Q
+zkyd:66962:74734 [3] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-LqcSot
+zkyd:66962:74734 [3] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-Tfxv7D
+zkyd:66962:74734 [3] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-s4eU4q
+zkyd:66962:74734 [3] NCCL INFO Channel 00 : 1[3] -> 0[0] via SHM/direct/direct
+zkyd:66962:74734 [3] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-okmMh6
+zkyd:66962:74734 [3] NCCL INFO Channel 01 : 1[3] -> 0[0] via SHM/direct/direct
+zkyd:66962:74734 [3] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-CvMLBg
+zkyd:66962:74734 [3] NCCL INFO Channel 02 : 1[3] -> 0[0] via SHM/direct/direct
+zkyd:66962:74734 [3] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-M9t6ul
+zkyd:66962:74734 [3] NCCL INFO Channel 03 : 1[3] -> 0[0] via SHM/direct/direct
+zkyd:66962:74734 [3] NCCL INFO Connected all rings
+zkyd:66962:74734 [3] NCCL INFO Connected all trees
+zkyd:66962:74734 [3] NCCL INFO threadThresholds 8/8/64 | 16/8/64 | 512 | 512
+zkyd:66962:74734 [3] NCCL INFO 4 coll channels, 4 collnet channels, 0 nvls channels, 4 p2p channels, 2 p2p channels per peer
+zkyd:66962:74736 [3] NCCL INFO Mem Realloc old size 0, new size 8 pointer 0x7f4cd4004f20
+zkyd:66962:74736 [3] NCCL INFO Allocated 7340388 bytes of shared memory in /dev/shm/nccl-NsEftH
+zkyd:66962:74736 [3] NCCL INFO New proxy send connection 0 from local rank 1, transport 2
+zkyd:66962:74736 [3] NCCL INFO proxyProgressAsync opId=0x7f4d7007b7b0 op.type=1 op.reqBuff=0x7f4cd4004ee0 op.respSize=16 done
+zkyd:66962:74734 [3] NCCL INFO ncclPollProxyResponse Received new opId=0x7f4d7007b7b0
+zkyd:66962:74734 [3] NCCL INFO resp.opId=0x7f4d7007b7b0 matches expected opId=0x7f4d7007b7b0
+zkyd:66962:74736 [3] NCCL INFO Received and initiated operation=Init res=0
+zkyd:66962:74734 [3] NCCL INFO Connected to proxy localRank 1 -> connection 0x7f4cd4004f40
+zkyd:66962:74736 [3] NCCL INFO transport/net.cc:510 Cuda Alloc Size 8388608 pointer 0x7f4da8e00000
+zkyd:66962:74736 [3] NCCL INFO proxyProgressAsync opId=0x7f4d7007b7b0 op.type=2 op.reqBuff=0x7f4cd4008ed0 op.respSize=0 done
+zkyd:66962:74734 [3] NCCL INFO ncclPollProxyResponse Received new opId=0x7f4d7007b7b0
+zkyd:66962:74734 [3] NCCL INFO resp.opId=0x7f4d7007b7b0 matches expected opId=0x7f4d7007b7b0
+zkyd:66962:74736 [3] NCCL INFO Received and initiated operation=SharedInit res=0
+zkyd:66962:74734 [3] NCCL INFO init.cc:402 Cuda Alloc Size 11856 pointer 0x7f4e8ce1b800
+zkyd:66962:74734 [3] NCCL INFO init.cc:430 Cuda Host Alloc Size 2147483648 pointer 0x7f4c44000000
+zkyd:66962:74734 [3] NCCL INFO init.cc:436 Cuda Host Alloc Size 128 pointer 0x7f4ec648cc00
+zkyd:66962:74734 [3] NCCL INFO ncclCommInitRank comm 0x562ff5039a50 rank 1 nranks 2 cudaDev 3 nvmlDev 3 busId 61000 commId 0x84551f7d95c1623a - Init COMPLETE
+zkyd:66962:66962 [3] NCCL INFO Send: opCount 0 sendbuff (nil) recvbuff 0x7f4e86a00000 count 524288 datatype 6 op 0 root 0 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:66962 [3] NCCL INFO misc/utils.cc:235 memory stack hunk malloc(65536)
+zkyd:66962:66962 [3] NCCL INFO Recv: opCount 0 sendbuff (nil) recvbuff 0x7f4de5800000 count 524288 datatype 6 op 0 root 0 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:66962 [3] NCCL INFO Send: opCount 0 sendbuff (nil) recvbuff 0x7f4e86b00000 count 524288 datatype 6 op 0 root 1 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:66962 [3] NCCL INFO Recv: opCount 0 sendbuff (nil) recvbuff 0x7f4de5900000 count 524288 datatype 6 op 0 root 1 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:75850 [3] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-7TmwBo
+zkyd:66962:75850 [3] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-KwcsCV
+zkyd:66962:75850 [3] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-CDJ21p
+zkyd:66962:75850 [3] NCCL INFO Channel 02 : 1[3] -> 0[0] via SHM/direct/direct
+zkyd:66962:75850 [3] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-aRy604
+zkyd:66962:75850 [3] NCCL INFO Channel 03 : 1[3] -> 0[0] via SHM/direct/direct
+zkyd:66962:66962 [3] NCCL INFO Send: opCount 1 sendbuff (nil) recvbuff 0x7f4de5a00000 count 524288 datatype 6 op 0 root 0 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:66962 [3] NCCL INFO Recv: opCount 1 sendbuff (nil) recvbuff 0x7f4de5c00000 count 524288 datatype 6 op 0 root 0 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:66962 [3] NCCL INFO Send: opCount 1 sendbuff (nil) recvbuff 0x7f4de5b00000 count 524288 datatype 6 op 0 root 1 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:66962 [3] NCCL INFO Recv: opCount 1 sendbuff (nil) recvbuff 0x7f4de5d00000 count 524288 datatype 6 op 0 root 1 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:66962 [3] NCCL INFO Send: opCount 2 sendbuff (nil) recvbuff 0x7f4de5e00000 count 524288 datatype 6 op 0 root 0 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:66962 [3] NCCL INFO Recv: opCount 2 sendbuff (nil) recvbuff 0x7f4de6000000 count 524288 datatype 6 op 0 root 0 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:66962 [3] NCCL INFO Send: opCount 2 sendbuff (nil) recvbuff 0x7f4de5f00000 count 524288 datatype 6 op 0 root 1 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+zkyd:66962:66962 [3] NCCL INFO Recv: opCount 2 sendbuff (nil) recvbuff 0x7f4de6100000 count 524288 datatype 6 op 0 root 1 comm 0x562ff5039a50 [nranks=2] stream 0x562fe2075b30
+959:7473zkyd:66962:66962 [3] NCCL INFO init.cc:1785 Cuda Host Alloc Size 4 pointer 0x7f4ec648ce00
+zkyd:66962:92475 [3] NCCL INFO Using non-device net plugin version 0
+zkyd:66962:92475 [3] NCCL INFO Using network Socket
+INFO   Protocol    |             LL |          LL128 |         Simple |             LL |          LL128 |         Simple |             LL |          LL128 |         Simple |
+zkyd:66959:74733 [0] NCCL INFO  Max NThreads |            512 |            640 |            512 |            512 |            640 |            512 |              0 |              0 |            640 |
+zkyd:66959:74733 [0] NCCL INFO     Broadcast |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     7.6/  12.0 |    16.5/   0.0 |    14.1/  24.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |
+zkyd:66959:74733 [0] NCCL INFO        Reduce |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     7.6/  12.0 |    16.5/   0.0 |    14.1/  24.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |
+zkyd:66959:74733 [0] NCCL INFO     AllGather |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     7.6/  24.0 |    16.5/   0.0 |    14.1/  48.0 |     0.8/   0.0 |     0.8/   0.0 |    39.2/   0.0 |
+zkyd:66959:74733 [0] NCCL INFO ReduceScatter |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     7.6/  24.0 |    16.5/   0.0 |    14.1/  48.0 |     0.8/   0.0 |     0.8/   0.0 |    39.2/   0.0 |
+zkyd:66959:74733 [0] NCCL INFO     AllReduce |     8.8/   4.8 |    17.8/   0.0 |    56.0/  18.4 |     8.6/  12.0 |    19.0/   0.0 |    19.8/  24.0 |     0.8/   0.0 |     0.8/   0.0 |    39.2/   0.0 |
+zkyd:66959:74733 [0] NCCL INFO   Algorithm   |                    CollNetChain                  |                            NVLS                  |                        NVLSTree                  |
+zkyd:66959:74733 [0] NCCL INFO   Protocol    |             LL |          LL128 |         Simple |             LL |          LL128 |         Simple |             LL |          LL128 |         Simple |
+zkyd:66959:74733 [0] NCCL INFO  Max NThreads |              0 |              0 |            640 |              0 |              0 |            640 |              0 |              0 |            640 |
+zkyd:66959:74733 [0] NCCL INFO     Broadcast |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |
+zkyd:66959:74733 [0] NCCL INFO        Reduce |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |
+zkyd:66959:74733 [0] NCCL INFO     AllGather |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |
+zkyd:66959:74733 [0] NCCL INFO ReduceScatter |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |
+zkyd:66959:74733 [0] NCCL INFO     AllReduce |     0.0/   0.0 |     0.0/   0.0 |    35.6/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |     0.0/   0.0 |
+zkyd:66959:74733 [0] NCCL INFO threadThresholds 8/8/64 | 16/8/64 | 512 | 512
+zkyd:66959:74733 [0] NCCL INFO 4 coll channels, 4 collnet channels, 0 nvls channels, 4 p2p channels, 2 p2p channels per peer
+zkyd:66959:74738 [0] NCCL INFO Mem Realloc old size 0, new size 8 pointer 0x7f061c000bd0
+zkyd:66959:74738 [0] NCCL INFO Allocated 7340388 bytes of shared memory in /dev/shm/nccl-pyFDz5
+zkyd:66959:74738 [0] NCCL INFO New proxy send connection 0 from local rank 0, transport 2
+zkyd:66959:74738 [0] NCCL INFO proxyProgressAsync opId=0x7f0580080f90 op.type=1 op.reqBuff=0x7f061c059180 op.respSize=16 done
+zkyd:66959:74733 [0] NCCL INFO ncclPollProxyResponse Received new opId=0x7f0580080f90
+zkyd:66959:74738 [0] NCCL INFO Received and initiated operation=Init res=0
+zkyd:66959:74733 [0] NCCL INFO resp.opId=0x7f0580080f90 matches expected opId=0x7f0580080f90
+zkyd:66959:74733 [0] NCCL INFO Connected to proxy localRank 0 -> connection 0x7f061c07d340
+zkyd:66959:74738 [0] NCCL INFO transport/net.cc:510 Cuda Alloc Size 8388608 pointer 0x7f0652e00000
+zkyd:66959:74738 [0] NCCL INFO proxyProgressAsync opId=0x7f0580080f90 op.type=2 op.reqBuff=0x7f061c046160 op.respSize=0 done
+zkyd:66959:74733 [0] NCCL INFO ncclPollProxyResponse Received new opId=0x7f0580080f90
+zkyd:66959:74733 [0] NCCL INFO resp.opId=0x7f0580080f90 matches expected opId=0x7f0580080f90
+zkyd:66959:74738 [0] NCCL INFO Received and initiated operation=SharedInit res=0
+zkyd:66959:74733 [0] NCCL INFO init.cc:402 Cuda Alloc Size 11856 pointer 0x7f0730e1b800
+zkyd:66959:74733 [0] NCCL INFO init.cc:430 Cuda Host Alloc Size 2147483648 pointer 0x7f04f4000000
+zkyd:66959:74733 [0] NCCL INFO init.cc:436 Cuda Host Alloc Size 128 pointer 0x7f075248cc00
+zkyd:66959:74733 [0] NCCL INFO ncclCommInitRank comm 0x557b3432a230 rank 0 nranks 2 cudaDev 0 nvmlDev 0 busId 1000 commId 0x84551f7d95c1623a - Init COMPLETE
+zkyd:66959:66959 [0] NCCL INFO Send: opCount 0 sendbuff (nil) recvbuff 0x7f072aa00000 count 524288 datatype 6 op 0 root 0 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO misc/utils.cc:235 memory stack hunk malloc(65536)
+zkyd:66959:66959 [0] NCCL INFO Recv: opCount 0 sendbuff (nil) recvbuff 0x7f068d800000 count 524288 datatype 6 op 0 root 0 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO Send: opCount 0 sendbuff (nil) recvbuff 0x7f072ab00000 count 524288 datatype 6 op 0 root 1 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO Recv: opCount 0 sendbuff (nil) recvbuff 0x7f068d900000 count 524288 datatype 6 op 0 root 1 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:75849 [0] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-sBxMq3
+zkyd:66959:75849 [0] NCCL INFO Allocated 9637892 bytes of shared memory in /dev/shm/nccl-qtV1zb
+zkyd:66959:75849 [0] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-d5fMcg
+zkyd:66959:75849 [0] NCCL INFO Channel 02 : 0[0] -> 1[3] via SHM/direct/direct
+zkyd:66959:75849 [0] NCCL INFO Allocated 4100 bytes of shared memory in /dev/shm/nccl-eoVkcA
+zkyd:66959:75849 [0] NCCL INFO Channel 03 : 0[0] -> 1[3] via SHM/direct/direct
+zkyd:66959:66959 [0] NCCL INFO Send: opCount 1 sendbuff (nil) recvbuff 0x7f068da00000 count 524288 datatype 6 op 0 root 0 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO Recv: opCount 1 sendbuff (nil) recvbuff 0x7f068dc00000 count 524288 datatype 6 op 0 root 0 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO Send: opCount 1 sendbuff (nil) recvbuff 0x7f068db00000 count 524288 datatype 6 op 0 root 1 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO Recv: opCount 1 sendbuff (nil) recvbuff 0x7f068dd00000 count 524288 datatype 6 op 0 root 1 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO Send: opCount 2 sendbuff (nil) recvbuff 0x7f068de00000 count 524288 datatype 6 op 0 root 0 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO Recv: opCount 2 sendbuff (nil) recvbuff 0x7f068e000000 count 524288 datatype 6 op 0 root 0 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO Send: opCount 2 sendbuff (nil) recvbuff 0x7f068df00000 count 524288 datatype 6 op 0 root 1 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO Recv: opCount 2 sendbuff (nil) recvbuff 0x7f068e100000 count 524288 datatype 6 op 0 root 1 comm 0x557b3432a230 [nranks=2] stream 0x557b20abc300
+zkyd:66959:66959 [0] NCCL INFO init.cc:1785 Cuda Host Alloc Size 4 pointer 0x7f075248ce00
+zkyd:66959:76323 [0] NCCL INFO Using non-device net plugin version 0
+zkyd:66959:76323 [0] NCCL INFO Using network Socket
