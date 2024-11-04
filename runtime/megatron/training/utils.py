@@ -259,9 +259,9 @@ def get_batch_on_this_cp_rank(batch):
     #             val = val.index_select(seq_dim, index)
     #             val = val.view(*val.shape[0:seq_dim], -1, *val.shape[(seq_dim + 2) :])
     #             batch[key] = val
-
     my_rank = torch.distributed.get_rank()
-    cp_size = mpu.get_op_cp_size(mpu.get_op_start_index(my_rank))
+    stage_idx =  mpu.get_pipeline_model_parallel_rank()
+    cp_size = mpu.get_op_cp_size(mpu.get_op_start_index(stage_idx))
     if cp_size > 1:
         rank_info:RankInfo = mpu.get_rank_infos[my_rank]
         start_idx = rank_info.ds.seq[0] // 2
