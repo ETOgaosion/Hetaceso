@@ -1705,20 +1705,24 @@ def get_data_parallel_group_gloo(with_context_parallel=False):
         return _DATA_PARALLEL_GROUP_GLOO
 
 
-def get_context_parallel_group(check_initialized=True):
+def get_context_parallel_group(op_index=None, check_initialized=True):
     """Get the context parallel group the caller rank belongs to."""
     if check_initialized:
         assert _CONTEXT_PARALLEL_GROUP is not None, 'context parallel group is not initialized'
-    return _CONTEXT_PARALLEL_GROUP
+    if op_index is None:
+        op_index = _OPS_START_INDEX_LIST[get_pipeline_model_parallel_rank()]
+    return get_context_parallel_group_via_op_index(op_index)
 
 
-def get_context_parallel_global_ranks(check_initialized=True):
+def get_context_parallel_global_ranks(op_index=None, check_initialized=True):
     """Get all global ranks of the context parallel group that the caller rank belongs to."""
     if check_initialized:
         assert (
             _CONTEXT_PARALLEL_GLOBAL_RANKS is not None
         ), 'context parallel group is not initialized'
-    return _CONTEXT_PARALLEL_GLOBAL_RANKS
+    if op_index is None:
+        op_index = _OPS_START_INDEX_LIST[get_pipeline_model_parallel_rank()]
+    return get_context_parapllel_ranks_via_op_index(op_index)
 
 
 def get_embedding_group():
@@ -2390,17 +2394,34 @@ def get_data_parallel_group_via_op_index(op_index):
     start_op_index = _OPS_START_INDEX_LIST[pp_stage]
     return _DATA_PARALLEL_GROUP[op_index - start_op_index]
 
-def get_data_parallel_ranks():
-    assert _DATA_PARALLEL_RANKS is not None, \
-        'data parallel group is not initialized'
-    return _DATA_PARALLEL_RANKS[0]  
-
 def get_data_parallel_ranks_via_op_index(op_index):
     assert _DATA_PARALLEL_RANKS is not None, \
         'data parallel group is not initialized'
     pp_stage = get_pipeline_model_parallel_rank()
     start_op_index = _OPS_START_INDEX_LIST[pp_stage]
     return _DATA_PARALLEL_RANKS[op_index - start_op_index]
+
+def get_data_parallel_ranks(op_index: None):
+    assert _DATA_PARALLEL_RANKS is not None, \
+        'data parallel group is not initialized'
+    if op_index is None:
+        op_index = _OPS_START_INDEX_LIST[get_pipeline_model_parallel_rank()]
+    return get_data_parallel_ranks_via_op_index(op_index)
+
+def get_context_parallel_group_via_op_index(op_index):
+    assert _CONTEXT_PARALLEL_GROUP is not None, \
+        'context parallel group is not initialized'
+    pp_stage = get_pipeline_model_parallel_rank()
+    start_op_index = _OPS_START_INDEX_LIST[pp_stage]
+    return _CONTEXT_PARALLEL_GROUP[op_index - start_op_index]
+    
+    
+def get_context_parapllel_ranks_via_op_index(op_index):
+    assert _CONTEXT_PARALLEL_RANKS is not None, \
+        'context parallel group is not initialized'
+    pp_stage = get_pipeline_model_parallel_rank()
+    start_op_index = _OPS_START_INDEX_LIST[pp_stage]
+    return _CONTEXT_PARALLEL_RANKS[op_index - start_op_index]
 
 def get_tensor_model_parallel_group_via_op_index(op_index):
     assert _TENSOR_MODEL_PARALLEL_GROUP is not None, \

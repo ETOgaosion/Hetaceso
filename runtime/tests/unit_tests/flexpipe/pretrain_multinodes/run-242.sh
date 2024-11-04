@@ -1,17 +1,14 @@
 #!/bin/bash
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export DEBUG_COMMUNICATE=1
-export DEBUG_MPU=1
 
 GPUS_PER_NODE=4
 # Change for multinode config
-MASTER_ADDR=localhost
+MASTER_ADDR=10.156.154.242
 MASTER_PORT=6000
-NNODES=1
-NODE_RANK=0
+NNODES=3
+NODE_RANK=$1
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
-
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16
@@ -49,7 +46,7 @@ GPT_ARGS="
     --micro-batch-size $MICRO_BATCH_SIZE \
     --global-batch-size $GLOBAL_BATCH_SIZE \
     --lr 0.00015 \
-    --train-iters 5 \
+    --train-iters 20 \
     --lr-decay-iters 320000 \
     --lr-decay-style cosine \
     --min-lr 1.0e-5 \
@@ -59,8 +56,7 @@ GPT_ARGS="
     --fp16 \
     --tokenizer-type GPT2BPETokenizer \
     --use-mcore-models \
-    --transformer-impl transformer_engine \
-    --no-scatter-gather-tensors-in-pipeline \
+    --transformer-impl local \
 "
 
 FLEX_ARGS="
@@ -68,11 +64,7 @@ FLEX_ARGS="
     --log-path ./logs \
 "
 
-mkdir -p logs
-mkdir -p logs/csv
 
-# export USE_FUSED_ATTN=1 && \
-export USE_FLASH_ATTN=1 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \
