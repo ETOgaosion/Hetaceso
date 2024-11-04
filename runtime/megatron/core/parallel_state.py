@@ -161,6 +161,7 @@ _FWD_RESHARD: dict[int, list[tuple[int, DataSlice, DataSlice]]] = {}
 _BWD_RESHARD: dict[int, list[tuple[int, DataSlice, DataSlice]]] = {} 
 
 _RANKS_IN_EACH_PIPELINE_STAGE: list[list[int]] = None
+# the number of pipeline stages
 _MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE: int = None
 # the pipeline stage of my rank
 _MPU_PIPELINE_MODEL_PARALLEL_RANK: int = None
@@ -2199,17 +2200,17 @@ def get_stage_comm_send_ranks():
         "_FLEXPIPE_NEXT_RANKS is not initialized"
     return _FLEXPIPE_NEXT_RANKS
 
-def get_op_start_index(rank_in_pipeline, model_chunk_id=0):
+def get_op_start_index(pipeline_stage: int, model_chunk_id=0):
     assert _OPS_START_INDEX_LIST is not None, \
         "_OPS_START_INDEX_LIST is not initialized"
     num_pipeline_stages = len(_NUM_OPS_IN_EACH_STAGE_LIST)
-    return _OPS_START_INDEX_LIST[rank_in_pipeline + model_chunk_id * num_pipeline_stages]
+    return _OPS_START_INDEX_LIST[pipeline_stage + model_chunk_id * num_pipeline_stages]
 
-def get_op_end_index(rank_in_pipeline, model_chunk_id=0):
+def get_op_end_index(pipeline_stage: int, model_chunk_id=0):
     assert _OPS_END_INDEX_LIST is not None, \
         "_OPS_END_INDEX_LIST is not initialized"
     num_pipeline_stages = len(_NUM_OPS_IN_EACH_STAGE_LIST)
-    return _OPS_END_INDEX_LIST[rank_in_pipeline + model_chunk_id * num_pipeline_stages]
+    return _OPS_END_INDEX_LIST[pipeline_stage + model_chunk_id * num_pipeline_stages]
 
 def get_num_ops_list():
     assert _NUM_OPS_IN_EACH_STAGE_LIST is not None, \
