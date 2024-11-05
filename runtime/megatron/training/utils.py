@@ -263,7 +263,7 @@ def get_batch_on_this_cp_rank(batch):
     stage_idx =  mpu.get_pipeline_model_parallel_rank()
     cp_size = mpu.get_op_cp_size(mpu.get_op_start_index(stage_idx))
     if cp_size > 1:
-        rank_info:RankInfo = mpu.get_rank_infos[my_rank]
+        rank_info:RankInfo = mpu.get_rank_infos()[my_rank]
         start_idx = rank_info.ds.seq[0] // 2
         end_idx = rank_info.ds.seq[1] // 2
         for key, val in batch.items():
