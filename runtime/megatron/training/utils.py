@@ -263,9 +263,9 @@ def get_batch_on_this_cp_rank(batch):
     stage_idx =  mpu.get_pipeline_model_parallel_rank()
     cp_size = mpu.get_op_cp_size(mpu.get_op_start_index(stage_idx))
     if cp_size > 1:
-        rank_info:RankInfo = mpu.get_rank_infos[my_rank]
-        start_idx = rank_info.ds.seq[0] // 2
-        end_idx = rank_info.ds.seq[1] // 2
+        rank_info:RankInfo = mpu.get_rank_infos()[my_rank]
+        start_idx = rank_info.ds.ulysses_seq[0] // 2
+        end_idx = rank_info.ds.ulysses_seq[1] // 2
         for key, val in batch.items():
             if val is not None:
                 seq_dim = 1 if key != 'attention_mask' else 2
@@ -335,7 +335,7 @@ def get_batch_on_this_tp_rank(data_iterator):
             _broadcast(batch['attention_mask'])
             _broadcast(batch['position_ids'])
 
-        elif mpu.is_pipeline_last_stage():
+        if mpu.is_pipeline_last_stage():
             _broadcast(batch['labels'])
             _broadcast(batch['loss_mask'])
             _broadcast(batch['attention_mask'])
@@ -354,17 +354,11 @@ def get_batch_on_this_tp_rank(data_iterator):
         position_ids=torch.empty((local_micro_batch_size,args.seq_length), dtype = torch.int64 , device = torch.cuda.current_device())
  
         if mpu.is_pipeline_first_stage():
-            labels=None
-            loss_mask=None
-    
             _broadcast(tokens)
             _broadcast(attention_mask)
             _broadcast(position_ids)
 
-        elif mpu.is_pipeline_last_stage():
-            tokens=None
-            position_ids=None
-        
+        if mpu.is_pipeline_last_stage():
             _broadcast(labels)
             _broadcast(loss_mask)
             _broadcast(attention_mask)

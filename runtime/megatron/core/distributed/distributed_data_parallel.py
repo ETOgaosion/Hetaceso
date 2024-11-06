@@ -183,10 +183,7 @@ class DistributedDataParallel(MegatronModule):
                 self.grad_accs.append(grad_acc)
         
         rank_in_pipeline = mpu.get_pipeline_model_parallel_rank()
-        if flexconfig.resharding_stages is not None:
-            self.resharding = flexconfig.resharding_stages[rank_in_pipeline]
-        else:
-            self.resharding = False
+        self.resharding = False
 
     def forward(self, *inputs, **kwargs):
         """

@@ -10,10 +10,6 @@
         true,
         false
     ],
-    "resharding_stages": [
-        false,
-        false
-    ],
     "num_ops_in_each_stage": [
         3,
         3
@@ -28,18 +24,6 @@
             true,
             true,
             false
-        ]
-    ],
-    "algo_of_each_op": [
-        [
-            0,
-            0,
-            0
-        ],
-        [
-            0,
-            0,
-            0
         ]
     ],
     "tensor_parallel_size_of_each_stage":[
