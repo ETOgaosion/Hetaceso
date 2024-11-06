@@ -363,44 +363,50 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
     prev_stage = mpu.get_prev_pipeline_model_parallel_rank()
     next_stage = mpu.get_next_pipeline_model_parallel_rank()
 
-    bwd_send_info, fwd_recv_info = initialize_comm_info2(
-        flex_config,
-        input_tensors_info,
-        prev_stage,
-        src_op_index=model_chunk_op_list[0].op_index,
-        dst_op_index=model_chunk_op_list[0].op_index - 1,
-    )
-    fwd_send_info, bwd_recv_info = initialize_comm_info2(
-        flex_config,
-        output_tensors_info,
-        next_stage,
-        src_op_index=model_chunk_op_list[-1].op_index,
-        dst_op_index=model_chunk_op_list[-1].op_index + 1,
-    )
-
-    for key in input_extra_tensors_dict:
-        _bwd_send_info, _fwd_recv_info = initialize_comm_info2(
+    if mpu.get_pipeline_model_parallel_world_size() == 1:
+        fwd_send_info = {}
+        bwd_send_info = {}
+        fwd_recv_info = {}
+        bwd_recv_info = {}
+    else:
+        bwd_send_info, fwd_recv_info = initialize_comm_info2(
             flex_config,
-            input_extra_tensors_dict[key]["info"],
+            input_tensors_info,
             prev_stage,
             src_op_index=model_chunk_op_list[0].op_index,
             dst_op_index=model_chunk_op_list[0].op_index - 1,
         )
-        fwd_recv_info["size"] += _fwd_recv_info["size"]
-        fwd_recv_info["tensors"][key] = _fwd_recv_info["tensors"][key]
-        bwd_send_info["tensors"][key] = _bwd_send_info["tensors"][key]
-
-    for key in output_extra_tensors_dict:
-        _fwd_send_info, _bwd_recv_info = initialize_comm_info2(
+        fwd_send_info, bwd_recv_info = initialize_comm_info2(
             flex_config,
-            output_extra_tensors_dict[key]["info"],
+            output_tensors_info,
             next_stage,
             src_op_index=model_chunk_op_list[-1].op_index,
             dst_op_index=model_chunk_op_list[-1].op_index + 1,
         )
-        bwd_recv_info["size"] += _bwd_recv_info["size"]
-        bwd_recv_info["tensors"][key] = _bwd_recv_info["tensors"][key]
-        fwd_send_info["tensors"][key] = _fwd_send_info["tensors"][key]
+
+        for key in input_extra_tensors_dict:
+            _bwd_send_info, _fwd_recv_info = initialize_comm_info2(
+                flex_config,
+                input_extra_tensors_dict[key]["info"],
+                prev_stage,
+                src_op_index=model_chunk_op_list[0].op_index,
+                dst_op_index=model_chunk_op_list[0].op_index - 1,
+            )
+            fwd_recv_info["size"] += _fwd_recv_info["size"]
+            fwd_recv_info["tensors"][key] = _fwd_recv_info["tensors"][key]
+            bwd_send_info["tensors"][key] = _bwd_send_info["tensors"][key]
+
+        for key in output_extra_tensors_dict:
+            _fwd_send_info, _bwd_recv_info = initialize_comm_info2(
+                flex_config,
+                output_extra_tensors_dict[key]["info"],
+                next_stage,
+                src_op_index=model_chunk_op_list[-1].op_index,
+                dst_op_index=model_chunk_op_list[-1].op_index + 1,
+            )
+            bwd_recv_info["size"] += _bwd_recv_info["size"]
+            bwd_recv_info["tensors"][key] = _bwd_recv_info["tensors"][key]
+            fwd_send_info["tensors"][key] = _fwd_send_info["tensors"][key]
     if mpu.is_pipeline_first_stage():
         bwd_send_info["tensors"] = {}
         fwd_recv_info["tensors"] = {}
@@ -411,16 +417,17 @@ def initialize_communication(flex_config: FlexModelConfig, model_chunk_op_list):
         bwd_recv_info["size"] = 0
 
     # mark the tensor is extra_tensor or not
-    for key in fwd_recv_info["tensors"]:
-        if key in input_extra_tensors_dict:
-            fwd_recv_info["tensors"][key]["extra_tensor"] = True
-        else:
-            fwd_recv_info["tensors"][key]["extra_tensor"] = False
-    for key in bwd_recv_info["tensors"]:
-        if key in output_extra_tensors_dict:
-            bwd_recv_info["tensors"][key]["extra_tensor"] = True
-        else:
-            bwd_recv_info["tensors"][key]["extra_tensor"] = False
+    if mpu.get_pipeline_model_parallel_world_size() > 1:
+        for key in fwd_recv_info["tensors"]:
+            if key in input_extra_tensors_dict:
+                fwd_recv_info["tensors"][key]["extra_tensor"] = True
+            else:
+                fwd_recv_info["tensors"][key]["extra_tensor"] = False
+        for key in bwd_recv_info["tensors"]:
+            if key in output_extra_tensors_dict:
+                bwd_recv_info["tensors"][key]["extra_tensor"] = True
+            else:
+                bwd_recv_info["tensors"][key]["extra_tensor"] = False
 
     mpu.set_comm_info(bwd_send_info, fwd_recv_info, fwd_send_info, bwd_recv_info)
 
@@ -456,12 +463,11 @@ class FlexPipeModel(MegatronModule):
         self.flex_recompute_activations = flex_config.flex_recompute_activations[
             rank_in_pipeline
         ]
+        self.resharding = False
 
         full_model_op_list[0].prev_name = None
         full_model_op_list[-1].is_last_op = True
         self.ops = torch.nn.ModuleList(full_model_op_list)
-        self.resharding = flex_config.resharding_stages[rank_in_pipeline]
-        assert self.resharding == False, "Not support resharding"
         pre_hook = pre_forward_hook
         post_hook = post_forward_hook
         for op in self.ops:

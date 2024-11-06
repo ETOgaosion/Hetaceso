@@ -841,7 +841,7 @@ def _communicate(
     return tensor_recv_prev, tensor_recv_next, reqs
 
 
-def recv_forward(tensor_shape: Shape, config: ModelParallelConfig) -> tuple[torch.Tensor, torch.Tensor]:
+def recv_forward(config: ModelParallelConfig) -> tuple[torch.Tensor, torch.Tensor]:
     """ Receive tensor from previous rank in pipeline (forward receive).
 
     See _communicate for argument details.
@@ -866,7 +866,7 @@ def recv_forward(tensor_shape: Shape, config: ModelParallelConfig) -> tuple[torc
     return input_tensors, input_extra_tensors
 
 
-def recv_backward(tensor_shape: Shape, config: ModelParallelConfig) -> tuple[torch.Tensor, torch.Tensor]:
+def recv_backward(config: ModelParallelConfig) -> tuple[torch.Tensor, torch.Tensor]:
     """Receive tensor from next rank in pipeline (backward receive).
 
     See _communicate for argument details.
@@ -931,7 +931,7 @@ def send_backward(input_tensor_grad: torch.Tensor, config: ModelParallelConfig, 
 
 
 def send_forward_recv_backward(
-    output_tensor: torch.Tensor, tensor_shape: Shape, config: ModelParallelConfig, output_extra_tensors: torch.Tensor = None
+    output_tensor: torch.Tensor, config: ModelParallelConfig, output_extra_tensors: torch.Tensor = None
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Batched send and recv with next rank in pipeline.
 
@@ -957,7 +957,7 @@ def send_forward_recv_backward(
 
 
 def send_backward_recv_forward(
-    input_tensor_grad: torch.Tensor, tensor_shape: Shape, config: ModelParallelConfig, extra_tensors_grad: torch.Tensor = None
+    input_tensor_grad: torch.Tensor, config: ModelParallelConfig, extra_tensors_grad: torch.Tensor = None
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Batched send and recv with previous rank in pipeline.
 
@@ -985,9 +985,7 @@ def send_backward_recv_forward(
 def send_forward_recv_forward(
     output_tensor: torch.Tensor,
     recv_prev: bool,
-    tensor_shape: Shape,
     config: ModelParallelConfig,
-    # overlap_p2p_comm: bool = False,
     output_extra_tensors: torch.Tensor = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Batched recv from previous rank and send to next rank in pipeline.
@@ -1014,9 +1012,7 @@ def send_forward_recv_forward(
 def send_backward_recv_backward(
     input_tensor_grad: torch.Tensor,
     recv_next: bool,
-    tensor_shape: Shape,
     config: ModelParallelConfig,
-    # overlap_p2p_comm: bool = False,
     extra_tensors_grad: torch.Tensor = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Batched recv from next rank and send to previous rank in pipeline.
@@ -1044,7 +1040,6 @@ def send_forward_backward_recv_forward_backward(
     input_tensor_grad: torch.Tensor,
     recv_prev: bool,
     recv_next: bool,
-    tensor_shape: Shape,
     config: ModelParallelConfig,
     output_extra_tensors: torch.Tensor = None,
     extra_tensors_grad: torch.Tensor = None,

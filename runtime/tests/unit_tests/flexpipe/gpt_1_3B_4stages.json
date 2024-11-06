@@ -21,12 +21,6 @@
         true,
         false
     ],
-    "resharding_stages": [
-        false,
-        false,
-        false,
-        false
-    ],
     "num_ops_in_each_stage": [
         5,
         2,
@@ -114,31 +108,4 @@
             1
         ]
     ],
-    "algo_of_each_op": [
-        [
-            0,
-            0,
-            0,
-            0,
-            0
-        ],
-        [
-            0,
-            0
-        ],
-        [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
-        ],
-        [
-            0,
-            0,
-            0
-        ]
-    ]
 }

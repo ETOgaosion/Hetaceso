@@ -75,7 +75,6 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args.context_parallel_size_of_each_stage = [1]
         args.data_parallel_split_of_each_stage = [[1]]
         args.context_parallel_split_of_each_stage = [[args.seq_length]]
-        args.resharding_stages = [True]     # TOCHECK: is this correct? gpt seems no need to reshard
 
         if len(args.prof_repeat_times) > 1:
             assert args.prof_repeat_threshold is not None, "when args.prof_repeat_times is a list, a threshold is required."
@@ -570,7 +569,6 @@ def flex_config_from_args(args, config_class=None):
             kw_args[f.name] = getattr(args, f.name)
     kw_args['recompute_ops'] = args.recompute_ops
     kw_args['flex_recompute_activations'] = args.flex_recompute_activations
-    kw_args['resharding_stages'] = args.resharding_stages
     kw_args['scatter_gather_tensors_in_pipeline'] = args.scatter_gather_tensors_in_pipeline
     return config_class(**kw_args)
 
@@ -1665,6 +1663,8 @@ def _add_flexpipe_args(parser):
                        help="An array of 1/0 to indicate if this stage will be activation checkpointed.")  
     group.add_argument('--log-path', type=str, default="./", help='')          
     group.add_argument('--flexpipe-reshard', type=bool, default=True, help='Enable reshard.')
+    group.add_argument('--nproc-per-node', type=int, help='Number of processes(or GPUs) per node.')
+    group.add_argument('--nnodes', type=int, help='Number of nodes.')
     return parser
 
 def _add_profiler_args(parser):

@@ -16,22 +16,23 @@ from .utils import GlobalMemoryBuffer
 DEBUG_MPU = os.environ.get("DEBUG_MPU", '0') == '1'
 
 class DataSlice:
-    def __init__(self, bs: tuple[int] = None, seq: tuple[int] = None) -> None:
+    def __init__(self, bs: tuple[int] = None, ulysses_seq: tuple[int] = None, ring_seq: tuple[int] = None) -> None:
         # batch size slice
         self.bs = bs
         # sequence length slice
-        self.seq = seq
+        self.ulysses_seq = ulysses_seq
+        self.ring_seq = ring_seq
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, DataSlice):
             return False
-        return self.bs == other.bs and self.seq == other.seq
+        return self.bs == other.bs and self.ulysses_seq == other.ulysses_seq and self.ring_seq == other.ring_seq
 
     def __hash__(self) -> int:
-        return hash((self.bs, self.seq))
+        return hash((self.bs, self.ring_seq, self.ulysses_seq))
 
     def __repr__(self) -> str:
-        return f"DataSlice(bs={self.bs}, seq={self.seq})"
+        return f"DataSlice(bs={self.bs}, ulysses_seq={self.ulysses_seq}, ring_seq={self.ring_seq})"
 
 
 class RankInfo:
@@ -39,7 +40,8 @@ class RankInfo:
         self.rank: int = rank
         self.tp_group: list[int] = None
         self.dp_group: list[int] = None
-        self.cp_group: list[int] = None
+        self.ulysses_cp_group: list[int] = None
+        self.ring_cp_group: list[int] = None
         self.ds: DataSlice = DataSlice()
 
     def __str__(self) -> str:
@@ -47,12 +49,16 @@ class RankInfo:
             f"Rank: {self.rank}\n"
             f"TP Group: {self.tp_group}\n"
             f"DP Group: {self.dp_group}\n"
-            f"CP Group: {self.cp_group}\n"
+            f"Ulysses CP Group: {self.ulysses_cp_group}\n"
+            f"Ring CP Group: {self.ring_cp_group}\n"
             f"Batch Size Slice: {self.ds.bs}\n"
-            f"Sequence Length Slice: {self.ds.seq}"
+            f"Ulysses Sequence Length Slice: {self.ds.ulysses_seq}\n"
+            f"Ring Sequence Length Slice: {self.ds.ring_seq}"
         ) 
     def __repr__(self) -> str:
         return self.__str__()
+
+
 # Inter-layer model parallel group that the current rank belongs to.
 _PIPELINE_MODEL_PARALLEL_GROUP = None
 # Model parallel group (both intra- and pipeline) that the current rank belongs to.
@@ -170,16 +176,22 @@ _MPU_PIPELINE_MODEL_PARALLEL_RANK: int = None
 _TP_SIZE_PER_OP = None
 _DP_SIZE_PER_OP = None
 _CP_SIZE_PER_OP = None
+_ULYSSES_CP_SIZE_PER_OP = None
+_RING_CP_SIZE_PER_OP = None
 _PP_STAGE_PER_OP = None
 
 _ALL_TP_GROUP_RANKS: list[list[list[int]]]  = None
-_ALL_DP_GROUP_RANKS: list[list[list[int]]] = None 
-_ALL_CP_GROUP_RANKS: list[list[list[int]]] = None 
+_ALL_DP_GROUP_RANKS: list[list[list[int]]] = None
+_ALL_CP_GROUP_RANKS: list[list[list[int]]] = None
+_ALL_ULYSSES_CP_GROUP_RANKS: list[list[list[int]]] = None
+_ALL_RING_CP_GROUP_RANKS: list[list[list[int]]] = None
 _ALL_PP_STAGE_RANKS: list[list[int]] = None 
 
 _TP_SIZE_PER_STAGE: list[int] = None 
 _DP_SIZE_PER_STAGE: list[int] = None
-_CP_SIZE_PER_STAGE: list[int] = None 
+_CP_SIZE_PER_STAGE: list[int] = None
+_ULYSSES_CP_SIZE_PER_STAGE: list[int] = None
+_RING_CP_SIZE_PER_STAGE: list[int] = None
 
 _NUM_OPS_IN_EACH_STAGE_LIST: list[int] = None
 # the start op index of each stage
@@ -202,6 +214,14 @@ _TENSOR_MODEL_PARALLEL_GROUP: list[Any] = None
 _CONTEXT_PARALLEL_RANKS: list[list[int]] = None
 # The CP groups of each op that my rank contains.
 _CONTEXT_PARALLEL_GROUP: list[Any] = None
+# The CP ranks of each op that my rank contains.
+_ULYSSES_CONTEXT_PARALLEL_RANKS: list[list[int]] = None
+# The CP groups of each op that my rank contains.
+_ULYSSES_CONTEXT_PARALLEL_GROUP: list[Any] = None
+# The CP ranks of each op that my rank contains.
+_RING_CONTEXT_PARALLEL_RANKS: list[list[int]] = None
+# The CP groups of each op that my rank contains.
+_RING_CONTEXT_PARALLEL_GROUP: list[Any] = None
 
 
 # Not Use in flexpipe
@@ -236,9 +256,12 @@ def initialize_model_parallel_flexpipe2(
     num_ops_in_each_stage: list[int],
     tensor_parallel_size_of_each_stage: list[int],
     data_parallel_size_of_each_stage: list[int],
-    context_parallel_size_of_each_stage: list[int],                          
+    context_parallel_size_of_each_stage: list[int],
+    ring_context_parallel_size_of_each_stage: list[int],
+    ulysses_context_parallel_size_of_each_stage: list[int],
     data_parallel_split_of_each_stage: list[list[int]],
-    context_parallel_split_of_each_stage: list[list[int]],
+    ring_context_parallel_split_of_each_stage: list[list[int]],
+    ulysses_context_parallel_split_of_each_stage: list[list[int]],
 ) -> None:
     """
     Initialize model data parallel groups for FlexPipe.
@@ -247,12 +270,12 @@ def initialize_model_parallel_flexpipe2(
     this function is quite different from original Megatron.
     """
 
-
-
-    global _TP_SIZE_PER_STAGE, _DP_SIZE_PER_STAGE, _CP_SIZE_PER_STAGE
+    global _TP_SIZE_PER_STAGE, _DP_SIZE_PER_STAGE, _CP_SIZE_PER_STAGE, _ULYSSES_CP_SIZE_PER_STAGE, _RING_CP_SIZE_PER_STAGE
     _TP_SIZE_PER_STAGE = copy.deepcopy(tensor_parallel_size_of_each_stage)
     _DP_SIZE_PER_STAGE = copy.deepcopy(data_parallel_size_of_each_stage)
     _CP_SIZE_PER_STAGE = copy.deepcopy(context_parallel_size_of_each_stage)
+    _ULYSSES_CP_SIZE_PER_STAGE = copy.deepcopy(ulysses_context_parallel_size_of_each_stage)
+    _RING_CP_SIZE_PER_STAGE = copy.deepcopy(ring_context_parallel_size_of_each_stage)
 
     if torch.distributed.get_rank() == 0:
         print('> initializing FlexPipe...')
@@ -269,16 +292,20 @@ def initialize_model_parallel_flexpipe2(
     pipeline_model_parallel_size = len(_NUM_OPS_IN_EACH_STAGE_LIST)
     _MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE = pipeline_model_parallel_size
 
-    global _TP_SIZE_PER_OP, _DP_SIZE_PER_OP, _CP_SIZE_PER_OP, _PP_STAGE_PER_OP
+    global _TP_SIZE_PER_OP, _DP_SIZE_PER_OP, _CP_SIZE_PER_OP, _ULYSSES_CP_SIZE_PER_OP, _RING_CP_SIZE_PER_OP, _PP_STAGE_PER_OP
     _TP_SIZE_PER_OP = []
-    _DP_SIZE_PER_OP = [] 
+    _DP_SIZE_PER_OP = []
     _CP_SIZE_PER_OP = []
+    _ULYSSES_CP_SIZE_PER_OP = []
+    _RING_CP_SIZE_PER_OP = []
     _PP_STAGE_PER_OP = []
     for i in range(pipeline_model_parallel_size):
         for _ in range(_NUM_OPS_IN_EACH_STAGE_LIST[i]):
             _TP_SIZE_PER_OP.append(_TP_SIZE_PER_STAGE[i])
             _DP_SIZE_PER_OP.append(_DP_SIZE_PER_STAGE[i])
             _CP_SIZE_PER_OP.append(_CP_SIZE_PER_STAGE[i])
+            _ULYSSES_CP_SIZE_PER_OP.append(_ULYSSES_CP_SIZE_PER_STAGE[i])
+            _RING_CP_SIZE_PER_OP.append(_RING_CP_SIZE_PER_STAGE[i])
             _PP_STAGE_PER_OP.append(i)
 
 
@@ -293,8 +320,6 @@ def initialize_model_parallel_flexpipe2(
         end_index_list.append(start_index)
     _OPS_START_INDEX_LIST = start_index_list
     _OPS_END_INDEX_LIST = end_index_list
-
-
 
 
     global _DATA_PARALLEL_GROUP, _DATA_PARALLEL_GROUP_GLOO, _DATA_PARALLEL_RANKS
@@ -318,12 +343,30 @@ def initialize_model_parallel_flexpipe2(
     # all CP groups that contains my rank
     _CONTEXT_PARALLEL_GROUP = []
     # all CP group ranks that contains my rank
-    _CONTEXT_PARALLEL_RANKS = [] 
+    _CONTEXT_PARALLEL_RANKS = []
+    
+    global _ULYSSES_CONTEXT_PARALLEL_GROUP, _ULYSSES_CONTEXT_PARALLEL_RANKS
+    assert _ULYSSES_CONTEXT_PARALLEL_GROUP is None, \
+        'ulysses context model parallel group is already initialized'
+    # all Ulysses CP groups that contains my rank
+    _ULYSSES_CONTEXT_PARALLEL_GROUP = []
+    # all Ulysses CP group ranks that contains my rank
+    _ULYSSES_CONTEXT_PARALLEL_RANKS = []
+    
+    global _RING_CONTEXT_PARALLEL_GROUP, _RING_CONTEXT_PARALLEL_RANKS
+    assert _RING_CONTEXT_PARALLEL_GROUP is None, \
+        'ring context model parallel group is already initialized'
+    # all Ring CP groups that contains my rank
+    _RING_CONTEXT_PARALLEL_GROUP = []
+    # all Ring CP group ranks that contains my rank
+    _RING_CONTEXT_PARALLEL_RANKS = []
 
-    global _ALL_PP_STAGE_RANKS, _ALL_DP_GROUP_RANKS, _ALL_TP_GROUP_RANKS, _ALL_CP_GROUP_RANKS
+    global _ALL_PP_STAGE_RANKS, _ALL_DP_GROUP_RANKS, _ALL_TP_GROUP_RANKS, _ALL_CP_GROUP_RANKS, _ALL_ULYSSES_CP_GROUP_RANKS, _ALL_RING_CP_GROUP_RANKS
     _ALL_TP_GROUP_RANKS = [[] for _ in range(pipeline_model_parallel_size)]
     _ALL_DP_GROUP_RANKS = [[] for _ in range(pipeline_model_parallel_size)]
     _ALL_CP_GROUP_RANKS = [[] for _ in range(pipeline_model_parallel_size)]
+    _ALL_ULYSSES_CP_GROUP_RANKS = [[] for _ in range(pipeline_model_parallel_size)]
+    _ALL_RING_CP_GROUP_RANKS = [[] for _ in range(pipeline_model_parallel_size)]
     _ALL_PP_STAGE_RANKS = [[] for _ in range(pipeline_model_parallel_size)]
     global _RANK_INFOS, _FWD_RESHARD, _BWD_RESHARD
     assert _RANK_INFOS is None, 'RANK INFO is already initialized'
@@ -388,21 +431,95 @@ def initialize_model_parallel_flexpipe2(
                 if rank in cp_group_ranks:
                     for _ in range(num_ops_in_each_stage[i]):
                         _CONTEXT_PARALLEL_GROUP.append(cp_group)
-                        _CONTEXT_PARALLEL_RANKS.append(cp_group_ranks)                   
+                        _CONTEXT_PARALLEL_RANKS.append(cp_group_ranks)
+
+        # Ulysses CP
+        for j in range(ring_context_parallel_size_of_each_stage[i] * data_parallel_size_of_each_stage[i]):
+            ulysses_cp_start_rank = (
+                start_rank
+                + j
+                * tensor_parallel_size_of_each_stage[i]
+                * ulysses_context_parallel_size_of_each_stage[i]
+            )
+            ulysses_cp_end_rank = (
+                start_rank
+                + (j + 1)
+                * tensor_parallel_size_of_each_stage[i]
+                * ulysses_context_parallel_size_of_each_stage[i]
+            )
+            for k in range(tensor_parallel_size_of_each_stage[i]):
+                ulysses_cp_group_ranks = list(
+                    range(
+                        ulysses_cp_start_rank + k,
+                        ulysses_cp_end_rank,
+                        tensor_parallel_size_of_each_stage[i],
+                    )
+                )
+                _ALL_ULYSSES_CP_GROUP_RANKS[i].append(ulysses_cp_group_ranks)
+                if rank in ulysses_cp_group_ranks:
+                    ulysses_cp_group = get_group(ulysses_cp_group_ranks)
+                    for _ in range(num_ops_in_each_stage[i]):
+                        _ULYSSES_CONTEXT_PARALLEL_GROUP.append(ulysses_cp_group)
+                        _ULYSSES_CONTEXT_PARALLEL_RANKS.append(ulysses_cp_group_ranks)                   
                 seq_start: int = 0
                 for idx, r in enumerate(
                     range(
-                        cp_start_rank + k,
-                        cp_end_rank,
+                        ulysses_cp_start_rank + k,
+                        ulysses_cp_end_rank,
                         tensor_parallel_size_of_each_stage[i],
                     )
                 ):
-                    _RANK_INFOS[r].cp_group = copy.deepcopy(cp_group_ranks)
-                    _RANK_INFOS[r].ds.seq = (
+                    _RANK_INFOS[r].ulysses_cp_group = copy.deepcopy(ulysses_cp_group_ranks)
+                    _RANK_INFOS[r].ds.ulysses_seq = (
                         seq_start,
-                        seq_start + context_parallel_split_of_each_stage[i][idx],
+                        seq_start + ulysses_context_parallel_split_of_each_stage[i][j // data_parallel_size_of_each_stage[i]],
                     )
-                    seq_start += context_parallel_split_of_each_stage[i][idx]
+                    seq_start += ulysses_context_parallel_split_of_each_stage[i][j // data_parallel_size_of_each_stage[i]]
+        
+        # Ring CP
+        for j in range(data_parallel_size_of_each_stage[i]):
+            ring_cp_start_rank = (
+                start_rank
+                + j
+                * tensor_parallel_size_of_each_stage[i]
+                * ulysses_context_parallel_size_of_each_stage[i]
+                * ring_context_parallel_size_of_each_stage[i]
+            )
+            ring_cp_end_rank = (
+                start_rank
+                + (j + 1)
+                * tensor_parallel_size_of_each_stage[i]
+                * ulysses_context_parallel_size_of_each_stage[i]
+                * ring_context_parallel_size_of_each_stage[i]
+            )
+            for k in range(tensor_parallel_size_of_each_stage[i] * ulysses_context_parallel_size_of_each_stage[i]):
+                ring_cp_group_ranks = list(
+                    range(
+                        ring_cp_start_rank + k,
+                        ring_cp_end_rank,
+                        tensor_parallel_size_of_each_stage[i] * ulysses_context_parallel_size_of_each_stage[i],
+                    )
+                )
+                _ALL_RING_CP_GROUP_RANKS[i].append(ring_cp_group_ranks)
+                ring_cp_group = get_group(ring_cp_group_ranks)
+                if rank in ring_cp_group_ranks:
+                    for _ in range(num_ops_in_each_stage[i]):
+                        _RING_CONTEXT_PARALLEL_GROUP.append(ring_cp_group)
+                        _RING_CONTEXT_PARALLEL_RANKS.append(ring_cp_group_ranks)                   
+                seq_start: int = 0
+                for idx, r in enumerate(
+                    range(
+                        ring_cp_start_rank + k,
+                        ring_cp_end_rank,
+                        tensor_parallel_size_of_each_stage[i] * ulysses_context_parallel_size_of_each_stage[i],
+                    )
+                ):
+                    _RANK_INFOS[r].ring_cp_group = copy.deepcopy(ring_cp_group_ranks)
+                    _RANK_INFOS[r].ds.ring_seq = (
+                        seq_start,
+                        seq_start + ring_context_parallel_split_of_each_stage[i][idx],
+                    )
+                    seq_start += ring_context_parallel_split_of_each_stage[i][idx]
 
         # DP
         dp_start_rank = start_rank
@@ -588,6 +705,8 @@ def initialize_model_parallel_flexpipe2(
     BWD_RESHARD: {_BWD_RESHARD}| \
     ALL_TP_GROUP_RANKS: {_ALL_TP_GROUP_RANKS}| \
     ALL_CP_GROUP_RANKS: {_ALL_CP_GROUP_RANKS}| \
+    ALL_ULYSSES_CP_GROUP_RANKS: {_ALL_ULYSSES_CP_GROUP_RANKS}| \
+    ALL_RING_CP_GROUP_RANKS: {_ALL_RING_CP_GROUP_RANKS}| \
     ALL_DP_GROUP_RANKS: {_ALL_DP_GROUP_RANKS}| \
     _RANKS_IN_EACH_PIPELINE_STAGE: {_RANKS_IN_EACH_PIPELINE_STAGE}| \
     _NUM_OPS_IN_EACH_STAGE_LIST: {_NUM_OPS_IN_EACH_STAGE_LIST}| \
@@ -596,9 +715,13 @@ def initialize_model_parallel_flexpipe2(
     _TP_SIZE_PER_STAGE: {_TP_SIZE_PER_STAGE}| \
     _DP_SIZE_PER_STAGE: {_DP_SIZE_PER_STAGE}| \
     _CP_SIZE_PER_STAGE: {_CP_SIZE_PER_STAGE}| \
+    _ULYSSES_CP_SIZE_PER_STAGE: {_ULYSSES_CP_SIZE_PER_STAGE}| \
+    _RING_CP_SIZE_PER_STAGE: {_RING_CP_SIZE_PER_STAGE}| \
     _TP_SIZE_PER_OP: {_TP_SIZE_PER_OP}| \
     _DP_SIZE_PER_OP: {_DP_SIZE_PER_OP}| \
     _CP_SIZE_PER_OP: {_CP_SIZE_PER_OP}| \
+    _ULYSSES_CP_SIZE_PER_OP: {_ULYSSES_CP_SIZE_PER_OP}| \
+    _RING_CP_SIZE_PER_OP: {_RING_CP_SIZE_PER_OP}| \
     _CHILD_RANKS: {_CHILD_RANKS}| \
     _PARENT_RANKS: {_PARENT_RANKS}| \
 ' + '\n')
@@ -607,6 +730,8 @@ def initialize_model_parallel_flexpipe2(
     TENSOR_MODEL_PARALLEL_RANKS: {_TENSOR_MODEL_PARALLEL_RANKS}| \
     _DATA_PARALLEL_RANKS: {_DATA_PARALLEL_RANKS}| \
     _CONTEXT_PARALLEL_RANKS: {_CONTEXT_PARALLEL_RANKS}| \
+    _ULYSSES_CONTEXT_PARALLEL_RANKS: {_ULYSSES_CONTEXT_PARALLEL_RANKS}| \
+    _RING_CONTEXT_PARALLEL_RANKS: {_RING_CONTEXT_PARALLEL_RANKS}| \
     ')
 
     # print(f'[DEBUG]|rank {torch.distributed.get_rank()}| \
@@ -1725,6 +1850,45 @@ def get_context_parallel_global_ranks(op_index=None, check_initialized=True):
     return get_context_parapllel_ranks_via_op_index(op_index)
 
 
+def get_ulysses_context_parallel_group(op_index=None, check_initialized=True):
+    """Get the context parallel group the caller rank belongs to."""
+    if check_initialized:
+        assert _ULYSSES_CONTEXT_PARALLEL_GROUP is not None, 'context parallel group is not initialized'
+    if op_index is None:
+        op_index = _OPS_START_INDEX_LIST[get_pipeline_model_parallel_rank()]
+    return get_ulysses_context_parallel_group_via_op_index(op_index)
+
+
+def get_ulysses_context_parallel_global_ranks(op_index=None, check_initialized=True):
+    """Get all global ranks of the context parallel group that the caller rank belongs to."""
+    if check_initialized:
+        assert (
+            _ULYSSES_CONTEXT_PARALLEL_RANKS is not None
+        ), 'context parallel group is not initialized'
+    if op_index is None:
+        op_index = _OPS_START_INDEX_LIST[get_pipeline_model_parallel_rank()]
+    return get_ulysses_context_parapllel_ranks_via_op_index(op_index)
+
+
+def get_ring_context_parallel_group(op_index=None, check_initialized=True):
+    """Get the context parallel group the caller rank belongs to."""
+    if check_initialized:
+        assert _RING_CONTEXT_PARALLEL_GROUP is not None, 'context parallel group is not initialized'
+    if op_index is None:
+        op_index = _OPS_START_INDEX_LIST[get_pipeline_model_parallel_rank()]
+    return get_ring_context_parallel_group_via_op_index(op_index)
+
+
+def get_ring_context_parallel_global_ranks(op_index=None, check_initialized=True):
+    """Get all global ranks of the context parallel group that the caller rank belongs to."""
+    if check_initialized:
+        assert (
+            _RING_CONTEXT_PARALLEL_RANKS is not None
+        ), 'context parallel group is not initialized'
+    if op_index is None:
+        op_index = _OPS_START_INDEX_LIST[get_pipeline_model_parallel_rank()]
+    return get_ring_context_parapllel_ranks_via_op_index(op_index)
+
 def get_embedding_group():
     """Get the embedding group the caller rank belongs to."""
     assert _EMBEDDING_GROUP is not None, 'embedding group is not initialized'
@@ -2079,6 +2243,38 @@ def get_context_parallel_rank():
         return 0
 
 
+def get_ulysses_context_parallel_world_size():
+    """Return world size for the context parallel group."""
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_world_size(group=get_ulysses_context_parallel_group())
+    else:
+        return 0
+
+
+def get_ulysses_context_parallel_rank():
+    """Return my rank for the context parallel group."""
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_rank(group=get_ulysses_context_parallel_group())
+    else:
+        return 0
+
+
+def get_ring_context_parallel_world_size():
+    """Return world size for the context parallel group."""
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_world_size(group=get_ring_context_parallel_group())
+    else:
+        return 0
+
+
+def get_ring_parallel_rank():
+    """Return my rank for the context parallel group."""
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return torch.distributed.get_rank(group=get_ring_context_parallel_group())
+    else:
+        return 0
+
+
 def get_expert_model_parallel_world_size():
     """Return world size for the expert model parallel group"""
     if _MPU_EXPERT_MODEL_PARALLEL_WORLD_SIZE:
@@ -2161,6 +2357,14 @@ def destroy_model_parallel():
     _CONTEXT_PARALLEL_GROUP = None
     global _CONTEXT_PARALLEL_GLOBAL_RANKS
     _CONTEXT_PARALLEL_GLOBAL_RANKS = None
+    global _ULYSSES_CONTEXT_PARALLEL_GROUP
+    _ULYSSES_CONTEXT_PARALLEL_GROUP = None
+    global _ULYSSES_CONTEXT_PARALLEL_RANKS
+    _ULYSSES_CONTEXT_PARALLEL_RANKS = None
+    global _RING_CONTEXT_PARALLEL_GROUP
+    _RING_CONTEXT_PARALLEL_GROUP = None
+    global _RING_CONTEXT_PARALLEL_RANKS
+    _RING_CONTEXT_PARALLEL_RANKS = None
     global _EMBEDDING_GROUP
     _EMBEDDING_GROUP = None
     global _POSITION_EMBEDDING_GROUP
@@ -2337,7 +2541,15 @@ def get_op_dp_size(op_index):
 
 def get_op_cp_size(op_index):
     assert op_index < len(_CP_SIZE_PER_OP), f"op index {op_index} out of range({len(_CP_SIZE_PER_OP)})."
-    return _CP_SIZE_PER_OP[op_index]   
+    return _CP_SIZE_PER_OP[op_index]
+
+def get_op_ulysses_cp_size(op_index):
+    assert op_index < len(_ULYSSES_CP_SIZE_PER_OP), f"op index {op_index} out of range({len(_ULYSSES_CP_SIZE_PER_OP)})."
+    return _ULYSSES_CP_SIZE_PER_OP[op_index]
+
+def get_op_ring_cp_size(op_index):
+    assert op_index < len(_RING_CP_SIZE_PER_OP), f"op index {op_index} out of range({len(_RING_CP_SIZE_PER_OP)})."
+    return _RING_CP_SIZE_PER_OP[op_index]
 
 def get_p2p_fwd_reshard():
     global _FWD_RESHARD
@@ -2415,13 +2627,40 @@ def get_context_parallel_group_via_op_index(op_index):
     start_op_index = _OPS_START_INDEX_LIST[pp_stage]
     return _CONTEXT_PARALLEL_GROUP[op_index - start_op_index]
     
-    
 def get_context_parapllel_ranks_via_op_index(op_index):
     assert _CONTEXT_PARALLEL_RANKS is not None, \
         'context parallel group is not initialized'
     pp_stage = get_pipeline_model_parallel_rank()
     start_op_index = _OPS_START_INDEX_LIST[pp_stage]
     return _CONTEXT_PARALLEL_RANKS[op_index - start_op_index]
+
+def get_ulysses_context_parallel_group_via_op_index(op_index):
+    assert _ULYSSES_CONTEXT_PARALLEL_GROUP is not None, \
+        'context parallel group is not initialized'
+    pp_stage = get_pipeline_model_parallel_rank()
+    start_op_index = _OPS_START_INDEX_LIST[pp_stage]
+    return _ULYSSES_CONTEXT_PARALLEL_GROUP[op_index - start_op_index]
+    
+def get_ulysses_context_parapllel_ranks_via_op_index(op_index):
+    assert _ULYSSES_CONTEXT_PARALLEL_RANKS is not None, \
+        'context parallel group is not initialized'
+    pp_stage = get_pipeline_model_parallel_rank()
+    start_op_index = _OPS_START_INDEX_LIST[pp_stage]
+    return _ULYSSES_CONTEXT_PARALLEL_RANKS[op_index - start_op_index]
+
+def get_ring_context_parallel_group_via_op_index(op_index):
+    assert _RING_CONTEXT_PARALLEL_GROUP is not None, \
+        'context parallel group is not initialized'
+    pp_stage = get_pipeline_model_parallel_rank()
+    start_op_index = _OPS_START_INDEX_LIST[pp_stage]
+    return _RING_CONTEXT_PARALLEL_GROUP[op_index - start_op_index]
+    
+def get_ring_context_parapllel_ranks_via_op_index(op_index):
+    assert _RING_CONTEXT_PARALLEL_RANKS is not None, \
+        'context parallel group is not initialized'
+    pp_stage = get_pipeline_model_parallel_rank()
+    start_op_index = _OPS_START_INDEX_LIST[pp_stage]
+    return _RING_CONTEXT_PARALLEL_RANKS[op_index - start_op_index]
 
 def get_tensor_model_parallel_group_via_op_index(op_index):
     assert _TENSOR_MODEL_PARALLEL_GROUP is not None, \

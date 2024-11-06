@@ -15,6 +15,10 @@ from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.parallel_state import (
     get_context_parallel_global_ranks,
     get_context_parallel_group,
+    get_ulysses_context_parallel_global_ranks,
+    get_ulysses_context_parallel_group,
+    get_ring_context_parallel_global_ranks,
+    get_ring_context_parallel_group,
     get_tensor_model_parallel_group,
 )
 from megatron.core.tensor_parallel import get_cuda_rng_tracker
@@ -421,12 +425,11 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
         if _te_version >= packaging.version.Version("1.0.0"):
             if getattr(TEDotProductAttention, "cp_stream") is None:
                 TEDotProductAttention.cp_stream = torch.cuda.Stream()
-            extra_kwargs["cp_group"] = get_context_parallel_group(check_initialized=False)
-            print(f"cp_group: {extra_kwargs['cp_group']}")
-            extra_kwargs["cp_global_ranks"] = get_context_parallel_global_ranks(
-                check_initialized=False
-            )
-            print(f"cp_global_ranks: {extra_kwargs['cp_global_ranks']}")
+            # extra_kwargs["cp_group"] = get_context_parallel_group(check_initialized=False)
+            extra_kwargs["cp_group"] = [get_ulysses_context_parallel_group(check_initialized=False), get_ring_context_parallel_group(check_initialized=False)]
+            extra_kwargs["cp_global_ranks"] = get_context_parallel_global_ranks(check_initialized=False)
+            extra_kwargs["cp_comm_type"] = "a2a+p2p"
+            
             extra_kwargs["cp_stream"] = TEDotProductAttention.cp_stream
         else:
             assert (

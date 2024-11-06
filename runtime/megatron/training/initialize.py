@@ -66,7 +66,6 @@ def initialize_megatron(
         args.num_gpus = [args.world_size]
         args.num_layers = 1
         args.flex_recompute_activations = [False]
-        args.resharding_stages = [False] 
         args.recompute_ops = [0]
     
     if args.yaml_cfg is not None:
@@ -285,8 +284,11 @@ def _initialize_distributed():
                     args.tensor_parallel_size_of_each_stage,
                     args.data_parallel_size_of_each_stage,
                     args.context_parallel_size_of_each_stage,
+                    args.ring_context_parallel_size_of_each_stage,
+                    args.ulysses_context_parallel_size_of_each_stage,
                     args.data_parallel_split_of_each_stage,
-                    args.context_parallel_split_of_each_stage,
+                    args.ring_context_parallel_split_of_each_stage,
+                    args.ulysses_context_parallel_split_of_each_stage,
                 )
             else:
                 raise NotImplementedError("Only FlexPipe is supported for now")
