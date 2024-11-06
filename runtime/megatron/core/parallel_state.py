@@ -32,15 +32,6 @@ class DataSlice:
 
     def __repr__(self) -> str:
         return f"DataSlice(bs={self.bs}, seq={self.seqlen})"
-
-
-class RankInfo:
-    def __init__(self, rank: int) -> None:
-        self.rank: int = rank
-        self.tp_group: list[int] = None
-        self.dp_group: list[int] = None
-        self.ulysses_cp_group: list[int] = None
-        self.ring_cp_group: list[int] = None
         self.ds: DataSlice = DataSlice()
 
     def __str__(self) -> str:
