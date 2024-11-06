@@ -2623,6 +2623,13 @@ def get_data_parallel_ranks(op_index: None):
 def get_context_parallel_group_via_op_index(op_index):
     assert _CONTEXT_PARALLEL_GROUP is not None, \
         'context parallel group is not initialized'
+    if op_index is None:
+        op_index = _OPS_START_INDEX_LIST[get_pipeline_model_parallel_rank()]
+    return get_data_parallel_ranks_via_op_index(op_index)
+
+def get_context_parallel_group_via_op_index(op_index):
+    assert _CONTEXT_PARALLEL_GROUP is not None, \
+        'context parallel group is not initialized'
     pp_stage = get_pipeline_model_parallel_rank()
     start_op_index = _OPS_START_INDEX_LIST[pp_stage]
     return _CONTEXT_PARALLEL_GROUP[op_index - start_op_index]
