@@ -8,7 +8,7 @@ GPUS_PER_NODE=4
 # Change for multinode config
 MASTER_ADDR=localhost
 MASTER_PORT=6000
-NNODES=1
+NNODES=3
 NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
@@ -64,7 +64,7 @@ GPT_ARGS="
 "
 
 FLEX_ARGS="
-    --flexpipe-config ./test_pretrain.json \
+    --flexpipe-config ./test_pretrain_2.json \
     --log-path ./logs \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
@@ -74,7 +74,7 @@ mkdir -p logs
 mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
-export USE_FLASH_ATTN=1 NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 && \
+export USE_FLASH_ATTN=1 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \

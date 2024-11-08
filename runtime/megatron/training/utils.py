@@ -264,8 +264,8 @@ def get_batch_on_this_cp_rank(batch):
     cp_size = mpu.get_op_cp_size(mpu.get_op_start_index(stage_idx))
     if cp_size > 1:
         rank_info:RankInfo = mpu.get_rank_infos()[my_rank]
-        start_idx = rank_info.ds.ulysses_seq[0] // 2
-        end_idx = rank_info.ds.ulysses_seq[1] // 2
+        start_idx = rank_info.ds.seqlen[0] // 2
+        end_idx = rank_info.ds.seqlen[1] // 2
         for key, val in batch.items():
             if val is not None:
                 seq_dim = 1 if key != 'attention_mask' else 2

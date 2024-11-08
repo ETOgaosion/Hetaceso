@@ -10,6 +10,8 @@ import logging
 import os
 import sys
 import csv
+
+import torch.distributed
 from .log_handler import CustomHandler
 # Make default logging level INFO, but filter out all log messages not from MCore.
 logging.basicConfig(handlers=[CustomHandler()], level=logging.INFO)
@@ -555,6 +557,8 @@ def train_step(forward_step_func, data_iterator,
     for model_chunk in model:
         model_chunk.zero_grad_buffer()
     optimizer.zero_grad()
+    
+    print(f'{torch.distributed.get_rank()} [DEBUG] model_chunk zero grad buffer')
 
     # Forward pass.
     forward_backward_func = get_forward_backward_func()
@@ -564,6 +568,8 @@ def train_step(forward_step_func, data_iterator,
         model=model,
         num_microbatches=get_num_microbatches(),
         forward_only=False)
+    
+    print(f'{torch.distributed.get_rank()} [DEBUG] forward_backward_func')
 
     # Empty unused memory.
     if args.empty_unused_memory_level >= 1:
@@ -586,6 +592,8 @@ def train_step(forward_step_func, data_iterator,
     timers('backward-embedding-all-reduce').start()
     synchronize_shared_weights_grads(model)
     timers('backward-embedding-all-reduce').stop()
+    
+    print(f'{torch.distributed.get_rank()} [DEBUG] synchronize_shared_weights_grads')
 
     if DEBUG_GRAD:
         string = f"=================== grad info AFTER sync [rank {torch.distributed.get_rank()}] ==================="
@@ -606,6 +614,8 @@ def train_step(forward_step_func, data_iterator,
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
     update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
     timers('optimizer').stop()
+    
+    print(f'{torch.distributed.get_rank()} [DEBUG] optimizer step')
 
     # Vision momentum.
     if getattr(args, 'vision_pretraining', False) and args.vision_pretraining_type == "dino":
