@@ -88,7 +88,7 @@ mkdir -p logs
 mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
-export USE_FLASH_ATTN=1 && \
+export USE_FLASH_ATTN=1 NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \
