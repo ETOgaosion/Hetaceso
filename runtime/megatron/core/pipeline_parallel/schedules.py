@@ -1371,7 +1371,7 @@ def forward_backward_pipelining_without_interleaving(
             extra_tensors = input_extra_tensors_list.pop(0)
             output_extra_tensors = output_extra_tensors_list.pop(0)
 
-            output_tensor_grad, output_extra_tensors_grad = p2p_communication.recv_backward(send_tensor_shapes, config)
+            output_tensor_grad, output_extra_tensors_grad = p2p_communication.recv_backward(config)
 
             input_tensor_grad, extra_tensors_grad = backward_step(
                 input_tensor, output_tensor, output_tensor_grad, model_type, config, extra_tensors, output_extra_tensors, output_extra_tensors_grad, model
