@@ -1,3 +1,5 @@
 **/__pycache__/
 *.log
 profiler/profiled-time-*
+*.xml
+*log*
