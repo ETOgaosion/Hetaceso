@@ -1,23 +1,14 @@
 #!/bin/bash
 
+export CUDA_DEVICE_MAX_CONNECTIONS=1
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
-# export CUDA_DEVICE_MAX_CONNECTIONS=1
-export NCCL_DEBUG=TRACE
-export NCCL_DEBUG_FILE=./nccl.log
-export NCCL_DEBUG_SUBSYS=ALL
-# export NCCL_IB_DISABLE=1
-# export NCCL_SET_THREAD_NAME=1
-# export NCCL_TOPO_FILE=nccl/rank_topo.xml
-export NCCL_SOCKET_IFNAME=eno2
-# export NCCL_SOCKET_FAMILY=AF_INET
-# export NCCL_P2P_DISABLE=1
-GPUS_PER_NODE=8
+GPUS_PER_NODE=4
 # Change for multinode config
 MASTER_ADDR=localhost
-MASTER_PORT=7000
-NNODES=1
+MASTER_PORT=6000
+NNODES=3
 NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
@@ -73,7 +64,7 @@ GPT_ARGS="
 "
 
 FLEX_ARGS="
-    --flexpipe-config ./test_pretrain_6.json \
+    --flexpipe-config ./test_pretrain_2.json \
     --log-path ./logs \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \

@@ -32,6 +32,8 @@ from megatron.core.pipeline_parallel.p2p_communication import (
 
 from megatron.training.utils import unwrap_model
 
+from transformer_engine.pytorch.attention import test_ulysses
+
 ENABLE_WEIGHT_SHARE = os.environ.get("ENABLE_WEIGHT_SHARE", '1') == '1'
 
 def initialize_megatron(
@@ -229,6 +231,9 @@ def _initialize_distributed():
     """Initialize torch.distributed and core model parallel."""
     args = get_args()
 
+    # os.environ['NCCL_TOPO_DUMP_FILE'] = f'nccl/rank_{args.rank}_topo.xml'
+    
+    os.environ['NCCL_DEBUG_FILE'] = f'nccl/rank_{args.rank}.log'
     device_count = torch.cuda.device_count()
     if torch.distributed.is_initialized():
 

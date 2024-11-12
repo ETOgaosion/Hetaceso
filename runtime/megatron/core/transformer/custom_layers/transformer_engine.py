@@ -423,14 +423,17 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
 
         # Only Transformer-Engine version >= 1.0.0 supports context parallelism
         if _te_version >= packaging.version.Version("1.0.0"):
-            if getattr(TEDotProductAttention, "cp_stream") is None:
-                TEDotProductAttention.cp_stream = torch.cuda.Stream()
             # extra_kwargs["cp_group"] = get_context_parallel_group(check_initialized=False)
-            extra_kwargs["cp_group"] = [get_ulysses_context_parallel_group(check_initialized=False), get_ring_context_parallel_group(check_initialized=False)]
-            extra_kwargs["cp_global_ranks"] = get_context_parallel_global_ranks(check_initialized=False)
-            extra_kwargs["cp_comm_type"] = "a2a+p2p"
+            if len(get_ulysses_context_parallel_global_ranks(check_initialized=False)) == 1:
+                extra_kwargs["cp_group"] = get_ring_context_parallel_group(check_initialized=False)
+                extra_kwargs["cp_global_ranks"] = get_context_parallel_global_ranks(check_initialized=False)
+                extra_kwargs["cp_comm_type"] = "p2p"
+            else:
+                extra_kwargs["cp_group"] = [get_ulysses_context_parallel_group(check_initialized=False), get_ring_context_parallel_group(check_initialized=False)]
+                extra_kwargs["cp_global_ranks"] = get_context_parallel_global_ranks(check_initialized=False)
+                extra_kwargs["cp_comm_type"] = "a2a+p2p"
             
-            extra_kwargs["cp_stream"] = TEDotProductAttention.cp_stream
+            extra_kwargs["cp_stream"] = torch.cuda.Stream()
         else:
             assert (
                 self.config.context_parallel_size == 1

@@ -77,4 +77,8 @@ def validate_json_args(args):
             ), f"Ring CP split of stage {i} not equal to Ulysses CP split"
         if args.transformer_impl != 'transformer_engine' and args.context_parallel_size_of_each_stage[i] != 1:
             raise ValueError(f"Only transformer_engine supports context parallelism > 1")
+        sum_ops = 0
+        for i in range(len(args.num_gpus)):
+            sum_ops += args.num_ops_in_each_stage[i]
+        assert sum_ops == args.num_layers * 2 + 2, f"num_ops_in_each_stage should be equal to num_layers + preprocess and postprocess"
 

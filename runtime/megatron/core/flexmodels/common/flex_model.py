@@ -115,21 +115,21 @@ def initialize_comm_info2(
             # Theoretically it shouldn't be here
             continue
         tp_split_dim = tensors_info[key]["tp_split_dim"]
-        dp_split_dim = tensors_info[key]["dp_split_dim"]
         cp_split_dim = tensors_info[key]["cp_split_dim"]
+        dp_split_dim = tensors_info[key]["dp_split_dim"]
         assert tp_split_dim == -1, "Not split TP"
         recv_info["tensors"][key] = {
             "tp_split_dim": tp_split_dim,
-            "dp_split_dim": dp_split_dim,
             "cp_split_dim": cp_split_dim,
+            "dp_split_dim": dp_split_dim,
             "shape": tensors_info[key]["shape"],
             "data_slice": recv_reshard[my_rank]["data_slice"],
             "split": [],
         }
         send_info["tensors"][key] = {
             "tp_split_dim": tp_split_dim,
-            "dp_split_dim": dp_split_dim,
             "cp_split_dim": cp_split_dim,
+            "dp_split_dim": dp_split_dim,
             "shape": tensors_info[key]["shape"],
             "split": []
         }
@@ -173,8 +173,10 @@ def initialize_comm_info(
     elif dst_op_index > num_ops - 1:
         dst_op_index = 0
     tp_size = mpu.get_op_tp_size(src_op_index)
+    cp_size = mpu.get_op_cp_size(src_op_index)
     dp_size = mpu.get_op_dp_size(src_op_index)
     dst_tp_size = mpu.get_op_tp_size(dst_op_index)
+    dst_cp_size = mpu.get_op_cp_size(dst_op_index)
     dst_dp_size = mpu.get_op_dp_size(dst_op_index)
 
     ranks_in_this_stage = mpu.get_ranks_via_pipeline_stage(
@@ -184,7 +186,8 @@ def initialize_comm_info(
     for i in range(len(ranks_in_this_stage)):
         if rank == ranks_in_this_stage[i]:
             tp_id = i % tp_size
-            dp_id = i // tp_size
+            cp_id = i // tp_size % cp_size
+            dp_id = i // tp_size // cp_size
 
     recv_info = {"size": 0, "tensors": {}}
     send_info = {"tensors": {}}
@@ -192,14 +195,18 @@ def initialize_comm_info(
     for key in sorted(tensors_info):
         if key not in ["input_tensor"]:
             tp_split_dim = tensors_info[key]["tp_split_dim"]
+            cp_split_dim = tensors_info[key]["cp_split_dim"]
             dp_split_dim = tensors_info[key]["dp_split_dim"]
 
             num_tp_chunks = 1
+            num_cp_chunks = 1
             num_dp_chunks = 1
 
             recv_info["tensors"][key] = {
                 "tp_split_dim": tp_split_dim,
                 "num_tp_chunks": num_tp_chunks,
+                "cp_split_dim": cp_split_dim,
+                "num_cp_chunks": num_cp_chunks,
                 "dp_split_dim": dp_split_dim,
                 "num_dp_chunks": num_dp_chunks,
             }
@@ -207,6 +214,9 @@ def initialize_comm_info(
                 "tp_split_dim": tp_split_dim,
                 "num_tp_chunks": num_tp_chunks,
                 "tp_chunks_index": [0],
+                "cp_split_dim": cp_split_dim,
+                "num_cp_chunks": num_cp_chunks,
+                "cp_chunks_index": [0],
                 "dp_split_dim": dp_split_dim,
                 "num_dp_chunks": num_dp_chunks,
                 "dp_chunks_index": [0],
@@ -216,6 +226,8 @@ def initialize_comm_info(
 
             if tp_split_dim != -1:
                 shape[tp_split_dim] //= tp_size
+            if cp_split_dim != -1:
+                shape[cp_split_dim] //= cp_size
             if dp_split_dim != -1:
                 shape[dp_split_dim] //= dp_size
 
@@ -251,6 +263,39 @@ def initialize_comm_info(
                         send_info["tensors"][key]["tp_chunks_index"] = [
                             tp_id % num_tp_chunks
                         ]
+
+            if dst_cp_size > cp_size:
+                ratio = dst_cp_size // cp_size
+                num_cp_chunks = ratio
+
+                if cp_split_dim != -1:
+                    recv_info["tensors"][key]["cp_split_dim"] = cp_split_dim
+                    shape[cp_split_dim] //= ratio
+                else:
+                    recv_info["tensors"][key]["cp_split_dim"] = 0
+                    shape[0] //= ratio
+                recv_info["tensors"][key]["num_cp_chunks"] = num_cp_chunks
+
+                send_info["tensors"][key]["cp_split_dim"] = cp_split_dim
+                send_info["tensors"][key]["num_cp_chunks"] = num_cp_chunks
+                send_info["tensors"][key]["cp_chunks_index"] = range(num_cp_chunks)
+
+            if dst_cp_size < cp_size:
+                recv_info["tensors"][key]["cp_split_dim"] = cp_split_dim
+                recv_info["tensors"][key]["num_cp_chunks"] = num_cp_chunks
+
+                if cp_split_dim != -1:
+                    send_info["tensors"][key]["cp_split_dim"] = cp_split_dim
+                    send_info["tensors"][key]["num_cp_chunks"] = num_cp_chunks
+                    send_info["tensors"][key]["cp_chunks_index"] = range(num_cp_chunks)
+                else:
+                    ratio = cp_size // dst_cp_size
+                    num_cp_chunks = ratio
+                    send_info["tensors"][key]["cp_split_dim"] = 0
+                    send_info["tensors"][key]["num_cp_chunks"] = num_cp_chunks
+                    send_info["tensors"][key]["cp_chunks_index"] = [
+                        cp_id % num_cp_chunks
+                    ]
 
             if dst_dp_size > dp_size:
                 ratio = dst_dp_size // dp_size
@@ -623,6 +668,8 @@ class FlexPipeModel(MegatronModule):
                 input_tensor_names.append(key)
                 input_tensor_list.append(input_tensors["tensors"][key])
         else:
+            if isinstance(input_tensors, list):
+                input_tensors = input_tensors[0]
             for key in sorted(input_tensors):
                 input_tensor_names.append(key)
                 input_tensor_list.append(input_tensors[key])

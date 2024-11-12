@@ -10,3 +10,6 @@
 [submodule "external/TransformerEngine"]
 	path = external/TransformerEngine
 	url = git@github.com:ETOgaosion/TransformerEngine.git
+[submodule "external/nccl-2.21.5"]
+	path = external/nccl-2.21.5
+	url = git@github.com:ETOgaosion/nccl.git
