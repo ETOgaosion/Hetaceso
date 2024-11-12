@@ -2530,7 +2530,7 @@ def bitmap(ranks):
 def get_group(ranks):
     group_bits = bitmap(ranks)
     if group_bits not in all_groups: 
-        all_groups[group_bits] = torch.distributed.new_group(list(ranks))       
+        all_groups[group_bits] = torch.distributed.new_group(list(ranks), backend='nccl', use_local_synchronization=True)
 
     return all_groups[group_bits]
 
