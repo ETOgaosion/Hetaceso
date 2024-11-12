@@ -1,9 +1,9 @@
 {
     "comment": "Only include flexpipe related configurations",
-    "num_layers": 3,
+    "num_layers": 2,
     "num_stages": 2,
     "num_gpus": [
-        8,
+        4,
         4
     ],
     "flex_recompute_activations": [
@@ -11,14 +11,12 @@
         true
     ],
     "num_ops_in_each_stage": [
-        5,
+        3,
         3
     ],
     "recompute_ops": [
         [
             false,
-            true,
-            true,
             true,
             true
         ],
@@ -30,10 +28,10 @@
     ],
     "tensor_parallel_size_of_each_stage":[1, 1],
     "data_parallel_size_of_each_stage": [1, 1],
-    "context_parallel_size_of_each_stage": [8, 4],
-    "ring_context_parallel_size_of_each_stage": [4, 2],
+    "context_parallel_size_of_each_stage": [4, 4],
     "ulysses_context_parallel_size_of_each_stage": [2, 2],
+    "ring_context_parallel_size_of_each_stage": [2, 2],
     "data_parallel_split_of_each_stage": [[4], [4]],
-    "ring_context_parallel_split_of_each_stage": [[256, 256, 256, 256], [512, 512]],
-    "ulysses_context_parallel_split_of_each_stage": [[128, 128, 128, 128], [256, 256]]
+    "ring_context_parallel_split_of_each_stage": [[512, 512], [512, 512]],
+    "ulysses_context_parallel_split_of_each_stage": [[256, 256], [256, 256]]
 }

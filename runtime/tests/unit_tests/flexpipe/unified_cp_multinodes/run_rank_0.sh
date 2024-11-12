@@ -3,13 +3,14 @@
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
+export NCCL_SOCKET_IFNAME=eno2
 
 GPUS_PER_NODE=4
 # Change for multinode config
 MASTER_ADDR=localhost
 MASTER_PORT=6000
 NNODES=3
-NODE_RANK=1
+NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 # fixed Model related configuration here, pls not overlap with json config
@@ -64,7 +65,7 @@ GPT_ARGS="
 "
 
 FLEX_ARGS="
-    --flexpipe-config ./test_pretrain_2.json \
+    --flexpipe-config ./test_pretrain.json \
     --log-path ./logs \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \

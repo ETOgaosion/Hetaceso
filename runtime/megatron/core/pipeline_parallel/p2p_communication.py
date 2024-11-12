@@ -30,7 +30,7 @@ import time
 import inspect
 from megatron.core.parallel_state import DataSlice
 import pdb
-DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '1') == '1'
+DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '0') == '1'
 EXTRA_TENSOR_TRANSFER = os.environ.get("EXTRA_TENSOR_TRANSFER", '1') == '1'
 
 def get_debug_file() -> str:
@@ -1091,7 +1091,6 @@ def send_shared_tensors(op, models, grads=False):
 
     for key in sorted(shared_tensor):
         for op_index in op.shared_weights_info[key]["sharing_with_ops"]:
-            print(f'{torch.distributed.get_rank()}, op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]: {op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]}, op.shared_weights_info[key]["sharing_weights_with_ranks": {op.shared_weights_info[key]["sharing_weights_with_ranks"]}')
             if not op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index]:
                 recv_ranks = op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]
                 if len(recv_ranks) > 0:
@@ -1140,7 +1139,6 @@ def recv_shared_tensors(op, models, grads=False):
         else:
             dtype = args.params_dtype        
         for op_index in op.shared_weights_info[key]["sharing_with_ops"]:
-            print(f'{torch.distributed.get_rank()}, op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]: {op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]}, op.shared_weights_info[key]["sharing_weights_with_ranks": {op.shared_weights_info[key]["sharing_weights_with_ranks"]}')
             if op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index]:
                 src_op = get_op_via_index(op_index, models)
                 recv_tensor = src_op.get_shared_tensor(grads=grads)
