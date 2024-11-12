@@ -432,8 +432,8 @@ def initialize_model_parallel_flexpipe2(
                         _CONTEXT_PARALLEL_RANKS.append(cp_group_ranks)
 
         # Ulysses CP
-        seq_start: int = 0
         for j in range(ring_context_parallel_size_of_each_stage[i] * data_parallel_size_of_each_stage[i]):
+            seq_start: int = 0
             ulysses_cp_start_rank = (
                 start_rank
                 + j

@@ -44,7 +44,7 @@ def validate_json_args(args):
             == args.tensor_parallel_size_of_each_stage[i]
             * args.data_parallel_size_of_each_stage[i]
             * args.context_parallel_size_of_each_stage[i]
-        ), f"GPUs in stage{i} not equal to TP * DP * PP * CP"
+        ), f"GPUs in stage{i} not equal to TP * DP * CP"
         assert (
             args.context_parallel_size_of_each_stage[i]
             == args.ulysses_context_parallel_size_of_each_stage[i]

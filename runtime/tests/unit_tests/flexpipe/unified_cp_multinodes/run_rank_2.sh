@@ -3,7 +3,7 @@
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
-export NCCL_SOCKET_IFNAME=eno2
+export NCCL_SOCKET_IFNAME=eno1
 
 GPUS_PER_NODE=4
 # Change for multinode config
