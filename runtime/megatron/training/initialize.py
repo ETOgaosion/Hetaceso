@@ -292,8 +292,8 @@ def _initialize_distributed():
                     args.ring_context_parallel_size_of_each_stage,
                     args.ulysses_context_parallel_size_of_each_stage,
                     args.data_parallel_split_of_each_stage,
-                    args.ring_context_parallel_split_of_each_stage,
                     args.ulysses_context_parallel_split_of_each_stage,
+                    args.seq_length
                 )
             else:
                 raise NotImplementedError("Only FlexPipe is supported for now")

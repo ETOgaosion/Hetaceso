@@ -38,7 +38,12 @@
     "context_parallel_size_of_each_stage": [4, 4, 4],
     "ring_context_parallel_size_of_each_stage": [2, 2, 2],
     "ulysses_context_parallel_size_of_each_stage": [2, 2, 2],
-    "data_parallel_split_of_each_stage": [[4], [4]],
-    "ring_context_parallel_split_of_each_stage": [[512, 512], [512, 512], [512, 512]],
-    "ulysses_context_parallel_split_of_each_stage": [[256, 256], [256, 256], [256, 256]]
+    "data_parallel_split_of_each_stage": [[4], [4], [4]],
+    "ulysses_context_parallel_split_of_each_stage": [[
+        [256, 256],
+        [256, 256]
+    ], [
+        [256, 256],
+        [256, 256]
+    ]]
 }

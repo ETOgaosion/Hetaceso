@@ -19,7 +19,6 @@ def load_json_args(json_file, args):
         args.ulysses_context_parallel_size_of_each_stage = config_dict["ulysses_context_parallel_size_of_each_stage"]
         args.ring_context_parallel_size_of_each_stage = config_dict["ring_context_parallel_size_of_each_stage"]
         args.data_parallel_split_of_each_stage = config_dict["data_parallel_split_of_each_stage"]
-        args.ring_context_parallel_split_of_each_stage = config_dict["ring_context_parallel_split_of_each_stage"]
         args.ulysses_context_parallel_split_of_each_stage = config_dict["ulysses_context_parallel_split_of_each_stage"]
     return args
 
@@ -34,7 +33,6 @@ def validate_json_args(args):
         == len(args.ulysses_context_parallel_size_of_each_stage)
         == len(args.ring_context_parallel_size_of_each_stage)
         == len(args.data_parallel_split_of_each_stage)
-        == len(args.ring_context_parallel_split_of_each_stage)
         == len(args.ulysses_context_parallel_split_of_each_stage)
     ), f"Number of pipeline stages is the same"
 
@@ -57,24 +55,14 @@ def validate_json_args(args):
         assert args.micro_batch_size == sum(
             args.data_parallel_split_of_each_stage[i]
         ), f"Data split by DP of stage {i} not equal to mbs"
-        assert (
-            len(args.ring_context_parallel_split_of_each_stage[i])
-            == args.ring_context_parallel_size_of_each_stage[i]
-        ), f"Ring CP split of stage {i} not equal to Ring CP size"
         if (args.nproc_per_node < args.tensor_parallel_size_of_each_stage[i] * args.ulysses_context_parallel_size_of_each_stage[i]):
             print(f"[Warning] It's a common practice that TP and UCP happen within a node")
-        assert args.seq_length == sum(
-            args.ring_context_parallel_split_of_each_stage[i]
-        ), f"Sequence split by CP of stage {i} not equal to sequence length"
-        assert (
-            len(args.ulysses_context_parallel_split_of_each_stage[i])
-            == args.ring_context_parallel_size_of_each_stage[i]
-        ), f"Ulysses CP split of stage {i} not equal to Ring CP size, [notice] Ulysses CP evenly devide the Ring CP size, so just need 1 value to represent ulysses cp size in each stage"
-        for j in range(len(args.ring_context_parallel_split_of_each_stage[i])):
-            assert (
-                args.ring_context_parallel_split_of_each_stage[i][j]
-                == args.ulysses_context_parallel_split_of_each_stage[i][j] * args.ulysses_context_parallel_size_of_each_stage[i]
-            ), f"Ring CP split of stage {i} not equal to Ulysses CP split"
+        rsp_size = args.ring_context_parallel_size_of_each_stage[i]
+        for k in range(len(args.ulysses_context_parallel_split_of_each_stage[i])):
+            for j in range(len(args.ulysses_context_parallel_split_of_each_stage[i][k]) // rsp_size):
+                assert args.seq_length == args.ulysses_context_parallel_size_of_each_stage[i] * sum(
+                    args.ulysses_context_parallel_split_of_each_stage[i][k][j * rsp_size : (j + 1) * rsp_size]
+                ), f"Sequence split by Ulysses CP of stage {i} not equal to sequence length, {j} ring cp group, {args.seq_length}, {sum(args.ulysses_context_parallel_split_of_each_stage[i][k][j * rsp_size : (j + 1) * rsp_size])}"
         if args.transformer_impl != 'transformer_engine' and args.context_parallel_size_of_each_stage[i] != 1:
             raise ValueError(f"Only transformer_engine supports context parallelism > 1")
         sum_ops = 0

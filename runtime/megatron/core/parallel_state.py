@@ -258,8 +258,8 @@ def initialize_model_parallel_flexpipe2(
     ring_context_parallel_size_of_each_stage: list[int],
     ulysses_context_parallel_size_of_each_stage: list[int],
     data_parallel_split_of_each_stage: list[list[int]],
-    ring_context_parallel_split_of_each_stage: list[list[int]],
     ulysses_context_parallel_split_of_each_stage: list[list[int]],
+    total_seqlen: int,
 ) -> None:
     """
     Initialize model data parallel groups for FlexPipe.
@@ -370,6 +370,7 @@ def initialize_model_parallel_flexpipe2(
     assert _RANK_INFOS is None, 'RANK INFO is already initialized'
 
     _RANK_INFOS = [RankInfo(rank) for rank in range(world_size)]
+    rank = torch.distributed.get_rank()
 
     # if rank == 1:
     #     pdb.set_trace()
@@ -432,8 +433,34 @@ def initialize_model_parallel_flexpipe2(
                         _CONTEXT_PARALLEL_RANKS.append(cp_group_ranks)
 
         # Ulysses CP
+        '''
+        Example:
+        tp  2
+        usp 2
+        rsp 2
+        dp  2
+        
+        Then groups act like:
+        tp:  (0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11), (12, 13), (14, 15)
+        usp: (0, 2), (4, 6), (8, 10), (12, 14), 
+             (1, 3), (5, 7), (9, 11), (13, 15)
+        rsp: (0, 4), (8, 12),
+             (1, 5), (9, 13),
+             (2, 6), (10, 14),
+             (3, 7), (11, 15)
+        dp:  (0, 8), (1, 9), (2, 10), (3, 11), (4, 12), (5, 13), (6, 14), (7, 15)
+        
+        usp coloumn: for i in tp_size
+        usp row: for j in rsp_size * dp_size
+        usp cell: start_k = rsp_size * dp_size + i
+                  for k in range(start_k, end, tp_size)
+        
+        usp seqlen:
+             [x1, x2, x3, x4],
+             [x5, x6, x7, x8]
+        because of rsp_size == 2, (x1, x2) form total_seqlen, same to other pairs
+        '''
         for j in range(ring_context_parallel_size_of_each_stage[i] * data_parallel_size_of_each_stage[i]):
-            seq_start: int = 0
             ulysses_cp_start_rank = (
                 start_rank
                 + j
@@ -447,6 +474,7 @@ def initialize_model_parallel_flexpipe2(
                 * ulysses_context_parallel_size_of_each_stage[i]
             )
             for k in range(tensor_parallel_size_of_each_stage[i]):
+                seq_start = sum(ulysses_context_parallel_split_of_each_stage[i][k][: j] * ulysses_context_parallel_size_of_each_stage[i]) % total_seqlen
                 ulysses_cp_group_ranks = list(
                     range(
                         ulysses_cp_start_rank + k,
@@ -455,11 +483,13 @@ def initialize_model_parallel_flexpipe2(
                     )
                 )
                 _ALL_ULYSSES_CP_GROUP_RANKS[i].append(ulysses_cp_group_ranks)
+                rank = torch.distributed.get_rank()
                 if rank in ulysses_cp_group_ranks:
                     ulysses_cp_group = get_group(ulysses_cp_group_ranks)
                     for _ in range(num_ops_in_each_stage[i]):
                         _ULYSSES_CONTEXT_PARALLEL_GROUP.append(ulysses_cp_group)
                         _ULYSSES_CONTEXT_PARALLEL_RANKS.append(ulysses_cp_group_ranks)
+                cu_seqlen = seq_start
                 for idx, r in enumerate(
                     range(
                         ulysses_cp_start_rank + k,
@@ -468,11 +498,12 @@ def initialize_model_parallel_flexpipe2(
                     )
                 ):
                     _RANK_INFOS[r].ulysses_cp_group = copy.deepcopy(ulysses_cp_group_ranks)
+                    seqlen = ulysses_context_parallel_split_of_each_stage[i][k][j]
                     _RANK_INFOS[r].ds.seqlen = (
-                        seq_start,
-                        seq_start + ulysses_context_parallel_split_of_each_stage[i][j // data_parallel_size_of_each_stage[i]],
+                        cu_seqlen,
+                        cu_seqlen + seqlen,
                     )
-                    seq_start += ulysses_context_parallel_split_of_each_stage[i][j // data_parallel_size_of_each_stage[i]]
+                    cu_seqlen += seqlen
                     print(f'{torch.distributed.get_rank()} {r} seqlen: {_RANK_INFOS[r].ds.seqlen} i {i} j {j} k {k} idx {idx} ulysses_cp_start_rank {ulysses_cp_start_rank} ulysses_cp_end_rank {ulysses_cp_end_rank}')
         
         # Ring CP
@@ -2658,6 +2689,8 @@ def get_ulysses_context_parapllel_ranks_via_op_index(op_index):
         'context parallel group is not initialized'
     pp_stage = get_pipeline_model_parallel_rank()
     start_op_index = _OPS_START_INDEX_LIST[pp_stage]
+    assert op_index - start_op_index < len(_ULYSSES_CONTEXT_PARALLEL_RANKS), \
+        f'op_index: {op_index}, start_op_index: {start_op_index}, len(_ULYSSES_CONTEXT_PARALLEL_RANKS): {len(_ULYSSES_CONTEXT_PARALLEL_RANKS)}'
     return _ULYSSES_CONTEXT_PARALLEL_RANKS[op_index - start_op_index]
 
 def get_ring_context_parallel_group_via_op_index(op_index):
