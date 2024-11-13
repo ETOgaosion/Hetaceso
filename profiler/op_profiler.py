@@ -160,7 +160,6 @@ def get_model(model_name, model_size):
         args.max_position_embeddings = encoder_seq_length
         args.padded_vocab_size = vocab_size
         args.num_layers = num_layers
-        args.resharding_stages = [False]
         # model = FlexT5Model(profiling=True)
 
     args.model_name = model_name

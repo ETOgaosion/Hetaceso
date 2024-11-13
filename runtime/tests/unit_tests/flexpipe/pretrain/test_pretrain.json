@@ -6,14 +6,6 @@
         2,
         2
     ],
-    "flex_recompute_activations": [
-        true,
-        false
-    ],
-    "resharding_stages": [
-        false,
-        false
-    ],
     "num_ops_in_each_stage": [
         3,
         3
@@ -40,30 +32,6 @@
             1,
             1,
             1
-        ]
-    ],
-    "recompute_ops": [
-        [
-            false,
-            true,
-            true
-        ],
-        [
-            true,
-            true,
-            false
-        ]
-    ],
-    "algo_of_each_op": [
-        [
-            0,
-            0,
-            0
-        ],
-        [
-            0,
-            0,
-            0
         ]
     ]
 }

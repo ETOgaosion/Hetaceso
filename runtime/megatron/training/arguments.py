@@ -72,7 +72,6 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args.virtual_pipeline_model_parallel_size = 1
         args.tensor_parallel_size_of_each_op = [[args.prof_tp_size]]
         args.data_parallel_size_of_each_op = [[1]]
-        args.resharding_stages = [True]     # TOCHECK: is this correct? gpt seems no need to reshard
 
         if len(args.prof_repeat_times) > 1:
             assert args.prof_repeat_threshold is not None, "when args.prof_repeat_times is a list, a threshold is required."
@@ -425,6 +424,9 @@ def validate_args(args, defaults={}):
                   'Defaulting to no_persist_layer_norm=True')
 
     # Activation recomputing.
+    
+    if args.recompute_granularity is not None:
+        assert args.recompute_granularity == 'selective', 'flexpipe only support selective recompute'
     assert args.distribute_saved_activations == False, '--distribute-saved-activations is not implemented in flexpipe'
     if args.distribute_saved_activations:
         assert args.tensor_model_parallel_size > 1, 'can distribute ' \
@@ -446,6 +448,7 @@ def validate_args(args, defaults={}):
             'recompute method is not yet supported for ' \
             'selective recomputing granularity'
 
+    
     # disable sequence parallelism when tp=1
     # to avoid change in numerics when
     # sequence_parallelism is enabled.
@@ -565,9 +568,6 @@ def flex_config_from_args(args, config_class=None):
     for f in dataclasses.fields(config_class):
         if hasattr(args, f.name):
             kw_args[f.name] = getattr(args, f.name)
-    kw_args['recompute_ops'] = args.recompute_ops
-    kw_args['flex_recompute_activations'] = args.flex_recompute_activations
-    kw_args['resharding_stages'] = args.resharding_stages
     kw_args['scatter_gather_tensors_in_pipeline'] = args.scatter_gather_tensors_in_pipeline
     return config_class(**kw_args)
 

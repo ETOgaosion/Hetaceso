@@ -58,6 +58,7 @@ GPT_ARGS="
     --tokenizer-type GPT2BPETokenizer \
     --use-mcore-models \
     --transformer-impl local \
+    --recompute-granularity selective \
 "
 
 FLEX_ARGS="

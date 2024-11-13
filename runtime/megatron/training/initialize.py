@@ -65,9 +65,6 @@ def initialize_megatron(
     if args.prof_op:
         args.num_gpus = [args.world_size]
         args.num_layers = 1
-        args.flex_recompute_activations = [False]
-        args.resharding_stages = [False] 
-        args.recompute_ops = [0]
     
     if args.yaml_cfg is not None:
         args = validate_yaml(args, args_defaults)
