@@ -4,6 +4,11 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 export NCCL_SOCKET_IFNAME=eno2
+export CUDA_VISIBLE_DEVICES=4,5,6,7
+
+export NCCL_DEBUG=TRACE
+export NCCL_DEBUG_FILE=./nccl.log
+export NCCL_DEBUG_SUBSYS=ALL
 
 GPUS_PER_NODE=4
 # Change for multinode config

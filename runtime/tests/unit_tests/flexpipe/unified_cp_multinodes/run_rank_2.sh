@@ -5,6 +5,10 @@ export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 export NCCL_SOCKET_IFNAME=eno1
 
+export NCCL_DEBUG=TRACE
+export NCCL_DEBUG_FILE=./nccl.log
+export NCCL_DEBUG_SUBSYS=ALL
+
 GPUS_PER_NODE=4
 # Change for multinode config
 MASTER_ADDR=10.156.154.242

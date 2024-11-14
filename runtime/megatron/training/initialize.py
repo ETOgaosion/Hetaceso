@@ -267,6 +267,7 @@ def _initialize_distributed():
             rank=args.rank,
             timeout=timedelta(minutes=args.distributed_timeout_minutes),
         )
+        print(f'rank {args.rank} initialized process group')
 
     # Set the tensor model-parallel, pipeline model-parallel, and
     # data-parallel communicators.
