@@ -57,8 +57,10 @@ def validate_json_args(args):
         ), f"Data split by DP of stage {i} not equal to mbs"
         if (args.nproc_per_node < args.tensor_parallel_size_of_each_stage[i] * args.ulysses_context_parallel_size_of_each_stage[i]):
             print(f"[Warning] It's a common practice that TP and UCP happen within a node")
+        assert args.tensor_parallel_size_of_each_stage[i] == len(args.ulysses_context_parallel_split_of_each_stage[i]), f'TP size of stage {i} not equal to UCP split size [0]'
         rsp_size = args.ring_context_parallel_size_of_each_stage[i]
         for k in range(len(args.ulysses_context_parallel_split_of_each_stage[i])):
+            assert args.ring_context_parallel_size_of_each_stage[i] * args.data_parallel_size_of_each_stage[i] == len(args.ulysses_context_parallel_split_of_each_stage[i][k]), f"Ring CP * DP size of stage {i} not equal to UCP split size [1]"
             for j in range(len(args.ulysses_context_parallel_split_of_each_stage[i][k]) // rsp_size):
                 assert args.seq_length == args.ulysses_context_parallel_size_of_each_stage[i] * sum(
                     args.ulysses_context_parallel_split_of_each_stage[i][k][j * rsp_size : (j + 1) * rsp_size]
