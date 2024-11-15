@@ -826,7 +826,7 @@ def fwd_reshard_stage(
                             )
                         )
                     chunks.extend(diff_chunks)
-                    del chunks[0]
+                del chunks[0]
 
     # print(f"{split_strategy}")
 
@@ -972,7 +972,7 @@ def bwd_reshard_stage(
                             )
                         )
                     chunks.extend(diff_chunks)
-                    del chunks[0]
+                del chunks[0]
 
     # print(f"{split_strategy}")
 
