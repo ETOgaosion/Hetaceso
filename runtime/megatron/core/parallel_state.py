@@ -855,7 +855,6 @@ def fwd_reshard_stage(
                 }
 
     print(f"{torch.distributed.get_rank()} _FWD_RESHARD: {_FWD_RESHARD}")
-    exit()
 
 def bwd_reshard_stage(
     idx: int,
