@@ -1089,6 +1089,8 @@ def send_shared_tensors(op, models, grads=False):
         for op_index in op.shared_weights_info[key]["sharing_with_ops"]:
             if not op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index]:
                 recv_ranks = op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]
+                if DEBUG_COMMUNICATE:
+                    print(f"rank {torch.distributed.get_rank()} recv_ranks = {recv_ranks}")
                 if len(recv_ranks) > 0:
                     send_ops = []
                     split_dim = op.shared_weights_info[key]["tp_split_dim"]
@@ -1141,6 +1143,8 @@ def recv_shared_tensors(op, models, grads=False):
                 recv_dict[key].append(recv_tensor[key])
             else:
                 send_ranks = op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]
+                if DEBUG_COMMUNICATE:
+                    print(f"rank {torch.distributed.get_rank()} send_ranks = {send_ranks}")
                 if len(send_ranks) > 0: 
                     recv_ops = []
                     tensor_list = []
@@ -1254,12 +1258,12 @@ def initialize_weights_sharing(models):
 
                                 op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index] = []
                                 if not (dp_size_next == dp_size and cp_size_next == cp_size and tp_size_next == tp_size):
-                                    tmp_list = []
                                     for _dp_id in next_dp_id:
                                         for _cp_id in next_cp_id:
+                                            tmp_list = []
                                             for _tp_id in next_tp_id:
                                                 tmp_list.append(ranks_in_receive_stage[_dp_id * tp_size_next * cp_size_next + _cp_id * tp_size_next + _tp_id])
-                                    op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+                                            op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
                                 print(f'rank {rank} op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]: {op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]}')
                     else:
                         assert len(op.shared_weights_info[key]["sharing_with_ops"]) == 1
@@ -1311,12 +1315,12 @@ def initialize_weights_sharing(models):
                             op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index] = []
 
                             if not (dp_size_next == dp_size and cp_size_next == cp_size and tp_size_next == tp_size):
-                                tmp_list = []
                                 for _dp_id in next_dp_id:
                                     for _cp_id in next_cp_id:
+                                        tmp_list = []
                                         for _tp_id in next_tp_id:
                                             tmp_list.append(ranks_in_send_stage[_dp_id * tp_size_next * cp_size_next + _cp_id * tp_size_next + _tp_id])
-                                op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+                                        op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
                             
                             print(f'rank {rank} op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]: {op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]}')
 
