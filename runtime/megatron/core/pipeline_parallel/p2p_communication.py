@@ -1218,9 +1218,9 @@ def initialize_weights_sharing(models):
                                         cp_id = (i // tp_size) % cp_size
                                         tp_id = i % tp_size
 
-                                next_dp_id = []
-                                next_cp_id = []
-                                next_tp_id = []
+                                next_dp_id = [0]
+                                next_cp_id = [0]
+                                next_tp_id = [0]
 
                                 if tp_size_next > tp_size:
                                     ratio = tp_size_next // tp_size
@@ -1247,13 +1247,12 @@ def initialize_weights_sharing(models):
                                 print(f'rank {rank} root op {op.op_index} key {key} sharing with op {op_index} next_dp_id {next_dp_id} next_cp_id {next_cp_id} next_tp_id {next_tp_id} ranks_in_send_stage {ranks_in_send_stage} ranks_in_receive_stage {ranks_in_receive_stage}')
 
                                 op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index] = []
-                                if len(next_dp_id) > 0:
-                                    for _dp_id in next_dp_id:
-                                        for _cp_id in next_cp_id:
-                                            tmp_list = []
-                                            for _tp_id in next_tp_id:
-                                                tmp_list.append(ranks_in_receive_stage[_dp_id * tp_size_next * cp_size_next + _cp_id * tp_size_next + _tp_id])
-                                            op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+                                for _dp_id in next_dp_id:
+                                    for _cp_id in next_cp_id:
+                                        tmp_list = []
+                                        for _tp_id in next_tp_id:
+                                            tmp_list.append(ranks_in_receive_stage[_dp_id * tp_size_next * cp_size_next + _cp_id * tp_size_next + _tp_id])
+                                        op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
                     else:
                         assert len(op.shared_weights_info[key]["sharing_with_ops"]) == 1
                         op_index = op.shared_weights_info[key]["sharing_with_ops"][0]
@@ -1277,9 +1276,9 @@ def initialize_weights_sharing(models):
                                     cp_id = (i // tp_size) % cp_size
                                     tp_id = i % tp_size
 
-                            next_dp_id = [dp_id]
-                            next_cp_id = [cp_id]
-                            next_tp_id = [tp_id]
+                            next_dp_id = [0]
+                            next_cp_id = [0]
+                            next_tp_id = [0]
 
                             if tp_size_next > tp_size:
                                 ratio = tp_size_next // tp_size
