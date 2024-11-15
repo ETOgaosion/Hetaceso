@@ -1227,24 +1227,21 @@ def initialize_weights_sharing(models):
                                     next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)
                                 if tp_size_next < tp_size:
                                     ratio = tp_size // tp_size_next
-                                    if tp_id % ratio == 0:
-                                        next_tp_id = [cp_id // ratio]
+                                    next_tp_id = [tp_id // ratio]
                                 if cp_size_next > cp_size:
                                     ratio = cp_size_next // cp_size
                                     next_cp_id = range(cp_id * ratio, (cp_id + 1)*ratio)
                                 if cp_size_next < cp_size:
                                     ratio = cp_size // cp_size_next
-                                    if cp_id % ratio == 0:
-                                        next_cp_id = [cp_id // ratio]
+                                    next_cp_id = [cp_id // ratio]
                                 if dp_size_next > dp_size:
                                     ratio = dp_size_next // dp_size
                                     next_dp_id = range(dp_id * ratio, (dp_id + 1)*ratio)
                                 if dp_size_next < dp_size:
                                     ratio = dp_size // dp_size_next
-                                    if dp_id % ratio == 0:
-                                        next_dp_id = [dp_id // ratio]
+                                    next_dp_id = [dp_id // ratio]
                                 
-                                print(f'rank {rank} root op {op.op_index} key {key} sharing with op {op_index} next_dp_id {next_dp_id} next_cp_id {next_cp_id} next_tp_id {next_tp_id} ranks_in_send_stage {ranks_in_send_stage} ranks_in_receive_stage {ranks_in_receive_stage}')
+                                print(f'rank {rank} root op {op.op_index} tp_id: {tp_id}, cp_id: {cp_id}, dp_id: {dp_id} key {key} sharing with op {op_index} next_dp_id {next_dp_id} next_cp_id {next_cp_id} next_tp_id {next_tp_id} ranks_in_send_stage {ranks_in_send_stage} ranks_in_receive_stage {ranks_in_receive_stage}')
 
                                 op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index] = []
                                 for _dp_id in next_dp_id:
