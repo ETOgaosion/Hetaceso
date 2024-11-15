@@ -30,7 +30,7 @@ import time
 import inspect
 from megatron.core.parallel_state import DataSlice
 import pdb
-DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '0') == '1'
+DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '1') == '1'
 EXTRA_TENSOR_TRANSFER = os.environ.get("EXTRA_TENSOR_TRANSFER", '1') == '1'
 
 def get_debug_file() -> str:
@@ -1253,7 +1253,7 @@ def initialize_weights_sharing(models):
                                 print(f'rank {rank} root op {op.op_index} tp_id: {tp_id}, cp_id: {cp_id}, dp_id: {dp_id} key {key} sharing with op {op_index} next_dp_id {next_dp_id} next_cp_id {next_cp_id} next_tp_id {next_tp_id} ranks_in_send_stage {ranks_in_send_stage} ranks_in_receive_stage {ranks_in_receive_stage}')
 
                                 op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index] = []
-                                if len(ranks_in_receive_stage) // len(ranks_in_send_stage) != 1:
+                                if not (dp_size_next == dp_size and cp_size_next == cp_size and tp_size_next == tp_size):
                                     tmp_list = []
                                     for _dp_id in next_dp_id:
                                         for _cp_id in next_cp_id:
@@ -1310,7 +1310,7 @@ def initialize_weights_sharing(models):
                             print(f'rank {rank} op {op.op_index} key {key} sharing with op {op_index} next_dp_id {next_dp_id} next_cp_id {next_cp_id} next_tp_id {next_tp_id} ranks_in_send_stage {ranks_in_send_stage} ranks_in_receive_stage {ranks_in_receive_stage}')
                             op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index] = []
 
-                            if len(ranks_in_receive_stage) // len(ranks_in_send_stage) != 1:
+                            if not (dp_size_next == dp_size and cp_size_next == cp_size and tp_size_next == tp_size):
                                 tmp_list = []
                                 for _dp_id in next_dp_id:
                                     for _cp_id in next_cp_id:
