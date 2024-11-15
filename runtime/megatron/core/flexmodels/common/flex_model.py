@@ -395,7 +395,6 @@ class FlexPipeModel(MegatronModule):
             hidden_states = self.input_tensor
         else:
             hidden_states = inputs
-        
         for index in range(self.num_ops):
             op = self.ops[index]
             hidden_states = op(
@@ -403,7 +402,6 @@ class FlexPipeModel(MegatronModule):
             )               
         NUM_BATCHES = NUM_BATCHES + 1
         output = hidden_states
-
         return output, output_extra_tensors
 
 

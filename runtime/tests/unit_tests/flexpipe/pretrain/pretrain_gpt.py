@@ -102,7 +102,6 @@ def get_batch(data_iterator):
 
     # slice batch along sequence dimension for context parallelism
     batch = get_batch_on_this_cp_rank(batch)
-
     return batch.values()
 
 def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):

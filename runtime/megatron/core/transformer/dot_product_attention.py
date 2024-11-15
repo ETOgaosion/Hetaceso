@@ -167,7 +167,7 @@ class DotProductAttention(MegatronModule):
                 attention_probs = self.attention_dropout(attention_probs)
         else:
             attention_probs = self.attention_dropout(attention_probs)
-
+        print(f"sequence_parallel: {self.config.sequence_parallel}")
         # =========================
         # Context layer. [sq, b, hp]
         # =========================
@@ -182,7 +182,7 @@ class DotProductAttention(MegatronModule):
             query.size(0),
             value.size(3),
         )
-
+        
         # change view [sk, b * np, hn]
         value = value.view(value.size(0), output_size[0] * output_size[1], -1)
 

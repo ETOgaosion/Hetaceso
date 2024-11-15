@@ -34,7 +34,6 @@ class OpInfo:
     prev_name: str
 
 
-
 class FlexModule(MegatronModule):
     def __init__(
         self,
@@ -157,7 +156,7 @@ class FlexEmbedding(FlexModule):
         self.output_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
-                "tp_split_dim": -1,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
                 "dp_split_dim": 1,
             }
         }
@@ -194,7 +193,7 @@ class FlexEmbedding(FlexModule):
 
         output_tensors["hidden_states"] = decoder_input
         output_tensors["rotary_pos_emb"] = rotary_pos_emb
-
+        print(f"embedding {decoder_input.size()}")
         return output_tensors
 
 
@@ -261,8 +260,20 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             (config.kv_channels * config.num_attention_heads) * config.hidden_size
         ) / self.tp_size
         self.weight_size = qkv_weight + dense_weight
-        self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
-        self.output_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
+        self.input_tensors_info = {
+            "hidden_states": {
+                "shape": self.hidden_state_size,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
+                "dp_split_dim": 1,
+            }
+        }
+        self.output_tensors_info = {
+            "hidden_states": {
+                "shape": self.hidden_state_size,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
+                "dp_split_dim": 1,
+            }
+        }
         self.input_extra_tensors_info = {
             "attention_mask": {
                 "shape": [
@@ -316,6 +327,7 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             )(attention_output_with_bias, residual, self.hidden_dropout)
 
         output_tensors["hidden_states"] = hidden_states
+        print(f"attention outsize: {hidden_states.size()}")
         return output_tensors
 
 
@@ -376,14 +388,14 @@ class FlexLayerNormMlpDropout(FlexModule):
         self.input_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
-                "tp_split_dim": -1,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
                 "dp_split_dim": 1,
             }
         }
         self.output_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
-                "tp_split_dim": -1,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
                 "dp_split_dim": 1,
             }
         }
@@ -426,7 +438,7 @@ class FlexLayerNormMlpDropout(FlexModule):
             requires_grad=hidden_states.requires_grad,
             keep_graph=True,
         )
-
+        print(f"mlp outsize: {output.size()}")
         output_tensors["hidden_states"] = output
         return output_tensors
 
@@ -461,17 +473,17 @@ class FlexLayerNormPostProcess(FlexModule):
             hidden_size=self.config.hidden_size,
             eps=self.config.layernorm_epsilon,
         )
-        
+
         if config.defer_embedding_wgrad_compute:
             self.embedding_activation_buffer = []
             self.grad_output_buffer = []
         else:
             self.embedding_activation_buffer = None
             self.grad_output_buffer = None
-        
+
         self.parallel_output = parallel_output
         self.fp16_lm_cross_entropy = config.fp16_lm_cross_entropy
-        
+
         self.output_layer = tensor_parallel.ColumnParallelLinear(
             config.hidden_size,
             config.padded_vocab_size,
@@ -484,7 +496,7 @@ class FlexLayerNormPostProcess(FlexModule):
             embedding_activation_buffer=self.embedding_activation_buffer,
             grad_output_buffer=self.grad_output_buffer,
         )
-        
+
         self.embedding = LanguageModelEmbedding(
             config=self.config,
             vocab_size=config.padded_vocab_size,
@@ -499,8 +511,16 @@ class FlexLayerNormPostProcess(FlexModule):
 
         self.weight_size = config.padded_vocab_size * config.hidden_size / self.tp_size
 
-        self.input_tensors_info = {'hidden_states': {'shape': self.hidden_state_size, 'tp_split_dim': -1, 'dp_split_dim': 1}}
-        self.output_tensors_info = {'output_tensor': {'shape': [1], 'tp_split_dim': -1, 'dp_split_dim': -1}}
+        self.input_tensors_info = {
+            "hidden_states": {
+                "shape": self.hidden_state_size,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
+                "dp_split_dim": 1,
+            }
+        }
+        self.output_tensors_info = {
+            "output_tensor": {"shape": [1], "tp_split_dim": -1, "dp_split_dim": -1}
+        }
         self.input_extra_tensors_info = {
             "labels": {
                 "shape": [
@@ -521,7 +541,7 @@ class FlexLayerNormPostProcess(FlexModule):
                 "dp_split_dim": -1,
             }
         }
-        
+
     def forward(
         self,
         input_tensors: Dict | list,
@@ -542,7 +562,7 @@ class FlexLayerNormPostProcess(FlexModule):
         weights = self.embedding.word_embeddings.weight
 
         output, _ = self.output_layer(final_layernorm_output, weights)
-        
+
         labels = input_extra_tensors["labels"]
 
         if labels is None:

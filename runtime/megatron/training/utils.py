@@ -302,11 +302,16 @@ def get_batch_on_this_tp_rank(data_iterator):
             'attention_mask': None if "attention_mask" not in data else data["attention_mask"].cuda(non_blocking = True),
             'position_ids': data["position_ids"].cuda(non_blocking = True)
         }
-        if mpu.is_pipeline_first_stage():
+        if args.num_stages == 1:
+            _broadcast(batch['tokens'])
+            _broadcast(batch['labels'])
+            _broadcast(batch['loss_mask'])
+            _broadcast(batch['attention_mask'])
+            _broadcast(batch['position_ids'])
+        elif mpu.is_pipeline_first_stage():
             _broadcast(batch['tokens'])
             _broadcast(batch['attention_mask'])
             _broadcast(batch['position_ids'])
-
         elif mpu.is_pipeline_last_stage():
             _broadcast(batch['labels'])
             _broadcast(batch['loss_mask'])
@@ -324,8 +329,14 @@ def get_batch_on_this_tp_rank(data_iterator):
         else:
             attention_mask=None
         position_ids=torch.empty((local_micro_batch_size,args.seq_length), dtype = torch.int64 , device = torch.cuda.current_device())
- 
-        if mpu.is_pipeline_first_stage():
+
+        if args.num_stages == 1:
+           _broadcast(tokens)
+           _broadcast(labels)
+           _broadcast(loss_mask)
+           _broadcast(attention_mask)
+           _broadcast(position_ids) 
+        elif mpu.is_pipeline_first_stage():
             labels=None
             loss_mask=None
     

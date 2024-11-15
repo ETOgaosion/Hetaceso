@@ -55,7 +55,6 @@ class FlexGPTModel(LanguageModule):
         self.rotary_percent = config.rotary_percent
 
         if not profiling:
-            num_layers = self.config.num_layers
 
             global op_start_index, op_end_index
             pipeline_rank = get_pipeline_model_parallel_rank()

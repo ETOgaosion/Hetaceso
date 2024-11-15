@@ -59,10 +59,11 @@ GPT_ARGS="
     --use-mcore-models \
     --transformer-impl local \
     --recompute-granularity selective \
+    --sequence-parallel \
 "
 
 FLEX_ARGS="
-    --flexpipe-config ./test_pretrain.json \
+    --flexpipe-config ./test_pretrain_tp.json \
     --log-path ./logs \
 "
 

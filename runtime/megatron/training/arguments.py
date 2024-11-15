@@ -453,7 +453,6 @@ def validate_args(args, defaults={}):
     # to avoid change in numerics when
     # sequence_parallelism is enabled.
     
-    assert args.sequence_parallel == False, '--sequence-parallel is not implemented in flexpipe'
     assert args.async_tensor_model_parallel_allreduce == False, '--async-tensor-model-parallel-allreduce is not implemented in flexpipe'
     # if args.tensor_model_parallel_size == 1:
     #     args.sequence_parallel = False
