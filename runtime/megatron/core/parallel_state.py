@@ -135,12 +135,6 @@ _MOE_AUX_LOSSES_LOGGING_TRACKER = {}
 
 # For FlexPipe
 
-_CHILD_RANKS = None
-_PARENT_RANKS = None
-
-_FLEXPIPE_PREV_RANKS = None
-_FLEXPIPE_NEXT_RANKS = None
-
 _VIRTUAL_PIPELINE_NEXT_FORWARD_MODEL_PARALLEL_RANK = None
 _VIRTUAL_PIPELINE_NEXT_BACKWARD_MODEL_PARALLEL_RANK = None
 _VIRTUAL_PIPELINE_BACKWARD_MODEL_PARALLEL_RANK = None
@@ -606,6 +600,7 @@ def initialize_model_parallel_flexpipe2(
             _MPU_PIPELINE_MODEL_PARALLEL_RANK = i
         ranks_in_each_pipe_stage.append(ranks)
         start_rank = end_rank
+    print(f'rank {rank} ranks_in_each_pipe_stage {ranks_in_each_pipe_stage}')
 
     global _VIRTUAL_PIPELINE_MODEL_PARALLEL_RANK
     global _VIRTUAL_PIPELINE_MODEL_PARALLEL_WORLD_SIZE
@@ -639,80 +634,6 @@ def initialize_model_parallel_flexpipe2(
     if rank in position_embedding_ranks:
         _POSITION_EMBEDDING_GROUP = group
     _POSITION_EMBEDDING_GLOBAL_RANKS = position_embedding_ranks
-
-
-
-    # store child ranks and parent ranks for each rank
-    child_ranks = [[] for _ in range(world_size)]
-    parent_ranks = [[] for _ in range(world_size)]
-
-    stage_start_rank = 0
-    for i in range(pipeline_model_parallel_size):
-        if i != (pipeline_model_parallel_size -1):
-            next_i = i + 1
-        else:
-            next_i = 0    
-
-        tp_size = _TP_SIZE_PER_STAGE[i]
-        dp_size = _DP_SIZE_PER_STAGE[i]
-        tp_size_next = _TP_SIZE_PER_STAGE[next_i]
-        dp_size_next = _DP_SIZE_PER_STAGE[next_i]
-
-        for j in range(len(ranks_in_each_pipe_stage[i])):
-            current_rank = ranks_in_each_pipe_stage[i][j]
-            dp_id = j // tp_size
-            tp_id = j % tp_size
-
-            next_dp_id = [dp_id]
-            next_tp_id = [tp_id]
-
-            if tp_size_next > tp_size:
-                ensure_divisibility(tp_size_next, tp_size)
-                ratio = tp_size_next // tp_size
-                next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)
-            if tp_size_next < tp_size:
-                ensure_divisibility(tp_size, tp_size_next)
-                ratio = tp_size // tp_size_next
-                next_tp_id = [tp_id // ratio]
-            if dp_size_next > dp_size:
-                ensure_divisibility(dp_size_next, dp_size)
-                ratio = dp_size_next // dp_size
-                next_dp_id = range(dp_id * ratio, (dp_id + 1)*ratio)
-            if dp_size_next < dp_size:
-                ensure_divisibility(dp_size, dp_size_next)
-                ratio = dp_size // dp_size_next
-                next_dp_id = [dp_id // ratio]
-
-            child_rank_list = []
-            if next_i != 0:
-                next_stage_start_index = stage_start_rank + len(ranks_in_each_pipe_stage[i])
-            else:
-                next_stage_start_index = 0
-            for _dp_id in next_dp_id:
-                for _tp_id in next_tp_id:
-                    child_rank_list.append(next_stage_start_index + _dp_id * tp_size_next + _tp_id)
-            child_ranks[current_rank] = child_rank_list
-        
-        stage_start_rank += len(ranks_in_each_pipe_stage[i])
-
-    for i in range(pipeline_model_parallel_size):
-        for j in range(len(ranks_in_each_pipe_stage[i])):
-            current_rank = ranks_in_each_pipe_stage[i][j]
-            for child_rank in child_ranks[current_rank]:
-                print(f'rank {current_rank} child {child_rank} {len(parent_ranks)}')
-                parent_ranks[child_rank].append(current_rank)
-
-    global _CHILD_RANKS
-    global _PARENT_RANKS
-
-    _CHILD_RANKS = child_ranks
-    _PARENT_RANKS = parent_ranks
-
-    global _FLEXPIPE_PREV_RANKS
-    global _FLEXPIPE_NEXT_RANKS
-
-    _FLEXPIPE_PREV_RANKS = parent_ranks[rank]
-    _FLEXPIPE_NEXT_RANKS = child_ranks[rank]
 
     global _RANKS_IN_EACH_PIPELINE_STAGE
     _RANKS_IN_EACH_PIPELINE_STAGE = ranks_in_each_pipe_stage
@@ -758,8 +679,6 @@ def initialize_model_parallel_flexpipe2(
     _CP_SIZE_PER_OP: {_CP_SIZE_PER_OP}|\n\
     _ULYSSES_CP_SIZE_PER_OP: {_ULYSSES_CP_SIZE_PER_OP}|\n\
     _RING_CP_SIZE_PER_OP: {_RING_CP_SIZE_PER_OP}|\n\
-    _CHILD_RANKS: {_CHILD_RANKS}|\n\
-    _PARENT_RANKS: {_PARENT_RANKS}|\n\
 ' + '\n')
 
     print(f'[DEBUG]|rank {torch.distributed.get_rank()}| \
@@ -1237,76 +1156,6 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: list[int],
         _POSITION_EMBEDDING_GROUP = group
     _POSITION_EMBEDDING_GLOBAL_RANKS = position_embedding_ranks
 
-    # store child ranks and parent ranks for each rank
-    child_ranks = [[] for _ in range(world_size)]
-    parent_ranks = [[] for _ in range(world_size)]
-
-    stage_start_rank = 0
-    for i in range(pipeline_model_parallel_size):
-        if i != (pipeline_model_parallel_size -1):
-            next_i = i + 1
-        else:
-            next_i = 0    
-        tp_size = _TP_SIZE_PER_OP[_OPS_END_INDEX_LIST[i]-1]
-        dp_size = _DP_SIZE_PER_OP[_OPS_END_INDEX_LIST[i]-1]
-        tp_size_next = _TP_SIZE_PER_OP[_OPS_START_INDEX_LIST[next_i]]
-        dp_size_next = _DP_SIZE_PER_OP[_OPS_START_INDEX_LIST[next_i]]
-
-        for j in range(len(ranks_in_each_pipe_stage[i])):
-            current_rank = ranks_in_each_pipe_stage[i][j]
-            dp_id = j // tp_size
-            tp_id = j % tp_size
-
-            next_dp_id = [dp_id]
-            next_tp_id = [tp_id]
-
-            if tp_size_next > tp_size:
-                ensure_divisibility(tp_size_next, tp_size)
-                ratio = tp_size_next // tp_size
-                next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)
-            if tp_size_next < tp_size:
-                ensure_divisibility(tp_size, tp_size_next)
-                ratio = tp_size // tp_size_next
-                next_tp_id = [tp_id // ratio]
-            if dp_size_next > dp_size:
-                ensure_divisibility(dp_size_next, dp_size)
-                ratio = dp_size_next // dp_size
-                next_dp_id = range(dp_id * ratio, (dp_id + 1)*ratio)
-            if dp_size_next < dp_size:
-                ensure_divisibility(dp_size, dp_size_next)
-                ratio = dp_size // dp_size_next
-                next_dp_id = [dp_id // ratio]
-
-            child_rank_list = []
-            if next_i != 0:
-                next_stage_start_index = stage_start_rank + len(ranks_in_each_pipe_stage[i])
-            else:
-                next_stage_start_index = 0
-            for _dp_id in next_dp_id:
-                for _tp_id in next_tp_id:
-                    child_rank_list.append(next_stage_start_index + _dp_id * tp_size_next + _tp_id)
-            child_ranks[current_rank] = child_rank_list
-        
-        stage_start_rank += len(ranks_in_each_pipe_stage[i])
-
-    for i in range(pipeline_model_parallel_size):
-        for j in range(len(ranks_in_each_pipe_stage[i])):
-            current_rank = ranks_in_each_pipe_stage[i][j]
-            for child_rank in child_ranks[current_rank]:
-                parent_ranks[child_rank].append(current_rank)
-
-    global _CHILD_RANKS
-    global _PARENT_RANKS
-
-    _CHILD_RANKS = child_ranks
-    _PARENT_RANKS = parent_ranks
-
-    global _FLEXPIPE_PREV_RANKS
-    global _FLEXPIPE_NEXT_RANKS
-
-    _FLEXPIPE_PREV_RANKS = parent_ranks[rank]
-    _FLEXPIPE_NEXT_RANKS = child_ranks[rank]
-
     global _RANKS_IN_EACH_PIPELINE_STAGE
     _RANKS_IN_EACH_PIPELINE_STAGE = ranks_in_each_pipe_stage
 
@@ -1330,18 +1179,13 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: list[int],
     tp_rank={get_tensor_model_parallel_rank()} | \
     tp_src_rank={get_tensor_model_parallel_src_rank()} | \
     dp_size= {get_data_parallel_world_size()} | \
-    parent ranks={get_stage_comm_recv_ranks()} | \
-    child ranks = {get_stage_comm_send_ranks()} | \
     micro_batch_size = {micro_batch_size}\n')
 
     print(f'[DEBUG]|rank {torch.distributed.get_rank()}| \
     MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE: {_MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE} | \
     DATA_PARALLEL_RANKS: {_DATA_PARALLEL_RANKS} | \
     MPU_PIPELINE_MODEL_PARALLEL_RANK: {_MPU_PIPELINE_MODEL_PARALLEL_RANK} | \
-    CHILD_RANKS: {_CHILD_RANKS} | \
-    PARENT_RANKS: {_PARENT_RANKS} | \
     FLEXPIPE_PREV_RANKS: {_FLEXPIPE_PREV_RANKS} | \
-    FLEXPIPE_NEXT_RANKS: {_FLEXPIPE_NEXT_RANKS} | \
     RANKS_IN_EACH_PIPELINE_STAGE: {_RANKS_IN_EACH_PIPELINE_STAGE}| \
     OP_RESHARDING_RANKS: {_OP_RESHARDING_RANKS} | \
     EMBEDDING_GLOBAL_RANKS: {_EMBEDDING_GLOBAL_RANKS} | \
@@ -2445,16 +2289,6 @@ def destroy_model_parallel():
     _MPU_EXPERT_MODEL_PARALLEL_WORLD_SIZE = None
     global _MPU_EXPERT_MODEL_PARALLEL_RANK
     _MPU_EXPERT_MODEL_PARALLEL_RANK = None
-
-def get_stage_comm_recv_ranks():
-    assert _FLEXPIPE_PREV_RANKS is not None, \
-        "_FLEXPIPE_PREV_RANKS is not initialized"
-    return _FLEXPIPE_PREV_RANKS
-
-def get_stage_comm_send_ranks():
-    assert _FLEXPIPE_NEXT_RANKS is not None, \
-        "_FLEXPIPE_NEXT_RANKS is not initialized"
-    return _FLEXPIPE_NEXT_RANKS
 
 def get_op_start_index(pipeline_stage: int, model_chunk_id=0):
     assert _OPS_START_INDEX_LIST is not None, \

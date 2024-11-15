@@ -344,10 +344,6 @@ def _communicate_flexpipe(
     timers = get_timers()
     if DEBUG_COMMUNICATE:
         print_info(torch.distributed.get_rank(), "in communicate flexpipe")
-    # prev_ranks = mpu.get_stage_comm_recv_ranks()
-    # next_ranks = mpu.get_stage_comm_send_ranks()
-    # num_parents = len(prev_ranks)
-    # num_childs = len(next_ranks)
     tensor_recv_prev, extra_tensor_recv_prev, tensor_recv_next, extra_tensor_recv_next = None, None, None, None 
 
     # Create placeholder tensors for receive in forward and backward directions if needed.
