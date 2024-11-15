@@ -699,6 +699,7 @@ def initialize_model_parallel_flexpipe2(
         for j in range(len(ranks_in_each_pipe_stage[i])):
             current_rank = ranks_in_each_pipe_stage[i][j]
             for child_rank in child_ranks[current_rank]:
+                print(f'rank {current_rank} child {child_rank} {len(parent_ranks)}')
                 parent_ranks[child_rank].append(current_rank)
 
     global _CHILD_RANKS

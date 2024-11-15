@@ -402,10 +402,10 @@ def _communicate_flexpipe(
                             list(flatten_tensor_recv_prev[key][recv_from_rank].size()),
                         )
 
-            assert len(ops) > 0, f"rank {torch.distributed.get_rank()} ops is empty"
-            reqs = torch.distributed.batch_isend_irecv(ops)
-            for req in reqs:
-                req.wait()
+            if len(ops) > 0:
+                reqs = torch.distributed.batch_isend_irecv(ops)
+                for req in reqs:
+                    req.wait()
             # torch.cuda.synchronize()
     elif recv_prev:
         recv_info = mpu.get_recv_info(forward=True)
@@ -426,10 +426,10 @@ def _communicate_flexpipe(
                         list(flatten_tensor_recv_prev[key][recv_from_rank].size()),
                     )
 
-            assert len(ops) > 0, f"rank {torch.distributed.get_rank()} ops is empty"
-            reqs = torch.distributed.batch_isend_irecv(ops)
-            for req in reqs:
-                req.wait()
+            if len(ops) > 0:
+                reqs = torch.distributed.batch_isend_irecv(ops)
+                for req in reqs:
+                    req.wait()
             # torch.cuda.synchronize()
 
     if tensor_send_next is not None:
@@ -473,10 +473,10 @@ def _communicate_flexpipe(
                             list(flatten_tensor_recv_next[key][recv_from_rank].size()),
                         )
 
-            assert len(ops) > 0, f"rank {torch.distributed.get_rank()} ops is empty"
-            reqs = torch.distributed.batch_isend_irecv(ops)
-            for req in reqs:
-                req.wait()
+            if len(ops) > 0:
+                reqs = torch.distributed.batch_isend_irecv(ops)
+                for req in reqs:
+                    req.wait()
             # torch.cuda.synchronize()
 
     elif recv_next:
@@ -491,10 +491,10 @@ def _communicate_flexpipe(
                 if DEBUG_COMMUNICATE:
                     print_communication_info(torch.distributed.get_rank(), f"|3| recv [{key}] from ", recv_from_rank, list(flatten_tensor_recv_next[key][recv_from_rank].size()))  
 
-            assert len(ops) > 0, f"rank {torch.distributed.get_rank()} ops is empty"
-            reqs = torch.distributed.batch_isend_irecv(ops)
-            for req in reqs:
-                req.wait()
+            if len(ops) > 0:
+                reqs = torch.distributed.batch_isend_irecv(ops)
+                for req in reqs:
+                    req.wait()
     # if len(ops) > 0:
     #     reqs = torch.distributed.batch_isend_irecv(ops)
     #     for req in reqs:

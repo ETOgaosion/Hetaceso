@@ -82,7 +82,7 @@ GPT_ARGS="
 "
 
 FLEX_ARGS="
-    --flexpipe-config ./test_pretrain_2.json \
+    --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
     --log-path ./logs \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \

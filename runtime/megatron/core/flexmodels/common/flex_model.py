@@ -135,6 +135,7 @@ def initialize_comm_info2(
         }
 
         for dst_rank in dst_ranks:
+            print(f'{my_rank} -> {dst_rank} {send_reshard[dst_rank]["split"]}')
             for (send_rank, ds_0, ds_1) in send_reshard[dst_rank]["split"]:
                 if send_rank != my_rank:
                     continue
