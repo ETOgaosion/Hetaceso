@@ -193,7 +193,6 @@ class FlexEmbedding(FlexModule):
 
         output_tensors["hidden_states"] = decoder_input
         output_tensors["rotary_pos_emb"] = rotary_pos_emb
-        print(f"embedding {decoder_input.size()}")
         return output_tensors
 
 
@@ -327,7 +326,6 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             )(attention_output_with_bias, residual, self.hidden_dropout)
 
         output_tensors["hidden_states"] = hidden_states
-        print(f"attention outsize: {hidden_states.size()}")
         return output_tensors
 
 
@@ -438,7 +436,6 @@ class FlexLayerNormMlpDropout(FlexModule):
             requires_grad=hidden_states.requires_grad,
             keep_graph=True,
         )
-        print(f"mlp outsize: {output.size()}")
         output_tensors["hidden_states"] = output
         return output_tensors
 

@@ -3,8 +3,8 @@
     "num_layers": 2,
     "num_stages": 2,
     "num_gpus": [
-        2,
-        2
+        4,
+        4
     ],
     "num_ops_in_each_stage": [
         3,
@@ -12,13 +12,13 @@
     ],
     "tensor_parallel_size_of_each_op": [
         [
-            1,
-            1,
-            1
-        ],
-        [   2,
+            2,
             2,
             2
+        ],
+        [   4,
+            4,
+            4
         ]
     ],
     "data_parallel_size_of_each_op": [

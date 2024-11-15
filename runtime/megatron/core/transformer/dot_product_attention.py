@@ -167,7 +167,6 @@ class DotProductAttention(MegatronModule):
                 attention_probs = self.attention_dropout(attention_probs)
         else:
             attention_probs = self.attention_dropout(attention_probs)
-        print(f"sequence_parallel: {self.config.sequence_parallel}")
         # =========================
         # Context layer. [sq, b, hp]
         # =========================
