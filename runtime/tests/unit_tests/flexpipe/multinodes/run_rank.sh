@@ -16,13 +16,13 @@ NNODES=3
 NODE_RANK=$1
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
-if $NODE_RANK -ne 1; then
+if [ "$NODE_RANK" -ne 1 ]; then
     export CUDA_VISIBLE_DEVICES=0,1,2,3
 else
     export CUDA_VISIBLE_DEVICES=4,5,6,7
 fi
 
-if $NODE_RANK -eq 2; then
+if [ "$NODE_RANK" -eq 2 ]; then
     export NCCL_SOCKET_IFNAME=eno1
 else
     export NCCL_SOCKET_IFNAME=eno2
