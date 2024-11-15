@@ -771,6 +771,7 @@ def fwd_reshard_stage(
                 chunk = chunks[0]
                 if (chunk.bs[1] > prev_ds.bs[0] and prev_ds.bs[1] > chunk.bs[0]) and (
                     chunk.seqlen[1] > prev_ds.seqlen[0] and prev_ds.seqlen[1] > chunk.seqlen[0]):
+                    print(f'{torch.distributed.get_rank()} enter chunk: {chunk} prev_ds: {prev_ds}')
                     # 交集
                     bs_start = max(chunk.bs[0], prev_ds.bs[0])
                     bs_end = min(chunk.bs[1], prev_ds.bs[1])
@@ -826,7 +827,8 @@ def fwd_reshard_stage(
                             )
                         )
                     chunks.extend(diff_chunks)
-                del chunks[0]
+                    del chunks[0]
+                print(f'{torch.distributed.get_rank()} chunks: {chunks}')
 
     # print(f"{split_strategy}")
 
@@ -917,6 +919,7 @@ def bwd_reshard_stage(
                 chunk = chunks[0]
                 if (chunk.bs[1] > next_ds.bs[0] and next_ds.bs[1] > chunk.bs[0]) and (
                     chunk.seqlen[1] > next_ds.seqlen[0] and next_ds.seqlen[1] > chunk.seqlen[0]):
+                    print(f'{torch.distributed.get_rank()} enter chunk: {chunk} next_ds: {next_ds}')
                     # 交集
                     bs_start = max(chunk.bs[0], next_ds.bs[0])
                     bs_end = min(chunk.bs[1], next_ds.bs[1])
@@ -972,7 +975,8 @@ def bwd_reshard_stage(
                             )
                         )
                     chunks.extend(diff_chunks)
-                del chunks[0]
+                    del chunks[0]
+                print(f'{torch.distributed.get_rank()} chunks: {chunks}')
 
     # print(f"{split_strategy}")
 
