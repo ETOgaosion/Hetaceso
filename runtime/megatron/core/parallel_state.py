@@ -762,73 +762,69 @@ def fwd_reshard_stage(
 
     for ds in curr_stage_split.keys():
         chunks: list[DataSlice] = [ds]
-        while True:
+        for prev_ds in prev_stage_split.keys():
             if len(chunks) == 0:
                 break
-            for prev_ds in prev_stage_split.keys():
-                if len(chunks) == 0:
-                    break
-                chunk = chunks[0]
-                if (chunk.bs[1] > prev_ds.bs[0] and prev_ds.bs[1] > chunk.bs[0]) and (
-                    chunk.seqlen[1] > prev_ds.seqlen[0] and prev_ds.seqlen[1] > chunk.seqlen[0]):
-                    print(f'{torch.distributed.get_rank()} enter chunk: {chunk} prev_ds: {prev_ds}')
-                    # 交集
-                    bs_start = max(chunk.bs[0], prev_ds.bs[0])
-                    bs_end = min(chunk.bs[1], prev_ds.bs[1])
-                    seq_start = max(chunk.seqlen[0], prev_ds.seqlen[0])
-                    seq_end = min(chunk.seqlen[1], prev_ds.seqlen[1])
+            chunk = chunks[0]
+            if (chunk.bs[1] > prev_ds.bs[0] and prev_ds.bs[1] > chunk.bs[0]) and (
+                chunk.seqlen[1] > prev_ds.seqlen[0] and prev_ds.seqlen[1] > chunk.seqlen[0]):
+                print(f'{torch.distributed.get_rank()} enter chunk: {chunk} prev_ds: {prev_ds}')
+                # 交集
+                bs_start = max(chunk.bs[0], prev_ds.bs[0])
+                bs_end = min(chunk.bs[1], prev_ds.bs[1])
+                seq_start = max(chunk.seqlen[0], prev_ds.seqlen[0])
+                seq_end = min(chunk.seqlen[1], prev_ds.seqlen[1])
 
-                    if ds in split_strategy:
-                        split_strategy[ds].add(
-                            (
-                                prev_ds,
-                                DataSlice((bs_start, bs_end), (seq_start, seq_end)),
-                            )
+                if ds in split_strategy:
+                    split_strategy[ds].add(
+                        (
+                            prev_ds,
+                            DataSlice((bs_start, bs_end), (seq_start, seq_end)),
                         )
-                    else:
-                        s = set()
-                        s.add(
-                            (
-                                prev_ds,
-                                DataSlice((bs_start, bs_end), (seq_start, seq_end)),
-                            )
+                    )
+                else:
+                    s = set()
+                    s.add(
+                        (
+                            prev_ds,
+                            DataSlice((bs_start, bs_end), (seq_start, seq_end)),
                         )
-                        split_strategy[ds] = s
-                    # 差集
-                    diff_chunks = []
-                    # 上侧差集
-                    if chunk.bs[0] < bs_start:
-                        diff_chunks.append(
-                            DataSlice(
-                                (chunk.bs[0], bs_start), (chunk.seqlen[0], chunk.seqlen[1])
-                            )
+                    )
+                    split_strategy[ds] = s
+                # 差集
+                diff_chunks = []
+                # 上侧差集
+                if chunk.bs[0] < bs_start:
+                    diff_chunks.append(
+                        DataSlice(
+                            (chunk.bs[0], bs_start), (chunk.seqlen[0], chunk.seqlen[1])
                         )
-                    # 下侧差集
-                    if chunk.bs[1] > bs_end:
-                        diff_chunks.append(
-                            DataSlice(
-                                (bs_end, chunk.bs[1]), (chunk.seqlen[0], chunk.seqlen[1])
-                            )
+                    )
+                # 下侧差集
+                if chunk.bs[1] > bs_end:
+                    diff_chunks.append(
+                        DataSlice(
+                            (bs_end, chunk.bs[1]), (chunk.seqlen[0], chunk.seqlen[1])
                         )
-                    # 左侧差集
-                    if chunk.seqlen[0] < seq_start:
-                        diff_chunks.append(
-                            DataSlice(
-                                (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
-                                (chunk.seqlen[0], seq_start)
-                            )
+                    )
+                # 左侧差集
+                if chunk.seqlen[0] < seq_start:
+                    diff_chunks.append(
+                        DataSlice(
+                            (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
+                            (chunk.seqlen[0], seq_start)
                         )
-                    # 右侧差集
-                    if chunk.seqlen[1] > seq_end:
-                        diff_chunks.append(
-                            DataSlice(
-                                (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
-                                (seq_end, chunk.seqlen[1])
-                            )
+                    )
+                # 右侧差集
+                if chunk.seqlen[1] > seq_end:
+                    diff_chunks.append(
+                        DataSlice(
+                            (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
+                            (seq_end, chunk.seqlen[1])
                         )
-                    chunks.extend(diff_chunks)
-                    del chunks[0]
-                print(f'{torch.distributed.get_rank()} chunks: {chunks}')
+                    )
+                chunks.extend(diff_chunks)
+                del chunks[0]
 
     # print(f"{split_strategy}")
 
@@ -859,6 +855,7 @@ def fwd_reshard_stage(
                 }
 
     print(f"{torch.distributed.get_rank()} _FWD_RESHARD: {_FWD_RESHARD}")
+    exit()
 
 def bwd_reshard_stage(
     idx: int,
@@ -910,73 +907,69 @@ def bwd_reshard_stage(
 
     for ds in curr_stage_split.keys():
         chunks: list[DataSlice] = [ds]
-        while True:
+        for next_ds in next_stage_split.keys():
             if len(chunks) == 0:
                 break
-            for next_ds in next_stage_split.keys():
-                if len(chunks) == 0:
-                    break
-                chunk = chunks[0]
-                if (chunk.bs[1] > next_ds.bs[0] and next_ds.bs[1] > chunk.bs[0]) and (
-                    chunk.seqlen[1] > next_ds.seqlen[0] and next_ds.seqlen[1] > chunk.seqlen[0]):
-                    print(f'{torch.distributed.get_rank()} enter chunk: {chunk} next_ds: {next_ds}')
-                    # 交集
-                    bs_start = max(chunk.bs[0], next_ds.bs[0])
-                    bs_end = min(chunk.bs[1], next_ds.bs[1])
-                    seq_start = max(chunk.seqlen[0], next_ds.seqlen[0])
-                    seq_end = min(chunk.seqlen[1], next_ds.seqlen[1])
+            chunk = chunks[0]
+            if (chunk.bs[1] > next_ds.bs[0] and next_ds.bs[1] > chunk.bs[0]) and (
+                chunk.seqlen[1] > next_ds.seqlen[0] and next_ds.seqlen[1] > chunk.seqlen[0]):
+                print(f'{torch.distributed.get_rank()} enter chunk: {chunk} next_ds: {next_ds}')
+                # 交集
+                bs_start = max(chunk.bs[0], next_ds.bs[0])
+                bs_end = min(chunk.bs[1], next_ds.bs[1])
+                seq_start = max(chunk.seqlen[0], next_ds.seqlen[0])
+                seq_end = min(chunk.seqlen[1], next_ds.seqlen[1])
 
-                    if ds in split_strategy:
-                        split_strategy[ds].add(
-                            (
-                                next_ds,
-                                DataSlice((bs_start, bs_end), (seq_start, seq_end)),
-                            )
+                if ds in split_strategy:
+                    split_strategy[ds].add(
+                        (
+                            next_ds,
+                            DataSlice((bs_start, bs_end), (seq_start, seq_end)),
                         )
-                    else:
-                        s = set()
-                        s.add(
-                            (
-                                next_ds,
-                                DataSlice((bs_start, bs_end), (seq_start, seq_end)),
-                            )
+                    )
+                else:
+                    s = set()
+                    s.add(
+                        (
+                            next_ds,
+                            DataSlice((bs_start, bs_end), (seq_start, seq_end)),
                         )
-                        split_strategy[ds] = s
-                    # 差集
-                    diff_chunks = []
-                    # 上侧差集
-                    if chunk.bs[0] < bs_start:
-                        diff_chunks.append(
-                            DataSlice(
-                                (chunk.bs[0], bs_start), (chunk.seqlen[0], chunk.seqlen[1])
-                            )
+                    )
+                    split_strategy[ds] = s
+                # 差集
+                diff_chunks = []
+                # 上侧差集
+                if chunk.bs[0] < bs_start:
+                    diff_chunks.append(
+                        DataSlice(
+                            (chunk.bs[0], bs_start), (chunk.seqlen[0], chunk.seqlen[1])
                         )
-                    # 下侧差集
-                    if chunk.bs[1] > bs_end:
-                        diff_chunks.append(
-                            DataSlice(
-                                (bs_end, chunk.bs[1]), (chunk.seqlen[0], chunk.seqlen[1])
-                            )
+                    )
+                # 下侧差集
+                if chunk.bs[1] > bs_end:
+                    diff_chunks.append(
+                        DataSlice(
+                            (bs_end, chunk.bs[1]), (chunk.seqlen[0], chunk.seqlen[1])
                         )
-                    # 左侧差集
-                    if chunk.seqlen[0] < seq_start:
-                        diff_chunks.append(
-                            DataSlice(
-                                (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
-                                (chunk.seqlen[0], seq_start)
-                            )
+                    )
+                # 左侧差集
+                if chunk.seqlen[0] < seq_start:
+                    diff_chunks.append(
+                        DataSlice(
+                            (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
+                            (chunk.seqlen[0], seq_start)
                         )
-                    # 右侧差集
-                    if chunk.seqlen[1] > seq_end:
-                        diff_chunks.append(
-                            DataSlice(
-                                (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
-                                (seq_end, chunk.seqlen[1])
-                            )
+                    )
+                # 右侧差集
+                if chunk.seqlen[1] > seq_end:
+                    diff_chunks.append(
+                        DataSlice(
+                            (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
+                            (seq_end, chunk.seqlen[1])
                         )
-                    chunks.extend(diff_chunks)
-                    del chunks[0]
-                print(f'{torch.distributed.get_rank()} chunks: {chunks}')
+                    )
+                chunks.extend(diff_chunks)
+                del chunks[0]
 
     # print(f"{split_strategy}")
 
