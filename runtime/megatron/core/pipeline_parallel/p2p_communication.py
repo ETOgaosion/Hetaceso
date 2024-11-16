@@ -1263,7 +1263,8 @@ def initialize_weights_sharing(models):
                                             tmp_list = []
                                             for _tp_id in next_tp_id:
                                                 tmp_list.append(ranks_in_receive_stage[_dp_id * tp_size_next * cp_size_next + _cp_id * tp_size_next + _tp_id])
-                                            op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+                                            if len(tmp_list) > 0:
+                                                op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
                                 print(f'rank {rank} op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]: {op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]}')
                     else:
                         assert len(op.shared_weights_info[key]["sharing_with_ops"]) == 1
@@ -1320,7 +1321,8 @@ def initialize_weights_sharing(models):
                                         tmp_list = []
                                         for _tp_id in next_tp_id:
                                             tmp_list.append(ranks_in_send_stage[_dp_id * tp_size_next * cp_size_next + _cp_id * tp_size_next + _tp_id])
-                                        op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+                                        if len(tmp_list) > 0:
+                                            op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
                             
                             print(f'rank {rank} op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]: {op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]}')
 
