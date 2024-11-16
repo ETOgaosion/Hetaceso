@@ -1117,6 +1117,8 @@ def send_shared_tensors(op, models, grads=False):
                                 with open(f"{args.log_path}{args.log_name}_debug_communicate_rank{current_rank}.log", "a+") as f:
                                     f.write(string+"\n")    
 
+                    if DEBUG_COMMUNICATE:
+                        print(f'rank {torch.distributed.get_rank()} send_ops = {len(send_ops)}')
                     if len(send_ops) > 0:
                         reqs = torch.distributed.batch_isend_irecv(send_ops)
                         for req in reqs:
@@ -1230,10 +1232,7 @@ def initialize_weights_sharing(models):
                                 # elif tp size goes larger, then current rank shall send to all enlarged ranks
                                 if tp_size_next < tp_size:
                                     ratio = tp_size // tp_size_next
-                                    if tp_id % ratio == 0:
-                                        next_tp_id = [tp_id // ratio]
-                                    else:
-                                        next_tp_id = []
+                                    next_tp_id = [tp_id // ratio]
                                 elif tp_size_next > tp_size:
                                     ratio = tp_size_next // tp_size
                                     next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)
@@ -1295,7 +1294,7 @@ def initialize_weights_sharing(models):
 
                             if tp_size_next > tp_size:
                                 ratio = tp_size_next // tp_size
-                                next_tp_id = [tp_id * ratio]
+                                next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)
                             if tp_size_next < tp_size:
                                 ratio = tp_size // tp_size_next
                                 next_tp_id = [tp_id // ratio]
