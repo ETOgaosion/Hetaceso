@@ -87,10 +87,11 @@ class FlexModule(MegatronModule):
     def set_shared_tensor(self, new_data, grads=False):
         for key in sorted(self.shared_weights_info):
             if key == "word_embeddings":
-                if grads:
-                    self.embedding.word_embeddings.weight.main_grad = new_data[key][0]
-                else:
-                    self.embedding.word_embeddings.weight.data = new_data[key][0]
+                if len(new_data[key]) > 0:
+                    if grads:
+                        self.embedding.word_embeddings.weight.main_grad = new_data[key][0]
+                    else:
+                        self.embedding.word_embeddings.weight.data = new_data[key][0]
 
 
 @dataclass
