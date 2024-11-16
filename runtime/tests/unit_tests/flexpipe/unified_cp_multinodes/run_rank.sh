@@ -4,13 +4,31 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
+export NCCL_DEBUG=TRACE
+export NCCL_DEBUG_FILE=./nccl.log
+export NCCL_DEBUG_SUBSYS=ALL
+
 GPUS_PER_NODE=4
 # Change for multinode config
-MASTER_ADDR=localhost
+MASTER_ADDR=10.156.154.242
 MASTER_PORT=6000
 NNODES=3
-NODE_RANK=1
+NODE_RANK=$1
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
+
+if [ "$NODE_RANK" -ne 1 ]; then
+    export CUDA_VISIBLE_DEVICES=0,1,2,3
+else
+    export CUDA_VISIBLE_DEVICES=4,5,6,7
+fi
+
+if [ "$NODE_RANK" -eq 2 ]; then
+    export NCCL_SOCKET_IFNAME=eno1
+else
+    export NCCL_SOCKET_IFNAME=eno2
+fi
+
+TEST_NUM=${2:-0}
 
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=1024
@@ -64,7 +82,7 @@ GPT_ARGS="
 "
 
 FLEX_ARGS="
-    --flexpipe-config ./test_pretrain_2.json \
+    --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
     --log-path ./logs \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \

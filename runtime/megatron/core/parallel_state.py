@@ -135,12 +135,6 @@ _MOE_AUX_LOSSES_LOGGING_TRACKER = {}
 
 # For FlexPipe
 
-_CHILD_RANKS = None
-_PARENT_RANKS = None
-
-_FLEXPIPE_PREV_RANKS = None
-_FLEXPIPE_NEXT_RANKS = None
-
 _VIRTUAL_PIPELINE_NEXT_FORWARD_MODEL_PARALLEL_RANK = None
 _VIRTUAL_PIPELINE_NEXT_BACKWARD_MODEL_PARALLEL_RANK = None
 _VIRTUAL_PIPELINE_BACKWARD_MODEL_PARALLEL_RANK = None
@@ -258,8 +252,8 @@ def initialize_model_parallel_flexpipe2(
     ring_context_parallel_size_of_each_stage: list[int],
     ulysses_context_parallel_size_of_each_stage: list[int],
     data_parallel_split_of_each_stage: list[list[int]],
-    ring_context_parallel_split_of_each_stage: list[list[int]],
     ulysses_context_parallel_split_of_each_stage: list[list[int]],
+    total_seqlen: int,
 ) -> None:
     """
     Initialize model data parallel groups for FlexPipe.
@@ -370,6 +364,9 @@ def initialize_model_parallel_flexpipe2(
     assert _RANK_INFOS is None, 'RANK INFO is already initialized'
 
     _RANK_INFOS = [RankInfo(rank) for rank in range(world_size)]
+    rank = torch.distributed.get_rank()
+    
+    ulysses_seqlen_idx = []
 
     # if rank == 1:
     #     pdb.set_trace()
@@ -432,7 +429,36 @@ def initialize_model_parallel_flexpipe2(
                         _CONTEXT_PARALLEL_RANKS.append(cp_group_ranks)
 
         # Ulysses CP
-        seq_start: int = 0
+        '''
+        Example:
+        tp  2
+        usp 2
+        rsp 2
+        dp  2
+        
+        Then groups act like:
+        tp:  (0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11), (12, 13), (14, 15)
+        usp: (0, 2), (4, 6), (8, 10), (12, 14), 
+             (1, 3), (5, 7), (9, 11), (13, 15)
+        rsp: (0, 4), (8, 12),
+             (1, 5), (9, 13),
+             (2, 6), (10, 14),
+             (3, 7), (11, 15)
+        dp:  (0, 8), (1, 9), (2, 10), (3, 11), (4, 12), (5, 13), (6, 14), (7, 15)
+        
+        usp coloumn: for i in tp_size
+        usp row: for j in rsp_size * dp_size
+        usp cell: start_k = rsp_size * dp_size + i
+                  for k in range(start_k, end, tp_size)
+        
+        usp seqlen:
+             [x1, x2, x3, x4],
+             [x5, x6, x7, x8]
+        because of rsp_size == 2, (x1, x2) form total_seqlen, same to other pairs
+        for op_idx:
+        usp seqlen.shape[0] == tp_size
+        usp seqlen.shape[1] == rsp_size * dp_size
+        '''
         for j in range(ring_context_parallel_size_of_each_stage[i] * data_parallel_size_of_each_stage[i]):
             ulysses_cp_start_rank = (
                 start_rank
@@ -447,6 +473,7 @@ def initialize_model_parallel_flexpipe2(
                 * ulysses_context_parallel_size_of_each_stage[i]
             )
             for k in range(tensor_parallel_size_of_each_stage[i]):
+                seq_start = sum(ulysses_context_parallel_split_of_each_stage[i][k][: j] * ulysses_context_parallel_size_of_each_stage[i]) % total_seqlen
                 ulysses_cp_group_ranks = list(
                     range(
                         ulysses_cp_start_rank + k,
@@ -455,11 +482,13 @@ def initialize_model_parallel_flexpipe2(
                     )
                 )
                 _ALL_ULYSSES_CP_GROUP_RANKS[i].append(ulysses_cp_group_ranks)
+                rank = torch.distributed.get_rank()
                 if rank in ulysses_cp_group_ranks:
                     ulysses_cp_group = get_group(ulysses_cp_group_ranks)
                     for _ in range(num_ops_in_each_stage[i]):
                         _ULYSSES_CONTEXT_PARALLEL_GROUP.append(ulysses_cp_group)
                         _ULYSSES_CONTEXT_PARALLEL_RANKS.append(ulysses_cp_group_ranks)
+                cu_seqlen = seq_start
                 for idx, r in enumerate(
                     range(
                         ulysses_cp_start_rank + k,
@@ -468,11 +497,14 @@ def initialize_model_parallel_flexpipe2(
                     )
                 ):
                     _RANK_INFOS[r].ulysses_cp_group = copy.deepcopy(ulysses_cp_group_ranks)
+                    seqlen = ulysses_context_parallel_split_of_each_stage[i][k][j]
+                    if rank in ulysses_cp_group_ranks:
+                        ulysses_seqlen_idx.append([j, k])
                     _RANK_INFOS[r].ds.seqlen = (
-                        seq_start,
-                        seq_start + ulysses_context_parallel_split_of_each_stage[i][j // data_parallel_size_of_each_stage[i]],
+                        cu_seqlen,
+                        cu_seqlen + seqlen,
                     )
-                    seq_start += ulysses_context_parallel_split_of_each_stage[i][j // data_parallel_size_of_each_stage[i]]
+                    cu_seqlen += seqlen
                     print(f'{torch.distributed.get_rank()} {r} seqlen: {_RANK_INFOS[r].ds.seqlen} i {i} j {j} k {k} idx {idx} ulysses_cp_start_rank {ulysses_cp_start_rank} ulysses_cp_end_rank {ulysses_cp_end_rank}')
         
         # Ring CP
@@ -568,6 +600,7 @@ def initialize_model_parallel_flexpipe2(
             _MPU_PIPELINE_MODEL_PARALLEL_RANK = i
         ranks_in_each_pipe_stage.append(ranks)
         start_rank = end_rank
+    print(f'rank {rank} ranks_in_each_pipe_stage {ranks_in_each_pipe_stage}')
 
     global _VIRTUAL_PIPELINE_MODEL_PARALLEL_RANK
     global _VIRTUAL_PIPELINE_MODEL_PARALLEL_WORLD_SIZE
@@ -601,79 +634,6 @@ def initialize_model_parallel_flexpipe2(
     if rank in position_embedding_ranks:
         _POSITION_EMBEDDING_GROUP = group
     _POSITION_EMBEDDING_GLOBAL_RANKS = position_embedding_ranks
-
-
-
-    # store child ranks and parent ranks for each rank
-    child_ranks = [[] for _ in range(world_size)]
-    parent_ranks = [[] for _ in range(world_size)]
-
-    stage_start_rank = 0
-    for i in range(pipeline_model_parallel_size):
-        if i != (pipeline_model_parallel_size -1):
-            next_i = i + 1
-        else:
-            next_i = 0    
-
-        tp_size = _TP_SIZE_PER_STAGE[i]
-        dp_size = _DP_SIZE_PER_STAGE[i]
-        tp_size_next = _TP_SIZE_PER_STAGE[next_i]
-        dp_size_next = _DP_SIZE_PER_STAGE[next_i]
-
-        for j in range(len(ranks_in_each_pipe_stage[i])):
-            current_rank = ranks_in_each_pipe_stage[i][j]
-            dp_id = j // tp_size
-            tp_id = j % tp_size
-
-            next_dp_id = [dp_id]
-            next_tp_id = [tp_id]
-
-            if tp_size_next > tp_size:
-                ensure_divisibility(tp_size_next, tp_size)
-                ratio = tp_size_next // tp_size
-                next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)
-            if tp_size_next < tp_size:
-                ensure_divisibility(tp_size, tp_size_next)
-                ratio = tp_size // tp_size_next
-                next_tp_id = [tp_id // ratio]
-            if dp_size_next > dp_size:
-                ensure_divisibility(dp_size_next, dp_size)
-                ratio = dp_size_next // dp_size
-                next_dp_id = range(dp_id * ratio, (dp_id + 1)*ratio)
-            if dp_size_next < dp_size:
-                ensure_divisibility(dp_size, dp_size_next)
-                ratio = dp_size // dp_size_next
-                next_dp_id = [dp_id // ratio]
-
-            child_rank_list = []
-            if next_i != 0:
-                next_stage_start_index = stage_start_rank + len(ranks_in_each_pipe_stage[i])
-            else:
-                next_stage_start_index = 0
-            for _dp_id in next_dp_id:
-                for _tp_id in next_tp_id:
-                    child_rank_list.append(next_stage_start_index + _dp_id * tp_size_next + _tp_id)
-            child_ranks[current_rank] = child_rank_list
-        
-        stage_start_rank += len(ranks_in_each_pipe_stage[i])
-
-    for i in range(pipeline_model_parallel_size):
-        for j in range(len(ranks_in_each_pipe_stage[i])):
-            current_rank = ranks_in_each_pipe_stage[i][j]
-            for child_rank in child_ranks[current_rank]:
-                parent_ranks[child_rank].append(current_rank)
-
-    global _CHILD_RANKS
-    global _PARENT_RANKS
-
-    _CHILD_RANKS = child_ranks
-    _PARENT_RANKS = parent_ranks
-
-    global _FLEXPIPE_PREV_RANKS
-    global _FLEXPIPE_NEXT_RANKS
-
-    _FLEXPIPE_PREV_RANKS = parent_ranks[rank]
-    _FLEXPIPE_NEXT_RANKS = child_ranks[rank]
 
     global _RANKS_IN_EACH_PIPELINE_STAGE
     _RANKS_IN_EACH_PIPELINE_STAGE = ranks_in_each_pipe_stage
@@ -719,8 +679,6 @@ def initialize_model_parallel_flexpipe2(
     _CP_SIZE_PER_OP: {_CP_SIZE_PER_OP}|\n\
     _ULYSSES_CP_SIZE_PER_OP: {_ULYSSES_CP_SIZE_PER_OP}|\n\
     _RING_CP_SIZE_PER_OP: {_RING_CP_SIZE_PER_OP}|\n\
-    _CHILD_RANKS: {_CHILD_RANKS}|\n\
-    _PARENT_RANKS: {_PARENT_RANKS}|\n\
 ' + '\n')
 
     print(f'[DEBUG]|rank {torch.distributed.get_rank()}| \
@@ -766,29 +724,31 @@ def fwd_reshard_stage(
     prev_stage_split_load_balance: dict[DataSlice, int] = {}
     batch_start = 0
     for i in data_parallel_split_of_each_stage[idx - 1]:
-        seq_start = 0
         for j in context_parallel_split_of_each_stage[idx - 1]:
-            for k in range(context_parallel_size_of_each_stage[idx - 1]):
-                prev_stage_split[
-                    DataSlice(
-                        (batch_start, batch_start + i),
-                        (seq_start, seq_start + j),
-                    )
-                ] = []
-                seq_start += j
+            seq_start = 0
+            for l in j:
+                for k in range(context_parallel_size_of_each_stage[idx - 1]):
+                    prev_stage_split[
+                        DataSlice(
+                            (batch_start, batch_start + i),
+                            (seq_start, seq_start + l),
+                        )
+                    ] = []
+                    seq_start += l
         batch_start += i
 
     # DataSlice -> rank
     curr_stage_split: dict[DataSlice, list[int]] = {}
     batch_start = 0
     for i in data_parallel_split_of_each_stage[idx]:
-        seq_start = 0
         for j in context_parallel_split_of_each_stage[idx]:
-            for k in range(context_parallel_size_of_each_stage[idx]):
-                curr_stage_split[
-                    DataSlice((batch_start, batch_start + i), (seq_start, seq_start + j))
-                ] = []
-                seq_start += j
+            seq_start = 0
+            for l in j:
+                for k in range(context_parallel_size_of_each_stage[idx]):
+                    curr_stage_split[
+                        DataSlice((batch_start, batch_start + i), (seq_start, seq_start + l))
+                    ] = []
+                    seq_start += l
         batch_start += i
 
     for rank in _ALL_PP_STAGE_RANKS[idx - 1]:
@@ -802,71 +762,69 @@ def fwd_reshard_stage(
 
     for ds in curr_stage_split.keys():
         chunks: list[DataSlice] = [ds]
-        while True:
+        for prev_ds in prev_stage_split.keys():
             if len(chunks) == 0:
                 break
-            for prev_ds in prev_stage_split.keys():
-                if len(chunks) == 0:
-                    break
-                chunk = chunks[0]
-                if (chunk.bs[1] > prev_ds.bs[0] and prev_ds.bs[1] > chunk.bs[0]) and (
-                    chunk.seqlen[1] > prev_ds.seqlen[0] and prev_ds.seqlen[1] > chunk.seqlen[0]):
-                    # 交集
-                    bs_start = max(chunk.bs[0], prev_ds.bs[0])
-                    bs_end = min(chunk.bs[1], prev_ds.bs[1])
-                    seq_start = max(chunk.seqlen[0], prev_ds.seqlen[0])
-                    seq_end = min(chunk.seqlen[1], prev_ds.seqlen[1])
+            chunk = chunks[0]
+            if (chunk.bs[1] > prev_ds.bs[0] and prev_ds.bs[1] > chunk.bs[0]) and (
+                chunk.seqlen[1] > prev_ds.seqlen[0] and prev_ds.seqlen[1] > chunk.seqlen[0]):
+                print(f'{torch.distributed.get_rank()} enter chunk: {chunk} prev_ds: {prev_ds}')
+                # 交集
+                bs_start = max(chunk.bs[0], prev_ds.bs[0])
+                bs_end = min(chunk.bs[1], prev_ds.bs[1])
+                seq_start = max(chunk.seqlen[0], prev_ds.seqlen[0])
+                seq_end = min(chunk.seqlen[1], prev_ds.seqlen[1])
 
-                    if ds in split_strategy:
-                        split_strategy[ds].add(
-                            (
-                                prev_ds,
-                                DataSlice((bs_start, bs_end), (seq_start, seq_end)),
-                            )
+                if ds in split_strategy:
+                    split_strategy[ds].add(
+                        (
+                            prev_ds,
+                            DataSlice((bs_start, bs_end), (seq_start, seq_end)),
                         )
-                    else:
-                        s = set()
-                        s.add(
-                            (
-                                prev_ds,
-                                DataSlice((bs_start, bs_end), (seq_start, seq_end)),
-                            )
+                    )
+                else:
+                    s = set()
+                    s.add(
+                        (
+                            prev_ds,
+                            DataSlice((bs_start, bs_end), (seq_start, seq_end)),
                         )
-                        split_strategy[ds] = s
-                    # 差集
-                    diff_chunks = []
-                    # 上侧差集
-                    if chunk.bs[0] < bs_start:
-                        diff_chunks.append(
-                            DataSlice(
-                                (chunk.bs[0], bs_start), (chunk.seqlen[0], chunk.seqlen[1])
-                            )
+                    )
+                    split_strategy[ds] = s
+                # 差集
+                diff_chunks = []
+                # 上侧差集
+                if chunk.bs[0] < bs_start:
+                    diff_chunks.append(
+                        DataSlice(
+                            (chunk.bs[0], bs_start), (chunk.seqlen[0], chunk.seqlen[1])
                         )
-                    # 下侧差集
-                    if chunk.bs[1] > bs_end:
-                        diff_chunks.append(
-                            DataSlice(
-                                (bs_end, chunk.bs[1]), (chunk.seqlen[0], chunk.seqlen[1])
-                            )
+                    )
+                # 下侧差集
+                if chunk.bs[1] > bs_end:
+                    diff_chunks.append(
+                        DataSlice(
+                            (bs_end, chunk.bs[1]), (chunk.seqlen[0], chunk.seqlen[1])
                         )
-                    # 左侧差集
-                    if chunk.seqlen[0] < seq_start:
-                        diff_chunks.append(
-                            DataSlice(
-                                (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
-                                (chunk.seqlen[0], seq_start)
-                            )
+                    )
+                # 左侧差集
+                if chunk.seqlen[0] < seq_start:
+                    diff_chunks.append(
+                        DataSlice(
+                            (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
+                            (chunk.seqlen[0], seq_start)
                         )
-                    # 右侧差集
-                    if chunk.seqlen[1] > seq_end:
-                        diff_chunks.append(
-                            DataSlice(
-                                (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
-                                (seq_end, chunk.seqlen[1])
-                            )
+                    )
+                # 右侧差集
+                if chunk.seqlen[1] > seq_end:
+                    diff_chunks.append(
+                        DataSlice(
+                            (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
+                            (seq_end, chunk.seqlen[1])
                         )
-                    chunks.extend(diff_chunks)
-                    del chunks[0]
+                    )
+                chunks.extend(diff_chunks)
+                del chunks[0]
 
     # print(f"{split_strategy}")
 
@@ -914,26 +872,28 @@ def bwd_reshard_stage(
     next_stage_split_load_balance: dict[DataSlice, int] = {}
     batch_start = 0
     for i in data_parallel_split_of_each_stage[idx + 1]:
-        seq_start = 0
         for j in context_parallel_split_of_each_stage[idx + 1]:
-            for k in range(context_parallel_size_of_each_stage[idx + 1]):
-                next_stage_split[
-                    DataSlice((batch_start, batch_start + i), (seq_start, seq_start + j))
-                ] = []
-                seq_start += j
+            seq_start = 0
+            for l in j:
+                for k in range(context_parallel_size_of_each_stage[idx + 1]):
+                    next_stage_split[
+                        DataSlice((batch_start, batch_start + i), (seq_start, seq_start + l))
+                    ] = []
+                    seq_start += l
         batch_start += i
 
     # DataSlice -> rank
     curr_stage_split: dict[DataSlice, list[int]] = {}
     batch_start = 0
     for i in data_parallel_split_of_each_stage[idx]:
-        seq_start = 0
         for j in context_parallel_split_of_each_stage[idx]:
-            for k in range(context_parallel_size_of_each_stage[idx]):
-                curr_stage_split[
-                    DataSlice((batch_start, batch_start + i), (seq_start, seq_start + j))
-                ] = []
-                seq_start += j
+            seq_start = 0
+            for l in j:
+                for k in range(context_parallel_size_of_each_stage[idx]):
+                    curr_stage_split[
+                        DataSlice((batch_start, batch_start + i), (seq_start, seq_start + l))
+                    ] = []
+                    seq_start += l
         batch_start += i
 
     for rank in _ALL_PP_STAGE_RANKS[idx + 1]:
@@ -946,71 +906,69 @@ def bwd_reshard_stage(
 
     for ds in curr_stage_split.keys():
         chunks: list[DataSlice] = [ds]
-        while True:
+        for next_ds in next_stage_split.keys():
             if len(chunks) == 0:
                 break
-            for next_ds in next_stage_split.keys():
-                if len(chunks) == 0:
-                    break
-                chunk = chunks[0]
-                if (chunk.bs[1] > next_ds.bs[0] and next_ds.bs[1] > chunk.bs[0]) and (
-                    chunk.seqlen[1] > next_ds.seqlen[0] and next_ds.seqlen[1] > chunk.seqlen[0]):
-                    # 交集
-                    bs_start = max(chunk.bs[0], next_ds.bs[0])
-                    bs_end = min(chunk.bs[1], next_ds.bs[1])
-                    seq_start = max(chunk.seqlen[0], next_ds.seqlen[0])
-                    seq_end = min(chunk.seqlen[1], next_ds.seqlen[1])
+            chunk = chunks[0]
+            if (chunk.bs[1] > next_ds.bs[0] and next_ds.bs[1] > chunk.bs[0]) and (
+                chunk.seqlen[1] > next_ds.seqlen[0] and next_ds.seqlen[1] > chunk.seqlen[0]):
+                print(f'{torch.distributed.get_rank()} enter chunk: {chunk} next_ds: {next_ds}')
+                # 交集
+                bs_start = max(chunk.bs[0], next_ds.bs[0])
+                bs_end = min(chunk.bs[1], next_ds.bs[1])
+                seq_start = max(chunk.seqlen[0], next_ds.seqlen[0])
+                seq_end = min(chunk.seqlen[1], next_ds.seqlen[1])
 
-                    if ds in split_strategy:
-                        split_strategy[ds].add(
-                            (
-                                next_ds,
-                                DataSlice((bs_start, bs_end), (seq_start, seq_end)),
-                            )
+                if ds in split_strategy:
+                    split_strategy[ds].add(
+                        (
+                            next_ds,
+                            DataSlice((bs_start, bs_end), (seq_start, seq_end)),
                         )
-                    else:
-                        s = set()
-                        s.add(
-                            (
-                                next_ds,
-                                DataSlice((bs_start, bs_end), (seq_start, seq_end)),
-                            )
+                    )
+                else:
+                    s = set()
+                    s.add(
+                        (
+                            next_ds,
+                            DataSlice((bs_start, bs_end), (seq_start, seq_end)),
                         )
-                        split_strategy[ds] = s
-                    # 差集
-                    diff_chunks = []
-                    # 上侧差集
-                    if chunk.bs[0] < bs_start:
-                        diff_chunks.append(
-                            DataSlice(
-                                (chunk.bs[0], bs_start), (chunk.seqlen[0], chunk.seqlen[1])
-                            )
+                    )
+                    split_strategy[ds] = s
+                # 差集
+                diff_chunks = []
+                # 上侧差集
+                if chunk.bs[0] < bs_start:
+                    diff_chunks.append(
+                        DataSlice(
+                            (chunk.bs[0], bs_start), (chunk.seqlen[0], chunk.seqlen[1])
                         )
-                    # 下侧差集
-                    if chunk.bs[1] > bs_end:
-                        diff_chunks.append(
-                            DataSlice(
-                                (bs_end, chunk.bs[1]), (chunk.seqlen[0], chunk.seqlen[1])
-                            )
+                    )
+                # 下侧差集
+                if chunk.bs[1] > bs_end:
+                    diff_chunks.append(
+                        DataSlice(
+                            (bs_end, chunk.bs[1]), (chunk.seqlen[0], chunk.seqlen[1])
                         )
-                    # 左侧差集
-                    if chunk.seqlen[0] < seq_start:
-                        diff_chunks.append(
-                            DataSlice(
-                                (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
-                                (chunk.seqlen[0], seq_start)
-                            )
+                    )
+                # 左侧差集
+                if chunk.seqlen[0] < seq_start:
+                    diff_chunks.append(
+                        DataSlice(
+                            (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
+                            (chunk.seqlen[0], seq_start)
                         )
-                    # 右侧差集
-                    if chunk.seqlen[1] > seq_end:
-                        diff_chunks.append(
-                            DataSlice(
-                                (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
-                                (seq_end, chunk.seqlen[1])
-                            )
+                    )
+                # 右侧差集
+                if chunk.seqlen[1] > seq_end:
+                    diff_chunks.append(
+                        DataSlice(
+                            (max(bs_start, chunk.bs[0]), min(bs_end, chunk.bs[1])),
+                            (seq_end, chunk.seqlen[1])
                         )
-                    chunks.extend(diff_chunks)
-                    del chunks[0]
+                    )
+                chunks.extend(diff_chunks)
+                del chunks[0]
 
     # print(f"{split_strategy}")
 
@@ -1194,76 +1152,6 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: list[int],
         _POSITION_EMBEDDING_GROUP = group
     _POSITION_EMBEDDING_GLOBAL_RANKS = position_embedding_ranks
 
-    # store child ranks and parent ranks for each rank
-    child_ranks = [[] for _ in range(world_size)]
-    parent_ranks = [[] for _ in range(world_size)]
-
-    stage_start_rank = 0
-    for i in range(pipeline_model_parallel_size):
-        if i != (pipeline_model_parallel_size -1):
-            next_i = i + 1
-        else:
-            next_i = 0    
-        tp_size = _TP_SIZE_PER_OP[_OPS_END_INDEX_LIST[i]-1]
-        dp_size = _DP_SIZE_PER_OP[_OPS_END_INDEX_LIST[i]-1]
-        tp_size_next = _TP_SIZE_PER_OP[_OPS_START_INDEX_LIST[next_i]]
-        dp_size_next = _DP_SIZE_PER_OP[_OPS_START_INDEX_LIST[next_i]]
-
-        for j in range(len(ranks_in_each_pipe_stage[i])):
-            current_rank = ranks_in_each_pipe_stage[i][j]
-            dp_id = j // tp_size
-            tp_id = j % tp_size
-
-            next_dp_id = [dp_id]
-            next_tp_id = [tp_id]
-
-            if tp_size_next > tp_size:
-                ensure_divisibility(tp_size_next, tp_size)
-                ratio = tp_size_next // tp_size
-                next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)
-            if tp_size_next < tp_size:
-                ensure_divisibility(tp_size, tp_size_next)
-                ratio = tp_size // tp_size_next
-                next_tp_id = [tp_id // ratio]
-            if dp_size_next > dp_size:
-                ensure_divisibility(dp_size_next, dp_size)
-                ratio = dp_size_next // dp_size
-                next_dp_id = range(dp_id * ratio, (dp_id + 1)*ratio)
-            if dp_size_next < dp_size:
-                ensure_divisibility(dp_size, dp_size_next)
-                ratio = dp_size // dp_size_next
-                next_dp_id = [dp_id // ratio]
-
-            child_rank_list = []
-            if next_i != 0:
-                next_stage_start_index = stage_start_rank + len(ranks_in_each_pipe_stage[i])
-            else:
-                next_stage_start_index = 0
-            for _dp_id in next_dp_id:
-                for _tp_id in next_tp_id:
-                    child_rank_list.append(next_stage_start_index + _dp_id * tp_size_next + _tp_id)
-            child_ranks[current_rank] = child_rank_list
-        
-        stage_start_rank += len(ranks_in_each_pipe_stage[i])
-
-    for i in range(pipeline_model_parallel_size):
-        for j in range(len(ranks_in_each_pipe_stage[i])):
-            current_rank = ranks_in_each_pipe_stage[i][j]
-            for child_rank in child_ranks[current_rank]:
-                parent_ranks[child_rank].append(current_rank)
-
-    global _CHILD_RANKS
-    global _PARENT_RANKS
-
-    _CHILD_RANKS = child_ranks
-    _PARENT_RANKS = parent_ranks
-
-    global _FLEXPIPE_PREV_RANKS
-    global _FLEXPIPE_NEXT_RANKS
-
-    _FLEXPIPE_PREV_RANKS = parent_ranks[rank]
-    _FLEXPIPE_NEXT_RANKS = child_ranks[rank]
-
     global _RANKS_IN_EACH_PIPELINE_STAGE
     _RANKS_IN_EACH_PIPELINE_STAGE = ranks_in_each_pipe_stage
 
@@ -1287,18 +1175,13 @@ def initialize_model_parallel_flexpipe(num_ops_in_each_stage: list[int],
     tp_rank={get_tensor_model_parallel_rank()} | \
     tp_src_rank={get_tensor_model_parallel_src_rank()} | \
     dp_size= {get_data_parallel_world_size()} | \
-    parent ranks={get_stage_comm_recv_ranks()} | \
-    child ranks = {get_stage_comm_send_ranks()} | \
     micro_batch_size = {micro_batch_size}\n')
 
     print(f'[DEBUG]|rank {torch.distributed.get_rank()}| \
     MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE: {_MPU_PIPELINE_MODEL_PARALLEL_WORLD_SIZE} | \
     DATA_PARALLEL_RANKS: {_DATA_PARALLEL_RANKS} | \
     MPU_PIPELINE_MODEL_PARALLEL_RANK: {_MPU_PIPELINE_MODEL_PARALLEL_RANK} | \
-    CHILD_RANKS: {_CHILD_RANKS} | \
-    PARENT_RANKS: {_PARENT_RANKS} | \
     FLEXPIPE_PREV_RANKS: {_FLEXPIPE_PREV_RANKS} | \
-    FLEXPIPE_NEXT_RANKS: {_FLEXPIPE_NEXT_RANKS} | \
     RANKS_IN_EACH_PIPELINE_STAGE: {_RANKS_IN_EACH_PIPELINE_STAGE}| \
     OP_RESHARDING_RANKS: {_OP_RESHARDING_RANKS} | \
     EMBEDDING_GLOBAL_RANKS: {_EMBEDDING_GLOBAL_RANKS} | \
@@ -2403,16 +2286,6 @@ def destroy_model_parallel():
     global _MPU_EXPERT_MODEL_PARALLEL_RANK
     _MPU_EXPERT_MODEL_PARALLEL_RANK = None
 
-def get_stage_comm_recv_ranks():
-    assert _FLEXPIPE_PREV_RANKS is not None, \
-        "_FLEXPIPE_PREV_RANKS is not initialized"
-    return _FLEXPIPE_PREV_RANKS
-
-def get_stage_comm_send_ranks():
-    assert _FLEXPIPE_NEXT_RANKS is not None, \
-        "_FLEXPIPE_NEXT_RANKS is not initialized"
-    return _FLEXPIPE_NEXT_RANKS
-
 def get_op_start_index(pipeline_stage: int, model_chunk_id=0):
     assert _OPS_START_INDEX_LIST is not None, \
         "_OPS_START_INDEX_LIST is not initialized"
@@ -2658,6 +2531,8 @@ def get_ulysses_context_parapllel_ranks_via_op_index(op_index):
         'context parallel group is not initialized'
     pp_stage = get_pipeline_model_parallel_rank()
     start_op_index = _OPS_START_INDEX_LIST[pp_stage]
+    assert op_index - start_op_index < len(_ULYSSES_CONTEXT_PARALLEL_RANKS), \
+        f'op_index: {op_index}, start_op_index: {start_op_index}, len(_ULYSSES_CONTEXT_PARALLEL_RANKS): {len(_ULYSSES_CONTEXT_PARALLEL_RANKS)}'
     return _ULYSSES_CONTEXT_PARALLEL_RANKS[op_index - start_op_index]
 
 def get_ring_context_parallel_group_via_op_index(op_index):

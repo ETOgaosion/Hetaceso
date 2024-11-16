@@ -344,10 +344,6 @@ def _communicate_flexpipe(
     timers = get_timers()
     if DEBUG_COMMUNICATE:
         print_info(torch.distributed.get_rank(), "in communicate flexpipe")
-    # prev_ranks = mpu.get_stage_comm_recv_ranks()
-    # next_ranks = mpu.get_stage_comm_send_ranks()
-    # num_parents = len(prev_ranks)
-    # num_childs = len(next_ranks)
     tensor_recv_prev, extra_tensor_recv_prev, tensor_recv_next, extra_tensor_recv_next = None, None, None, None 
 
     # Create placeholder tensors for receive in forward and backward directions if needed.
@@ -402,10 +398,10 @@ def _communicate_flexpipe(
                             list(flatten_tensor_recv_prev[key][recv_from_rank].size()),
                         )
 
-            assert len(ops) > 0, f"rank {torch.distributed.get_rank()} ops is empty"
-            reqs = torch.distributed.batch_isend_irecv(ops)
-            for req in reqs:
-                req.wait()
+            if len(ops) > 0:
+                reqs = torch.distributed.batch_isend_irecv(ops)
+                for req in reqs:
+                    req.wait()
             # torch.cuda.synchronize()
     elif recv_prev:
         recv_info = mpu.get_recv_info(forward=True)
@@ -426,10 +422,10 @@ def _communicate_flexpipe(
                         list(flatten_tensor_recv_prev[key][recv_from_rank].size()),
                     )
 
-            assert len(ops) > 0, f"rank {torch.distributed.get_rank()} ops is empty"
-            reqs = torch.distributed.batch_isend_irecv(ops)
-            for req in reqs:
-                req.wait()
+            if len(ops) > 0:
+                reqs = torch.distributed.batch_isend_irecv(ops)
+                for req in reqs:
+                    req.wait()
             # torch.cuda.synchronize()
 
     if tensor_send_next is not None:
@@ -473,10 +469,10 @@ def _communicate_flexpipe(
                             list(flatten_tensor_recv_next[key][recv_from_rank].size()),
                         )
 
-            assert len(ops) > 0, f"rank {torch.distributed.get_rank()} ops is empty"
-            reqs = torch.distributed.batch_isend_irecv(ops)
-            for req in reqs:
-                req.wait()
+            if len(ops) > 0:
+                reqs = torch.distributed.batch_isend_irecv(ops)
+                for req in reqs:
+                    req.wait()
             # torch.cuda.synchronize()
 
     elif recv_next:
@@ -491,10 +487,10 @@ def _communicate_flexpipe(
                 if DEBUG_COMMUNICATE:
                     print_communication_info(torch.distributed.get_rank(), f"|3| recv [{key}] from ", recv_from_rank, list(flatten_tensor_recv_next[key][recv_from_rank].size()))  
 
-            assert len(ops) > 0, f"rank {torch.distributed.get_rank()} ops is empty"
-            reqs = torch.distributed.batch_isend_irecv(ops)
-            for req in reqs:
-                req.wait()
+            if len(ops) > 0:
+                reqs = torch.distributed.batch_isend_irecv(ops)
+                for req in reqs:
+                    req.wait()
     # if len(ops) > 0:
     #     reqs = torch.distributed.batch_isend_irecv(ops)
     #     for req in reqs:
@@ -1091,9 +1087,10 @@ def send_shared_tensors(op, models, grads=False):
 
     for key in sorted(shared_tensor):
         for op_index in op.shared_weights_info[key]["sharing_with_ops"]:
-            print(f'{torch.distributed.get_rank()}, op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]: {op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]}, op.shared_weights_info[key]["sharing_weights_with_ranks": {op.shared_weights_info[key]["sharing_weights_with_ranks"]}')
             if not op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index]:
                 recv_ranks = op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]
+                if DEBUG_COMMUNICATE:
+                    print(f"rank {torch.distributed.get_rank()} recv_ranks = {recv_ranks}")
                 if len(recv_ranks) > 0:
                     send_ops = []
                     split_dim = op.shared_weights_info[key]["tp_split_dim"]
@@ -1120,6 +1117,8 @@ def send_shared_tensors(op, models, grads=False):
                                 with open(f"{args.log_path}{args.log_name}_debug_communicate_rank{current_rank}.log", "a+") as f:
                                     f.write(string+"\n")    
 
+                    if DEBUG_COMMUNICATE:
+                        print(f'rank {torch.distributed.get_rank()} send_ops = {len(send_ops)}')
                     if len(send_ops) > 0:
                         reqs = torch.distributed.batch_isend_irecv(send_ops)
                         for req in reqs:
@@ -1140,13 +1139,14 @@ def recv_shared_tensors(op, models, grads=False):
         else:
             dtype = args.params_dtype        
         for op_index in op.shared_weights_info[key]["sharing_with_ops"]:
-            print(f'{torch.distributed.get_rank()}, op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]: {op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"]}, op.shared_weights_info[key]["sharing_weights_with_ranks": {op.shared_weights_info[key]["sharing_weights_with_ranks"]}')
             if op.shared_weights_info[key]["sharing_weights_in_same_pipeline_rank"][op_index]:
                 src_op = get_op_via_index(op_index, models)
                 recv_tensor = src_op.get_shared_tensor(grads=grads)
                 recv_dict[key].append(recv_tensor[key])
             else:
                 send_ranks = op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]
+                if DEBUG_COMMUNICATE:
+                    print(f"rank {torch.distributed.get_rank()} send_ranks = {send_ranks}")
                 if len(send_ranks) > 0: 
                     recv_ops = []
                     tensor_list = []
@@ -1215,40 +1215,56 @@ def initialize_weights_sharing(models):
                                 num_ranks_in_send_stage = len(ranks_in_send_stage)
                                 num_ranks_in_receive_stage = len(ranks_in_receive_stage)
 
-                                tp_size, dp_size = mpu.get_op_tp_size(op.op_index), mpu.get_op_dp_size(op.op_index)
-                                tp_size_next, dp_size_next = mpu.get_op_tp_size(op_index), mpu.get_op_dp_size(op_index)
+                                tp_size, cp_size, dp_size = mpu.get_op_tp_size(op.op_index), mpu.get_op_cp_size(op.op_index), mpu.get_op_dp_size(op.op_index)
+                                tp_size_next, cp_size_next, dp_size_next = mpu.get_op_tp_size(op_index), mpu.get_op_cp_size(op_index), mpu.get_op_dp_size(op_index)
 
                                 for i in range(num_ranks_in_send_stage):
                                     if ranks_in_send_stage[i] == rank:
-                                        dp_id = i // tp_size
+                                        dp_id = i // (cp_size * tp_size)
+                                        cp_id = (i // tp_size) % cp_size
                                         tp_id = i % tp_size
 
                                 next_dp_id = [dp_id]
+                                next_cp_id = [cp_id]
                                 next_tp_id = [tp_id]
 
-                                if tp_size_next > tp_size:
-                                    ratio = tp_size_next // tp_size
-                                    next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)                                    
+                                # if tp size goes smaller, then only tp_id % 0 shall send
+                                # elif tp size goes larger, then current rank shall send to all enlarged ranks
                                 if tp_size_next < tp_size:
                                     ratio = tp_size // tp_size_next
-                                    next_tp_id = [tp_id // ratio]  
-                                if dp_size_next > dp_size:
-                                    ratio = dp_size_next // dp_size
-                                    next_dp_id = range(dp_id * ratio, (dp_id + 1)*ratio)                                      
+                                    next_tp_id = [tp_id // ratio]
+                                elif tp_size_next > tp_size:
+                                    ratio = tp_size_next // tp_size
+                                    next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)
+                                # if cp size goes smaller, then all cp_id shall send
+                                # elif tp size goes larger, then current rank shall send to all enlarged ranks
+                                if cp_size_next < cp_size:
+                                    ratio = cp_size // cp_size_next
+                                    next_cp_id = [cp_id // ratio]
+                                if cp_size_next > cp_size:
+                                    ratio = cp_size_next // cp_size
+                                    next_cp_id = range(cp_id * ratio, (cp_id + 1)*ratio)
+                                # if dp size goes smaller, then all dp_id shall send
+                                # elif tp size goes larger, then current rank shall send to all enlarged ranks
                                 if dp_size_next < dp_size:
                                     ratio = dp_size // dp_size_next
-                                    if dp_id % ratio == 0:
-                                        next_dp_id = [dp_id // ratio] 
-                                    else:
-                                        next_dp_id = []
+                                    next_dp_id = [dp_id // ratio]
+                                if dp_size_next > dp_size:
+                                    ratio = dp_size_next // dp_size
+                                    next_dp_id = range(dp_id * ratio, (dp_id + 1)*ratio)
+                                
+                                print(f'rank {rank} root op {op.op_index} tp_id: {tp_id}, cp_id: {cp_id}, dp_id: {dp_id} key {key} sharing with op {op_index} next_dp_id {next_dp_id} next_cp_id {next_cp_id} next_tp_id {next_tp_id} ranks_in_send_stage {ranks_in_send_stage} ranks_in_receive_stage {ranks_in_receive_stage}')
 
                                 op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index] = []
-                                if len(next_dp_id) > 0:
+                                if not (dp_size_next == dp_size and cp_size_next == cp_size and tp_size_next == tp_size):
                                     for _dp_id in next_dp_id:
-                                        tmp_list = []
-                                        for _tp_id in next_tp_id:
-                                            tmp_list.append(ranks_in_receive_stage[_dp_id * tp_size_next + _tp_id])
-                                        op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+                                        for _cp_id in next_cp_id:
+                                            tmp_list = []
+                                            for _tp_id in next_tp_id:
+                                                tmp_list.append(ranks_in_receive_stage[_dp_id * tp_size_next * cp_size_next + _cp_id * tp_size_next + _tp_id])
+                                            if len(tmp_list) > 0:
+                                                op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+                                print(f'rank {rank} op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]: {op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]}')
                     else:
                         assert len(op.shared_weights_info[key]["sharing_with_ops"]) == 1
                         op_index = op.shared_weights_info[key]["sharing_with_ops"][0]
@@ -1263,37 +1279,51 @@ def initialize_weights_sharing(models):
                             num_ranks_in_send_stage = len(ranks_in_send_stage)
                             num_ranks_in_receive_stage = len(ranks_in_receive_stage)
 
-                            tp_size, dp_size = mpu.get_op_tp_size(op.op_index), mpu.get_op_dp_size(op.op_index)
-                            tp_size_next, dp_size_next = mpu.get_op_tp_size(op_index), mpu.get_op_dp_size(op_index)
+                            tp_size, cp_size, dp_size = mpu.get_op_tp_size(op.op_index), mpu.get_op_cp_size(op.op_index), mpu.get_op_dp_size(op.op_index)
+                            tp_size_next, cp_size_next, dp_size_next = mpu.get_op_tp_size(op_index), mpu.get_op_cp_size(op_index), mpu.get_op_dp_size(op_index)
 
                             for i in range(num_ranks_in_receive_stage):
                                 if ranks_in_receive_stage[i] == rank:
-                                    dp_id = i // tp_size
+                                    dp_id = i // (tp_size * cp_size)
+                                    cp_id = (i // tp_size) % cp_size
                                     tp_id = i % tp_size
 
                             next_dp_id = [dp_id]
+                            next_cp_id = [cp_id]
                             next_tp_id = [tp_id]
 
                             if tp_size_next > tp_size:
                                 ratio = tp_size_next // tp_size
-                                next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)                                    
+                                next_tp_id = range(tp_id * ratio, (tp_id + 1)*ratio)
                             if tp_size_next < tp_size:
                                 ratio = tp_size // tp_size_next
-                                next_tp_id = [tp_id // ratio]  
+                                next_tp_id = [tp_id // ratio]
+                            if cp_size_next > cp_size:
+                                ratio = cp_size_next // cp_size
+                                next_cp_id = range(cp_id * ratio, (cp_id + 1)*ratio)
+                            if cp_size_next < cp_size:
+                                ratio = cp_size // cp_size_next
+                                next_cp_id = [cp_id // ratio]
                             if dp_size_next > dp_size:
                                 ratio = dp_size_next // dp_size
-                                next_dp_id = [dp_id * ratio]                                 
+                                next_dp_id = range(dp_id * ratio, (dp_id + 1)*ratio)
                             if dp_size_next < dp_size:
                                 ratio = dp_size // dp_size_next
-                                next_dp_id = [dp_id // ratio]   
+                                next_dp_id = [dp_id // ratio]
 
+                            print(f'rank {rank} op {op.op_index} key {key} sharing with op {op_index} next_dp_id {next_dp_id} next_cp_id {next_cp_id} next_tp_id {next_tp_id} ranks_in_send_stage {ranks_in_send_stage} ranks_in_receive_stage {ranks_in_receive_stage}')
                             op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index] = []
 
-                            for _dp_id in next_dp_id:
-                                tmp_list = []
-                                for _tp_id in next_tp_id:
-                                    tmp_list.append(ranks_in_send_stage[_dp_id * tp_size_next + _tp_id])
-                                op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+                            if not (dp_size_next == dp_size and cp_size_next == cp_size and tp_size_next == tp_size):
+                                for _dp_id in next_dp_id:
+                                    for _cp_id in next_cp_id:
+                                        tmp_list = []
+                                        for _tp_id in next_tp_id:
+                                            tmp_list.append(ranks_in_send_stage[_dp_id * tp_size_next * cp_size_next + _cp_id * tp_size_next + _tp_id])
+                                        if len(tmp_list) > 0:
+                                            op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index].append(list(tmp_list))
+                            
+                            print(f'rank {rank} op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]: {op.shared_weights_info[key]["sharing_weights_with_ranks"][op_index]}')
 
     # send & receive tensors
     for model in models:

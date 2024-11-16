@@ -267,6 +267,7 @@ def _initialize_distributed():
             rank=args.rank,
             timeout=timedelta(minutes=args.distributed_timeout_minutes),
         )
+        print(f'rank {args.rank} initialized process group')
 
     # Set the tensor model-parallel, pipeline model-parallel, and
     # data-parallel communicators.
@@ -292,8 +293,8 @@ def _initialize_distributed():
                     args.ring_context_parallel_size_of_each_stage,
                     args.ulysses_context_parallel_size_of_each_stage,
                     args.data_parallel_split_of_each_stage,
-                    args.ring_context_parallel_split_of_each_stage,
                     args.ulysses_context_parallel_split_of_each_stage,
+                    args.seq_length
                 )
             else:
                 raise NotImplementedError("Only FlexPipe is supported for now")

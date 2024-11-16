@@ -48,7 +48,7 @@ class OptimizerParamScheduler(object):
 
         # Set the learning rate
         self.step(0)
-        print_rank_0('> learning rate decay style: {}'.format(self.lr_decay_style))
+        print('> learning rate decay style: {}'.format(self.lr_decay_style))
 
 
     def get_wd(self):

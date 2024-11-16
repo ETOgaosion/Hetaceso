@@ -25,6 +25,7 @@
     "ulysses_context_parallel_size_of_each_stage": [4],
     "ring_context_parallel_size_of_each_stage": [2],
     "data_parallel_split_of_each_stage": [[4]],
-    "ring_context_parallel_split_of_each_stage": [[512, 512]],
-    "ulysses_context_parallel_split_of_each_stage": [[128, 128]]
+    "ulysses_context_parallel_split_of_each_stage": [[
+        [128, 128]
+    ]]
 }

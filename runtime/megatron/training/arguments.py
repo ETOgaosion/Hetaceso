@@ -74,7 +74,6 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args.data_parallel_size_of_each_stage = [1]
         args.context_parallel_size_of_each_stage = [1]
         args.data_parallel_split_of_each_stage = [[1]]
-        args.ring_context_parallel_split_of_each_stage = [[args.seq_length]]
 
         if len(args.prof_repeat_times) > 1:
             assert args.prof_repeat_threshold is not None, "when args.prof_repeat_times is a list, a threshold is required."
