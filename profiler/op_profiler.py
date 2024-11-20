@@ -5,18 +5,21 @@ import torch
 import time
 import csv
 import pickle
-import os 
-import numpy as np 
+import os
+import numpy as np
 import sys
 
 
 sys.path.append("../runtime")
-from megatron.training.arguments import core_transformer_config_from_args, flex_config_from_args
+from megatron.training.arguments import (
+    core_transformer_config_from_args,
+)
 from megatron.training.yaml_arguments import core_transformer_config_from_yaml
 from megatron.training import initialize_megatron
 from megatron.training import get_args
-from megatron.core import mpu 
+from megatron.core import mpu
 from megatron.core.flexmodels.gpt.flex_gpt import FlexGPTModel
+
 # from megatron.model.flex_resnet import FlexResNet
 # from megatron.model.flex_t5 import FlexT5Model
 from megatron.core.flexmodels.common.flex_ops import OpInfo, gen_op
@@ -29,10 +32,12 @@ from megatron.core.models.gpt.gpt_layer_specs import (
     get_gpt_layer_local_spec,
     get_gpt_layer_with_transformer_engine_spec,
 )
-DATA_BASE = 4/(1024 * 1024)
-SKIP_RUNNING = os.environ.get("SKIP_RUNNING", '0') == '1'
+
+DATA_BASE = 4 / (1024 * 1024)
+SKIP_RUNNING = os.environ.get("SKIP_RUNNING", "0") == "1"
 import traceback
 import pdb
+
 ## shapes for input tensors and extra tensors
 input_shape_dict = {}
 input_extra_dict = {}
@@ -42,20 +47,23 @@ output_size_dict = {}
 activation_size_dict = {}
 weight_size_dict = {}
 
+
 def print_rank0(str):
     if torch.distributed.get_rank() == 0:
         print(str)
+
 
 def print_cached_dicts(cached_dict):
     for item in cached_dict:
         print(f"{item}: {cached_dict[item]}")
 
-def wrap_op(op, config, flex_config):
+
+def wrap_op(op, config):
     args = get_args()
     for key in op.output_extra_tensors_info:
         op.output_extra_tensors_info[key]["cross_stage"] = True
     all_ranks = mpu.get_ranks_via_pipeline_stage(mpu.get_pipeline_model_parallel_rank())
-    input_mats = np.array(all_ranks).reshape([1, 1, 1, op.dp_size, op.tp_size])    
+    input_mats = np.array(all_ranks).reshape([1, 1, 1, op.dp_size, op.tp_size])
     input_mats_ = {}
     op.input_mats = input_mats_
 
@@ -64,36 +72,39 @@ def wrap_op(op, config, flex_config):
 
     op.cuda(torch.cuda.current_device())
     if args.fp16:
-        op = Float16Module(config, op) 
+        op = Float16Module(config, op)
 
-    op = DDP(config,
-                     flex_config,
-                     op,
-                     data_parallel_group=mpu.get_data_parallel_group(with_context_parallel=True),
-                     expert_data_parallel_group=mpu.get_data_modulo_expert_parallel_group(),
-                     accumulate_allreduce_grads_in_fp32=args.accumulate_allreduce_grads_in_fp32,
-                     overlap_grad_reduce=args.overlap_grad_reduce,
-                     use_distributed_optimizer=args.use_distributed_optimizer,
-                     # Turn off bucketing for model_chunk 2 onwards, since communication for these
-                     # model chunks is overlapped with compute anyway.
-                     disable_bucketing=True,
-                     check_for_nan_in_grad=args.check_for_nan_in_loss_and_grad)
+    op = DDP(
+        config,
+        op,
+        data_parallel_group=mpu.get_data_parallel_group(with_context_parallel=True),
+        expert_data_parallel_group=mpu.get_data_modulo_expert_parallel_group(),
+        accumulate_allreduce_grads_in_fp32=args.accumulate_allreduce_grads_in_fp32,
+        overlap_grad_reduce=args.overlap_grad_reduce,
+        use_distributed_optimizer=args.use_distributed_optimizer,
+        # Turn off bucketing for model_chunk 2 onwards, since communication for these
+        # model chunks is overlapped with compute anyway.
+        disable_bucketing=True,
+        check_for_nan_in_grad=args.check_for_nan_in_loss_and_grad,
+    )
     return op
     # return op
-    raise NotImplementedError('Unknown DDP implementation specified: {}. '
-                              'Exiting.'.format(args.DDP_impl))
+    raise NotImplementedError(
+        "Unknown DDP implementation specified: {}. " "Exiting.".format(args.DDP_impl)
+    )
+
 
 def get_params_dtype(params_dtype):
     global DATA_BASE
     args = get_args()
 
     if params_dtype == "fp32":
-        DATA_BASE = 4 / (1024*1024)
+        DATA_BASE = 4 / (1024 * 1024)
         params_dtype = torch.float
         args.fp16 = False
         args.params_dtype = params_dtype
     elif params_dtype == "fp16":
-        DATA_BASE = 2 / (1024*1024)
+        DATA_BASE = 2 / (1024 * 1024)
         params_dtype = torch.half
         args.fp16 = True
         args.params_dtype = params_dtype
@@ -101,16 +112,28 @@ def get_params_dtype(params_dtype):
         raise RuntimeError(f"data type {params_dtype} not supported.")
     return params_dtype
 
+
 def get_model(model_name, model_size):
-    
+
     args = get_args()
 
     if model_name == "resnet":
-        num_layers_list, base_channels, width_factor, params_dtype = resnet_configs[model_size]
+        num_layers_list, base_channels, width_factor, params_dtype = resnet_configs[
+            model_size
+        ]
         params_dtype = get_params_dtype(params_dtype)
         # model = FlexResNet(num_layers_list=num_layers_list, in_channels=base_channels, width_factor=width_factor, profiling=True)
     elif model_name == "gpt":
-        num_layers, seq_len, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype = gpt_configs[model_size]
+        (
+            num_layers,
+            seq_len,
+            hidden_size,
+            ffn_hidden_size,
+            num_attention_heads,
+            kv_channels,
+            vocab_size,
+            params_dtype,
+        ) = gpt_configs[model_size]
         params_dtype = get_params_dtype(params_dtype)
         args.seq_length = seq_len
         args.hidden_size = hidden_size
@@ -126,28 +149,40 @@ def get_model(model_name, model_size):
             config = core_transformer_config_from_yaml(args, "language_model")
         else:
             config = core_transformer_config_from_args(args)
-        flex_config = flex_config_from_args(args)
         if args.use_mcore_models:
             if args.spec is not None:
                 transformer_layer_spec = import_module(args.spec)
             else:
                 if use_te:
-                    transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(args.num_experts, args.moe_grouped_gemm)
+                    transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(
+                        args.num_experts, args.moe_grouped_gemm
+                    )
                 else:
-                    transformer_layer_spec = get_gpt_layer_local_spec(args.num_experts, args.moe_grouped_gemm)
+                    transformer_layer_spec = get_gpt_layer_local_spec(
+                        args.num_experts, args.moe_grouped_gemm
+                    )
         model = FlexGPTModel(
             config=config,
-            flex_config=flex_config,
             transformer_layer_spec=transformer_layer_spec,
             pre_process=True,
             post_process=True,
             parallel_output=True,
-            profiling=True
+            profiling=True,
         )
         args.model_name = model_name
-        return model, config, flex_config
+        return model, config
     elif model_name == "t5":
-        num_layers, encoder_seq_length, decoder_seq_length, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype = t5_configs[model_size]
+        (
+            num_layers,
+            encoder_seq_length,
+            decoder_seq_length,
+            hidden_size,
+            ffn_hidden_size,
+            num_attention_heads,
+            kv_channels,
+            vocab_size,
+            params_dtype,
+        ) = t5_configs[model_size]
         params_dtype = get_params_dtype(params_dtype)
         args.encoder_seq_length = encoder_seq_length
         args.decoder_seq_length = decoder_seq_length
@@ -165,10 +200,11 @@ def get_model(model_name, model_size):
     args.model_name = model_name
     return model
 
+
 def infer_data_size(op_list: list[OpInfo], save_filename_prefix: str, mbs: int, algo):
-    '''
+    """
     Infer each op's input/output tensor shape, which will be used to generate input/output tensor during the profiling.
-    '''
+    """
     global input_size_dict, output_size_dict, weight_size_dict, activation_size_dict, input_shape_dict, input_extra_dict
     args = get_args()
     tp_size = args.prof_tp_size
@@ -176,8 +212,12 @@ def infer_data_size(op_list: list[OpInfo], save_filename_prefix: str, mbs: int, 
     prev_extra_size = 0
     for op_info in op_list:
         op_info.op_index = 0
-        op_uniq_name = save_filename_prefix + op_info.op_name + f"mbs{mbs}tp_size{tp_size}algo{algo}"
-        op = unwrap_model(gen_op(op_info), (DDP, Float16Module)) 
+        op_uniq_name = (
+            save_filename_prefix
+            + op_info.op_name
+            + f"mbs{mbs}tp_size{tp_size}algo{algo}"
+        )
+        op = unwrap_model(gen_op(op_info), (DDP, Float16Module))
 
         weight_size_dict[op_uniq_name] = np.prod(op.weight_size) * DATA_BASE
         sum_input_size = 0
@@ -188,7 +228,7 @@ def infer_data_size(op_list: list[OpInfo], save_filename_prefix: str, mbs: int, 
         ## infer input tensor size
         for input_name in op.input_tensors_info:
             input_shape = op.input_tensors_info[input_name]["shape"]
-            tp_split_dim = op.input_tensors_info[input_name]["tp_split_dim"] 
+            tp_split_dim = op.input_tensors_info[input_name]["tp_split_dim"]
             _input_shape_dict[input_name] = input_shape
             sum_input_size += np.prod(input_shape) * DATA_BASE
         sum_input_size += prev_extra_size
@@ -216,19 +256,27 @@ def infer_data_size(op_list: list[OpInfo], save_filename_prefix: str, mbs: int, 
         sum_output_extra_size = 0
         for output_extra_name in op.output_extra_tensors_info:
             output_shape = op.output_extra_tensors_info[output_extra_name]["shape"]
-            tp_split_dim = op.output_extra_tensors_info[output_extra_name]["tp_split_dim"]
+            tp_split_dim = op.output_extra_tensors_info[output_extra_name][
+                "tp_split_dim"
+            ]
             if op.output_extra_specs[output_extra_name]["R"] == op.tp_size:
                 apply_tp = False
             elif op.output_extra_specs[output_extra_name]["R"] == 1:
                 apply_tp = True
             else:
-                raise RuntimeError(f"not supportted output spec for op ({output_extra_name}): {op.output_extra_specs[output_extra_name]}")
+                raise RuntimeError(
+                    f"not supportted output spec for op ({output_extra_name}): {op.output_extra_specs[output_extra_name]}"
+                )
             if apply_tp:
                 output_shape[tp_split_dim] //= op.tp_size
             sum_output_extra_size += np.prod(output_shape) * DATA_BASE
 
-        current_extra_size = prev_extra_size + sum_output_extra_size - sum_input_extra_size
-        print(f"{op_info.op_name}: current_extra_size = {current_extra_size}= prev_extra_size {prev_extra_size}+ sum_output_extra_size {sum_output_extra_size}- sum_input_extra_size {sum_input_extra_size}")
+        current_extra_size = (
+            prev_extra_size + sum_output_extra_size - sum_input_extra_size
+        )
+        print(
+            f"{op_info.op_name}: current_extra_size = {current_extra_size}= prev_extra_size {prev_extra_size}+ sum_output_extra_size {sum_output_extra_size}- sum_input_extra_size {sum_input_extra_size}"
+        )
         sum_output_size += current_extra_size
         prev_extra_size = current_extra_size
 
@@ -238,36 +286,75 @@ def infer_data_size(op_list: list[OpInfo], save_filename_prefix: str, mbs: int, 
         input_shape_dict[op_uniq_name] = _input_shape_dict
         input_extra_dict[op_uniq_name] = _input_extra_dict
 
+
 def get_inputs(op_uniq_name, params_dtype):
     inputs = {}
     input_extra_tensors = {}
-    
+
     for input_name in input_shape_dict[op_uniq_name]:
         input_shape = input_shape_dict[op_uniq_name][input_name]
         if input_name in ["input_ids", "position_ids"]:
-            inputs[input_name] = torch.randint(0, input_shape[1], input_shape, requires_grad=False, device=torch.cuda.current_device(), dtype=torch.long)
+            inputs[input_name] = torch.randint(
+                0,
+                input_shape[1],
+                input_shape,
+                requires_grad=False,
+                device=torch.cuda.current_device(),
+                dtype=torch.long,
+            )
         else:
-            inputs[input_name] = torch.rand(input_shape, requires_grad=True, device=torch.cuda.current_device(), dtype=params_dtype)        
+            inputs[input_name] = torch.rand(
+                input_shape,
+                requires_grad=True,
+                device=torch.cuda.current_device(),
+                dtype=params_dtype,
+            )
 
     for input_extra_name in input_extra_dict[op_uniq_name]:
         input_shape = input_extra_dict[op_uniq_name][input_extra_name]
-        if input_extra_name in ["attention_mask", "enc_attention_mask", "dec_attention_mask", "enc_dec_attention_mask"]:
-            input_extra_tensors[input_extra_name] = (torch.rand(input_shape, requires_grad=False, device=torch.cuda.current_device(), dtype=params_dtype) < 0.5)
+        if input_extra_name in [
+            "attention_mask",
+            "enc_attention_mask",
+            "dec_attention_mask",
+            "enc_dec_attention_mask",
+        ]:
+            input_extra_tensors[input_extra_name] = (
+                torch.rand(
+                    input_shape,
+                    requires_grad=False,
+                    device=torch.cuda.current_device(),
+                    dtype=params_dtype,
+                )
+                < 0.5
+            )
         elif input_extra_name in ["labels"]:
             input_shape = input_extra_dict[op_uniq_name][input_extra_name]
             args = get_args()
-            input_extra_tensors[input_extra_name] = torch.rand(input_shape, requires_grad=False, device=torch.cuda.current_device()).long() * args.padded_vocab_size
+            input_extra_tensors[input_extra_name] = (
+                torch.rand(
+                    input_shape, requires_grad=False, device=torch.cuda.current_device()
+                ).long()
+                * args.padded_vocab_size
+            )
         else:
-            input_extra_tensors[input_extra_name] = torch.rand(input_shape, requires_grad=True, device=torch.cuda.current_device(), dtype=params_dtype)
+            input_extra_tensors[input_extra_name] = torch.rand(
+                input_shape,
+                requires_grad=True,
+                device=torch.cuda.current_device(),
+                dtype=params_dtype,
+            )
 
     return inputs, input_extra_tensors
+
 
 ## this function is used for resnet, to find same operators.
 ## for GPT and T5, no need to hash op, because the possiblities are less.
 def get_op_hash(op_info: OpInfo, micro_batch_size, tp_size, algo, save_filename_prefix):
-    hash_str = save_filename_prefix + "mbs" + str(micro_batch_size) + "tp" + str(tp_size)
+    hash_str = (
+        save_filename_prefix + "mbs" + str(micro_batch_size) + "tp" + str(tp_size)
+    )
     args = get_args()
-    #TODO: need refractor
+    # TODO: need refractor
     if args.model_name == "resnet":
         for op_type in ["conv", "downsample", "bn", "relu", "maxpool", "avgpool", "fc"]:
             if op_type in op_info.op_name:
@@ -275,9 +362,9 @@ def get_op_hash(op_info: OpInfo, micro_batch_size, tp_size, algo, save_filename_
                 hash_str += op_type
         for attr, value in op_info.__dict__.items():
             if attr not in ["op_name", "prev_name", "op_index"]:
-                hash_str +=  str(value)
+                hash_str += str(value)
         if current_op_type in ["conv", "downsample"]:
-            hash_str += "_algo" + str(algo)        
+            hash_str += "_algo" + str(algo)
     else:
         hash_str += op_info.op_name
         for gemm_op_name in ["qkv", "dense", "GEMM"]:
@@ -285,6 +372,7 @@ def get_op_hash(op_info: OpInfo, micro_batch_size, tp_size, algo, save_filename_
                 hash_str += "_algo" + str(algo)
 
     return hash_str
+
 
 def get_input_tensors(op_info: OpInfo, input_data, input_extra_tensors):
     if op_info.op_name == "encoder-embedding":
@@ -295,13 +383,18 @@ def get_input_tensors(op_info: OpInfo, input_data, input_extra_tensors):
             input_tensors.append(input_data[input_name])
         for input_extra_name in input_extra_tensors:
             ## workaround for softmax op.
-            if "mask" not in input_extra_name and "bias" not in input_extra_name and "labels" not in input_extra_name: 
-                input_tensors.append(input_extra_tensors[input_extra_name])   
+            if (
+                "mask" not in input_extra_name
+                and "bias" not in input_extra_name
+                and "labels" not in input_extra_name
+            ):
+                input_tensors.append(input_extra_tensors[input_extra_name])
 
-    return input_tensors 
+    return input_tensors
+
 
 def get_outputs_and_grads(output_tensors: dict, output_extra_tensors, grad_type):
-    ## keep original output tensors 
+    ## keep original output tensors
     origin_outputs = []
     for output_name in output_tensors:
         if output_tensors[output_name] == None:
@@ -315,31 +408,37 @@ def get_outputs_and_grads(output_tensors: dict, output_extra_tensors, grad_type)
     output_grads = []
     ## add one more dummy op for each output tensor
     for output_tensor in origin_outputs:
+        print(f'output_tensor.shape: {output_tensor.shape}, dtype: {output_tensor.dtype}')
         if output_tensor == None:
             continue
-        tensor_shape = list(output_tensor.size())
-        if len(tensor_shape) >= 3:
-            pool_op = torch.nn.AdaptiveMaxPool2d(1)
-        elif len(tensor_shape) >= 2:
-            pool_op = torch.nn.AdaptiveMaxPool1d(1)
-        else:
-            pool_op = torch.nn.Identity()
-        output_tensor_ = pool_op(output_tensor)
-        output_tensor_grad = torch.randn(output_tensor_.size(), requires_grad=False, device=torch.cuda.current_device(), dtype=grad_type)
-        origin_grad = torch.autograd.grad(outputs=output_tensor_, grad_outputs=output_tensor_grad, inputs=output_tensor, allow_unused=False, retain_graph=False)
-        output_grads.append(origin_grad[0])    
+        output_tensor_grad = torch.randn(
+            output_tensor.size(),
+            requires_grad=False,
+            device=torch.cuda.current_device(),
+            dtype=grad_type,
+        )
+        print(f'output_tensor_grad.shape: {output_tensor_grad.shape}, dtype: {output_tensor_grad.dtype}')
+        output_grads.append(output_tensor_grad)
 
     return origin_outputs, output_grads
 
-def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name, config, flex_config):
+
+def profile_op(
+    mbs,
+    algo,
+    op_info: OpInfo,
+    params_dtype,
+    grad_type,
+    op_uniq_name,
+    config,
+):
     global profiled_results
     op_info.op_index = 0
-    op = wrap_op(gen_op(op_info), config, flex_config)
+    op = wrap_op(gen_op(op_info), config)
     input_data, input_extra_tensors = get_inputs(op_uniq_name, params_dtype)
     input_tensors = get_input_tensors(op_info, input_data, input_extra_tensors)
     output_extra_tensors = {}
 
-    
     ## Profiling forward/backward computation time
     sum_fwd_time = 0
     sum_bwd_time = 0
@@ -347,18 +446,22 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
         for index in range(args.prof_repeat_times[0] + args.prof_warmup_times):
             torch.cuda.synchronize()
             start_time = time.time()
-            output_data = op(input_data, input_extra_tensors, output_extra_tensors, profiling=True)
+            output_data = op(
+                input_data, input_extra_tensors, output_extra_tensors, profiling=True
+            )
             torch.cuda.synchronize()
-            end_time = time.time()   
+            end_time = time.time()
             if index >= args.prof_warmup_times:
-                sum_fwd_time += end_time - start_time    
-            outputs, output_grads = get_outputs_and_grads(output_data, output_extra_tensors, grad_type)
+                sum_fwd_time += end_time - start_time
+            outputs, output_grads = get_outputs_and_grads(
+                output_data, output_extra_tensors, grad_type
+            )
 
             torch.cuda.synchronize()
             start_time = time.time()
-            torch.autograd.grad(outputs=outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
+            torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True, inputs=input_tensors)
             torch.cuda.synchronize()
-            end_time = time.time()   
+            end_time = time.time()
             if index >= args.prof_warmup_times:
                 sum_bwd_time += end_time - start_time
         avg_fwd_time = sum_fwd_time * 1000000 / args.prof_repeat_times[0]
@@ -368,10 +471,12 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
         torch.cuda.synchronize()
         start_time = time.time()
         for index in range(args.prof_warmup_times):
-            output_data = op(input_data, input_extra_tensors, output_extra_tensors, profiling=True)
+            output_data = op(
+                input_data, input_extra_tensors, output_extra_tensors, profiling=True
+            )
         torch.cuda.synchronize()
-        end_time = time.time()   
-        sum_warmup_time = end_time - start_time    
+        end_time = time.time()
+        sum_warmup_time = end_time - start_time
 
         avg_warmup_time = (sum_warmup_time * 1000000) / args.prof_warmup_times
         tensor_value = torch.tensor(avg_warmup_time).cuda()
@@ -380,7 +485,7 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
 
         # if args.prof_repeat_threshold is not None and avg_warmup_time >= args.prof_repeat_threshold:
         #     remaining_fwd_times = args.prof_repeat_times[1]
-        #     remaining_bwd_times = args.prof_repeat_times[1]    
+        #     remaining_bwd_times = args.prof_repeat_times[1]
         # else:
         remaining_fwd_times = args.prof_repeat_times[0]
         remaining_bwd_times = args.prof_repeat_times[0]
@@ -393,39 +498,46 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
         torch.cuda.synchronize()
         start_time = time.time()
         for index in range(remaining_fwd_times):
-            output_data = op(input_data, input_extra_tensors, output_extra_tensors, profiling=True)          
+            output_data = op(
+                input_data, input_extra_tensors, output_extra_tensors, profiling=True
+            )
         torch.cuda.synchronize()
-        end_time = time.time()  
-        sum_fwd_time += end_time - start_time            
-        if args.prof_warmup_threshold is not None and avg_warmup_time >= args.prof_warmup_threshold:
-            avg_fwd_time = sum_fwd_time * 1000000 / (remaining_fwd_times + args.prof_warmup_times)
+        end_time = time.time()
+        sum_fwd_time += end_time - start_time
+        if (
+            args.prof_warmup_threshold is not None
+            and avg_warmup_time >= args.prof_warmup_threshold
+        ):
+            avg_fwd_time = (
+                sum_fwd_time * 1000000 / (remaining_fwd_times + args.prof_warmup_times)
+            )
         else:
             avg_fwd_time = sum_fwd_time * 1000000 / remaining_fwd_times
 
-        origin_outputs, output_grads = get_outputs_and_grads(output_data, output_extra_tensors, grad_type) 
+        origin_outputs, output_grads = get_outputs_and_grads(
+            output_data, output_extra_tensors, grad_type
+        )
 
         ### one-time warmup for backward
-        if op_info.op_name == "dec-embedding":
-            torch.autograd.backward(origin_outputs, grad_tensors=output_grads, retain_graph=True)
-        else:
-            torch.autograd.grad(outputs=origin_outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
+        torch.autograd.backward(
+            origin_outputs, grad_tensors=output_grads, retain_graph=True
+        )
 
         ## backward, sync after all run
         torch.cuda.synchronize()
         start_time = time.time()
         for index in range(remaining_bwd_times):
-            if op_info.op_name == "dec-embedding":
-                torch.autograd.backward(origin_outputs, grad_tensors=output_grads, retain_graph=True)
-            else:
-                torch.autograd.grad(outputs=origin_outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
+            torch.autograd.backward(
+                origin_outputs, grad_tensors=output_grads, retain_graph=True
+            )
         torch.cuda.synchronize()
-        end_time = time.time()   
+        end_time = time.time()
         sum_bwd_time += end_time - start_time
         avg_bwd_time = sum_bwd_time * 1000000 / remaining_bwd_times
 
     ## Profiling memory
-    _mem_reserved_fwd = 0 
-    _mem_reserved_bwd = 0 
+    _mem_reserved_fwd = 0
+    _mem_reserved_bwd = 0
     _mem_allocated = 0
 
     output_data = None
@@ -443,7 +555,9 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
     mem_allocated = torch.cuda.memory_allocated() / (1024.0 * 1024.0)
     mem_reserved = torch.cuda.memory_reserved() / (1024.0 * 1024.0)
 
-    output_data = op(input_data, input_extra_tensors, output_extra_tensors, profiling=True)
+    output_data = op(
+        input_data, input_extra_tensors, output_extra_tensors, profiling=True
+    )
 
     new_mem_allocated = torch.cuda.memory_allocated() / (1024.0 * 1024.0)
     new_mem_reserved = torch.cuda.memory_reserved() / (1024.0 * 1024.0)
@@ -460,14 +574,28 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
         if output_data[output_name] == None:
             continue
         outputs.append(output_data[output_name])
-        output_grads.append(torch.randn(output_data[output_name].size(), requires_grad=False, device=torch.cuda.current_device(), dtype=grad_type) )
+        output_grads.append(
+            torch.randn(
+                output_data[output_name].size(),
+                requires_grad=False,
+                device=torch.cuda.current_device(),
+                dtype=grad_type,
+            )
+        )
     for output_extra_name in output_extra_tensors:
         outputs.append(output_extra_tensors[output_extra_name])
-        output_grads.append(torch.randn(output_extra_tensors[output_extra_name].size(), requires_grad=False, device=torch.cuda.current_device(), dtype=grad_type) )
+        output_grads.append(
+            torch.randn(
+                output_extra_tensors[output_extra_name].size(),
+                requires_grad=False,
+                device=torch.cuda.current_device(),
+                dtype=grad_type,
+            )
+        )
 
     if op_info.op_name == "dec-embedding":
-        input_tensors = None          
-        torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True)                    
+        input_tensors = None
+        torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True)
     else:
         input_tensors = []
         for input_name in input_data:
@@ -476,7 +604,7 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
             ## workaround for softmax op.
             if "mask" not in input_extra_name and "labels" not in input_extra_name:
                 input_tensors.append(input_extra_tensors[input_extra_name])
-        torch.autograd.grad(outputs=outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
+        torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True, inputs=input_tensors)
 
     mem_allocated_bwd = torch.cuda.memory_allocated() / (1024.0 * 1024.0)
     mem_reserved_bwd = torch.cuda.memory_reserved() / (1024.0 * 1024.0)
@@ -485,35 +613,73 @@ def profile_op(mbs, algo, op_info: OpInfo, params_dtype, grad_type, op_uniq_name
     if _mem_reserved_bwd < 0:
         _mem_reserved_bwd = 0
 
-    return avg_fwd_time, avg_bwd_time, _mem_reserved_fwd, _mem_reserved_bwd, _mem_allocated 
+    return (
+        avg_fwd_time,
+        avg_bwd_time,
+        _mem_reserved_fwd,
+        _mem_reserved_bwd,
+        _mem_allocated,
+    )
+
 
 def dump_profiled_results(save_filename_prefix, mbs, algo, op_list: list[OpInfo]):
     global profiled_results
     args = get_args()
     if torch.distributed.get_rank() == 0:
-        print_rank0(f"====== PROFILING RESULTS ({save_filename_prefix}, mbs = {mbs}, tp = {args.prof_tp_size}, algo = {algo}) ======")
-        save_file_name = f"{save_filename_prefix}_mbs{mbs}_tp{args.prof_tp_size}_algo{algo}.csv"
-        result_title = ["op_name", "forward-compute", "backward-compute", "input_size", "output_size", "weights", "activations", "fwd_reserved", "bwd_reserved"] 
+        print_rank0(
+            f"====== PROFILING RESULTS ({save_filename_prefix}, mbs = {mbs}, tp = {args.prof_tp_size}, algo = {algo}) ======"
+        )
+        save_file_name = (
+            f"{save_filename_prefix}_mbs{mbs}_tp{args.prof_tp_size}_algo{algo}.csv"
+        )
+        result_title = [
+            "op_name",
+            "forward-compute",
+            "backward-compute",
+            "input_size",
+            "output_size",
+            "weights",
+            "activations",
+            "fwd_reserved",
+            "bwd_reserved",
+        ]
 
-        f_result = open(args.prof_path + save_file_name,'w')
+        f_result = open(args.prof_path + save_file_name, "w")
         f_csv = csv.writer(f_result)
         f_csv.writerow(result_title)
         for op_info in op_list:
-            op_name = save_filename_prefix + op_info.op_name + f"mbs{mbs}tp_size{args.prof_tp_size}algo{algo}"
-            fwd_time = '{:.3f}'.format(float(profiled_results[op_name][0]))
-            bwd_time = '{:.3f}'.format(float(profiled_results[op_name][1]))            
-            input_size = '{:.3f}'.format(float(profiled_results[op_name][2]))
-            output_size = '{:.3f}'.format(float(profiled_results[op_name][3]))
-            weight_size = '{:.3f}'.format(float(profiled_results[op_name][4]))
-            activations = '{:.3f}'.format(float(profiled_results[op_name][5]))
-            reserved_fwd = '{:.3f}'.format(float(profiled_results[op_name][6]))
-            reserved_bwd = '{:.3f}'.format(float(profiled_results[op_name][7]))
-            f_csv.writerow([op_info.op_name, fwd_time, bwd_time, input_size, output_size, weight_size, activations, reserved_fwd, reserved_bwd]) 
+            op_name = (
+                save_filename_prefix
+                + op_info.op_name
+                + f"mbs{mbs}tp_size{args.prof_tp_size}algo{algo}"
+            )
+            fwd_time = "{:.3f}".format(float(profiled_results[op_name][0]))
+            bwd_time = "{:.3f}".format(float(profiled_results[op_name][1]))
+            input_size = "{:.3f}".format(float(profiled_results[op_name][2]))
+            output_size = "{:.3f}".format(float(profiled_results[op_name][3]))
+            weight_size = "{:.3f}".format(float(profiled_results[op_name][4]))
+            activations = "{:.3f}".format(float(profiled_results[op_name][5]))
+            reserved_fwd = "{:.3f}".format(float(profiled_results[op_name][6]))
+            reserved_bwd = "{:.3f}".format(float(profiled_results[op_name][7]))
+            f_csv.writerow(
+                [
+                    op_info.op_name,
+                    fwd_time,
+                    bwd_time,
+                    input_size,
+                    output_size,
+                    weight_size,
+                    activations,
+                    reserved_fwd,
+                    reserved_bwd,
+                ]
+            )
 
         save_dict = {}
         save_dict["profiled_results"] = profiled_results
         save_dict["op_hash_list"] = op_hash_list
         pickle.dump(save_dict, open(args.prof_cache_file, "wb"))
+
 
 def estimate_profile_time(task):
     global ref_data
@@ -524,16 +690,20 @@ def estimate_profile_time(task):
 
     args = get_args()
     args.micro_batch_size = mbs
-    flex_model, config, flex_config = get_model(model, size)
-    op_list:list[OpInfo] = flex_model.full_op_list
+    flex_model, config = get_model(model, size)
+    op_list: list[OpInfo] = flex_model.full_op_list
     tp_size = args.prof_tp_size
     algo_list = model_prof_configs[model]["algo"]
     save_filename_prefix = f"{model}_{size}"
-    
+
     sum_time = 0
     for algo in algo_list:
         for op_info in op_list:
-            op_uniq_name = save_filename_prefix + op_info.op_name + f"mbs{mbs}tp_size{tp_size}algo{algo}" 
+            op_uniq_name = (
+                save_filename_prefix
+                + op_info.op_name
+                + f"mbs{mbs}tp_size{tp_size}algo{algo}"
+            )
             op_hash = get_op_hash(op_info, mbs, tp_size, algo, save_filename_prefix)
             if op_uniq_name in ref_data:
                 if op_hash not in new_hash_list:
@@ -553,14 +723,15 @@ def estimate_profile_time(task):
 
     return sum_time / 1000000
 
+
 def run_profile(task):
     global profiled_results
     model = task["model"]
     size = task["size"]
     mbs = task["mbs"]
 
-    grad_type = torch.float
-    flex_model, config, flex_config = get_model(model, size)
+    grad_type = torch.float16
+    flex_model, config = get_model(model, size)
     op_list: list[OpInfo] = flex_model.full_op_list
 
     args = get_args()
@@ -575,43 +746,91 @@ def run_profile(task):
         infer_data_size(op_list, save_filename_prefix, mbs, algo)
         # run profiling
         for op_info in op_list:
-            op_uniq_name = save_filename_prefix + op_info.op_name + f"mbs{mbs}tp_size{tp_size}algo{algo}" 
+            op_uniq_name = (
+                save_filename_prefix
+                + op_info.op_name
+                + f"mbs{mbs}tp_size{tp_size}algo{algo}"
+            )
             op_hash = get_op_hash(op_info, mbs, tp_size, algo, save_filename_prefix)
             if op_uniq_name in profiled_results:
-                print_rank0(f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... Hit same op in cache!!!")  
+                print_rank0(
+                    f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... Hit same op in cache!!!"
+                )
                 continue
             elif op_hash in op_hash_list:
-                print_rank0(f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... Hit identical op in cache!!!")  
+                print_rank0(
+                    f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... Hit identical op in cache!!!"
+                )
                 _profiled_results = list(profiled_results[op_hash_list[op_hash]])
                 _profiled_results[2] = input_size_dict[op_uniq_name]
                 _profiled_results[3] = output_size_dict[op_uniq_name]
                 profiled_results[op_uniq_name] = _profiled_results
-                continue                             
+                continue
             else:
-                print_rank0(f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... ")  
+                print_rank0(
+                    f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... "
+                )
                 try:
                     if SKIP_RUNNING:
-                        _fwd_time, _bwd_time, _reserved_fwd, _reserved_bwd, _allocated_fwd = 0, 0, 0, 0, 0
+                        (
+                            _fwd_time,
+                            _bwd_time,
+                            _reserved_fwd,
+                            _reserved_bwd,
+                            _allocated_fwd,
+                        ) = (0, 0, 0, 0, 0)
                     else:
-                        _fwd_time, _bwd_time, _reserved_fwd, _reserved_bwd, _allocated_fwd = profile_op(mbs, algo, op_info, params_dtype, grad_type, op_uniq_name, config, flex_config) 
+                        (
+                            _fwd_time,
+                            _bwd_time,
+                            _reserved_fwd,
+                            _reserved_bwd,
+                            _allocated_fwd,
+                        ) = profile_op(
+                            mbs,
+                            algo,
+                            op_info,
+                            params_dtype,
+                            grad_type,
+                            op_uniq_name,
+                            config,
+                        )
                 except RuntimeError as e:
                     print(f"RuntimeError: {e}. {traceback.format_exc()}")
-                    _fwd_time, _bwd_time, _reserved_fwd, _reserved_bwd, _allocated_fwd = 10000000, 10000000, 10000000, 10000000, 10000000
-                print(f"[results] {op_info.op_name}: fwd_compute = {_fwd_time:.2f} us, bwd_compute = {_bwd_time:.2f} us, fwd_allocated = {_allocated_fwd:.1f} MB, fwd_reserved = {_reserved_fwd:.1f} MB, bwd_reserved = {_reserved_bwd:.1f} MB.")
-            
-            profiled_results[op_uniq_name] = [_fwd_time, _bwd_time, input_size_dict[op_uniq_name], output_size_dict[op_uniq_name], weight_size_dict[op_uniq_name], _allocated_fwd, _reserved_fwd, _reserved_bwd]
+                    (
+                        _fwd_time,
+                        _bwd_time,
+                        _reserved_fwd,
+                        _reserved_bwd,
+                        _allocated_fwd,
+                    ) = (10000000, 10000000, 10000000, 10000000, 10000000)
+                print(
+                    f"[results] {op_info.op_name}: fwd_compute = {_fwd_time:.2f} us, bwd_compute = {_bwd_time:.2f} us, fwd_allocated = {_allocated_fwd:.1f} MB, fwd_reserved = {_reserved_fwd:.1f} MB, bwd_reserved = {_reserved_bwd:.1f} MB."
+                )
+
+            profiled_results[op_uniq_name] = [
+                _fwd_time,
+                _bwd_time,
+                input_size_dict[op_uniq_name],
+                output_size_dict[op_uniq_name],
+                weight_size_dict[op_uniq_name],
+                _allocated_fwd,
+                _reserved_fwd,
+                _reserved_bwd,
+            ]
             op_hash_list[op_hash] = op_uniq_name
         dump_profiled_results(save_filename_prefix, mbs, algo, op_list)
 
+
 def get_prof_tasks_by_rank(all_tasks, num_nodes, node_rank):
-    '''
-    This function is aimed to distribute the profiling tasks evenly to all the nodes, 
+    """
+    This function is aimed to distribute the profiling tasks evenly to all the nodes,
     to make each node have a similar profiling time.
     The distribution is achieved using the estimated profiling time of each task.
     We estimate the profiling time of each task using a given reference database.
-    The reference database does not necessarily to be accurate, which can be a one-time 
+    The reference database does not necessarily to be accurate, which can be a one-time
     profiling database or database obtained in another environment.
-    '''
+    """
     all_task_times = []
     for task in all_tasks:
         profile_time = estimate_profile_time(task)
@@ -620,22 +839,31 @@ def get_prof_tasks_by_rank(all_tasks, num_nodes, node_rank):
     range_per_rank = 1 / num_nodes
     _current_sum_time = 0
     _all_tasks = []
-    print(f"[DEBUG] (tp_size = {args.prof_tp_size}). calculating prof tasks by rank ...")
+    print(
+        f"[DEBUG] (tp_size = {args.prof_tp_size}). calculating prof tasks by rank ..."
+    )
     for i, profile_time in enumerate(all_task_times):
-        _current_sum_time += profile_time 
+        _current_sum_time += profile_time
         _current_ratio = _current_sum_time / sum_time
         _supposed_rank = int(max(0, _current_ratio - 0.01) / range_per_rank)
         if _supposed_rank == node_rank:
             _all_tasks.append(all_tasks[i])
-            print(f"APPENDING task: {all_tasks[i]['model']}_{all_tasks[i]['size']}, mbs {all_tasks[i]['mbs']}. (accum time = {_current_sum_time:.2f} / {sum_time:.2f}, ratio = {_current_ratio:.2f})")
+            print(
+                f"APPENDING task: {all_tasks[i]['model']}_{all_tasks[i]['size']}, mbs {all_tasks[i]['mbs']}. (accum time = {_current_sum_time:.2f} / {sum_time:.2f}, ratio = {_current_ratio:.2f})"
+            )
         else:
-            print(f"DROP task: {all_tasks[i]['model']}_{all_tasks[i]['size']}, mbs {all_tasks[i]['mbs']}. (accum time = {_current_sum_time:.2f} / {sum_time:.2f}, ratio = {_current_ratio:.2f}). this should be profiled by rank {_supposed_rank}")
+            print(
+                f"DROP task: {all_tasks[i]['model']}_{all_tasks[i]['size']}, mbs {all_tasks[i]['mbs']}. (accum time = {_current_sum_time:.2f} / {sum_time:.2f}, ratio = {_current_ratio:.2f}). this should be profiled by rank {_supposed_rank}"
+            )
     return _all_tasks
+
 
 if __name__ == "__main__":
 
     start_profiling_time = time.time()
+    print(f'[INFO] Profiling starts at {start_profiling_time}')
     initialize_megatron()
+    print(f'[INFO] Megatron initialized')
     args = get_args()
 
     ## read cached database if exists
@@ -645,14 +873,22 @@ if __name__ == "__main__":
         op_hash_list = cached_results["op_hash_list"]
     else:
         profiled_results = {}
-        op_hash_list = {}        
+        op_hash_list = {}
 
     ## get profiling tasks
     ## "task"s are defined by unique {model, size, mbs} pairs
     all_prof_tasks = []
-    model_names = ["resnet", "gpt", "t5"] if args.prof_model_name == "all" else [args.prof_model_name]
+    model_names = (
+        ["resnet", "gpt", "t5"]
+        if args.prof_model_name == "all"
+        else [args.prof_model_name]
+    )
     for model in model_names:
-        model_sizes = model_prof_configs[model]["model_size"] if args.prof_model_size == "all" else [args.prof_model_size]
+        model_sizes = (
+            model_prof_configs[model]["model_size"]
+            if args.prof_model_size == "all"
+            else [args.prof_model_size]
+        )
         for size in model_sizes:
             if args.prof_mbs_list is None:
                 micro_batch_sizes = model_prof_configs[model]["mbs"]
@@ -665,11 +901,19 @@ if __name__ == "__main__":
     if args.prof_num_nodes is not None:
         new_hash_list = []
         ref_data = pickle.load(open(args.prof_ref_data, "rb"))["profiled_results"]
-        all_prof_tasks = get_prof_tasks_by_rank(all_prof_tasks, args.prof_num_nodes, args.prof_node_rank)
+        all_prof_tasks = get_prof_tasks_by_rank(
+            all_prof_tasks, args.prof_num_nodes, args.prof_node_rank
+        )
+    
+    print(f'[INFO] Profiling tasks: {all_prof_tasks}')
 
     ## run profiling tasks
     for prof_task in all_prof_tasks:
         run_profile(prof_task)
+    
+    print(f'[INFO] Finish profiling')
 
     end_profiling_time = time.time()
-    print_rank0(f"[TOTAL PROFILING TIME] {end_profiling_time - start_profiling_time:2f} s")
+    print_rank0(
+        f"[TOTAL PROFILING TIME] {end_profiling_time - start_profiling_time:2f} s"
+    )

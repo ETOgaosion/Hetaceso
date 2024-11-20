@@ -505,6 +505,7 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
                 value,
                 attention_mask,
                 attn_mask_type=attn_mask_type.name,
+                checkpoint_core_attention=(self.config.recompute_granularity == 'selective'),
                 **packed_seq_kwargs,
             )
         else:

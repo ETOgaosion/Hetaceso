@@ -38,7 +38,7 @@ from megatron.core.transformer.moe.moe_utils import track_moe_metrics
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from megatron.core.pipeline_parallel.p2p_communication import initialize_weights_sharing, synchronize_shared_weights_grads
 
-from megatron.training.arguments import core_transformer_config_from_args, flex_config_from_args
+from megatron.training.arguments import core_transformer_config_from_args
 
 from .utils import (
     calc_params_l2_norm,
@@ -430,9 +430,7 @@ def get_model(model_provider_func, model_type=ModelType.encoder_or_decoder, wrap
 
     if wrap_with_ddp:
         config = get_model_config(model[0])
-        flex_config = flex_config_from_args(args)
         model = [DDP(config,
-                     flex_config,
                      model_chunk,
                      data_parallel_group=mpu.get_data_parallel_group(with_context_parallel=True),
                      expert_data_parallel_group=mpu.get_data_modulo_expert_parallel_group(),

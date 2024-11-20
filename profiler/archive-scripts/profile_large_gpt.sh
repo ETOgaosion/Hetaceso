@@ -4,12 +4,12 @@ MASTER_PORT=7000
 NNODES=4
 NODE_RANK=0
 
-RUNTIME_PATH=$(pwd)/
-PROFILING_PATH=${RUNTIME_PATH}profiled-time-eurosys-new/
+RUNTIME_PATH=$(pwd)/../results/
+PROFILING_PATH=${RUNTIME_PATH}profiled-time-hetaceso/
 
 mkdir ${PROFILING_PATH}
 MAX_NUM_GPUS=8
-MODEL_NAME=resnet
+MODEL_NAME=gpt
 MODEL_SIZE=all
 
 for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
