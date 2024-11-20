@@ -21,7 +21,6 @@ class TestFlexpipeArgs(unittest.TestCase):
         print(f"num_gpus: {args.num_gpus}")
         print(f"tensor_parallel_size_of_each_op: {args.tensor_parallel_size_of_each_op}")
         print(f"data_parallel_size_of_each_op: {args.data_parallel_size_of_each_op}")
-        print(f"recompute_ops: {args.recompute_ops}")
 
 
 if __name__ == '__main__':

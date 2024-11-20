@@ -10,7 +10,6 @@ from .. import parallel_state as mpu
 from ..transformer.module import MegatronModule
 from ..transformer.transformer_config import TransformerConfig
 from .param_and_grad_buffer import ParamAndGradBuffer
-from ..flexmodels.common.flex_model_config import FlexModelConfig
 
 import os
 LOG_NAME = os.environ.get("LOG_NAME", None)
@@ -45,7 +44,6 @@ class DistributedDataParallel(MegatronModule):
     def __init__(
         self,
         config: TransformerConfig,
-        flexconfig: FlexModelConfig,
         module: torch.nn.Module,
         data_parallel_group: torch.distributed.ProcessGroup,
         accumulate_allreduce_grads_in_fp32: bool,

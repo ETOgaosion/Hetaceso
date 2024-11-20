@@ -1,5 +1,5 @@
 #! /bin/bash
-RUNTIME_PATH=$(pwd)/
+RUNTIME_PATH=$(pwd)/../results/
 PROFILING_PATH=${RUNTIME_PATH}profiled-time-miniset/
 mkdir ${PROFILING_PATH}
 FILE_NAME=${PROFILING_PATH}p2p_intra_node.csv

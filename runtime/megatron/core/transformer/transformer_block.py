@@ -191,7 +191,6 @@ class TransformerBlock(MegatronModule):
         packed_seq_params: PackedSeqParams,
     ):
         """Forward method with activation checkpointing."""
-
         def custom(start: int, end: int):
             def custom_forward(
                 hidden_states,

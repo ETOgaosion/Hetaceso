@@ -26,7 +26,7 @@ from megatron.training.utils import (
     get_batch_on_this_tp_rank,
     average_losses_across_data_parallel_group
 )
-from megatron.training.arguments import core_transformer_config_from_args, flex_config_from_args
+from megatron.training.arguments import core_transformer_config_from_args
 from megatron.training.yaml_arguments import core_transformer_config_from_yaml
 from megatron.core.models.gpt.gpt_layer_specs import (
     get_gpt_layer_local_spec,
@@ -57,8 +57,6 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
     else:
         config = core_transformer_config_from_args(args)
 
-    flex_config = flex_config_from_args(args)
-
     if args.use_mcore_models:
         if args.spec is not None:
             transformer_layer_spec = import_module(args.spec)
@@ -70,7 +68,6 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
 
         model = FlexGPTModel(
             config=config,
-            flex_config=flex_config,
             transformer_layer_spec=transformer_layer_spec,
             pre_process=pre_process,
             post_process=post_process,

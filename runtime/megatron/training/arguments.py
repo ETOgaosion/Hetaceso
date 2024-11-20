@@ -16,7 +16,6 @@ from megatron.core.models.retro.utils import (
 )
 from megatron.core.transformer import TransformerConfig
 from megatron.training.json_arguments import load_json_args, validate_json_args
-from megatron.core.flexmodels.common.flex_model_config import FlexModelConfig
 from megatron.training.global_vars import get_timers
 from .utils import warn
 
@@ -66,14 +65,20 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     args.overlap_p2p_comm = False
 
     if args.prof_tp_size is not None:
-        args.global_batch_size = 1 
+        args.num_layers = 1
+        args.num_stages = 1
+        args.num_gpus = [args.world_size]
+        args.global_batch_size = 1
         args.micro_batch_size = 1
-        args.num_ops_in_each_stage = [1]
+        args.num_ops_in_each_stage = [4]
         args.virtual_pipeline_model_parallel_size = 1
         args.tensor_parallel_size_of_each_stage = [args.prof_tp_size]
         args.data_parallel_size_of_each_stage = [1]
         args.context_parallel_size_of_each_stage = [1]
+        args.ring_context_parallel_size_of_each_stage = [1]
+        args.ulysses_context_parallel_size_of_each_stage = [1]
         args.data_parallel_split_of_each_stage = [[1]]
+        args.ulysses_context_parallel_split_of_each_stage = [[[1024] for _ in range(args.prof_tp_size)]]
 
         if len(args.prof_repeat_times) > 1:
             assert args.prof_repeat_threshold is not None, "when args.prof_repeat_times is a list, a threshold is required."
@@ -92,8 +97,10 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         assert args.yaml_cfg and args.use_mcore_models, "To use yaml, mcore must be enabled"
         args = load_yaml(args.yaml_cfg)
 
-
-
+    # if profiler operator
+    if args.prof_op:
+        args.num_gpus = [args.world_size]
+        args.num_layers = 1
 
     return args
 
@@ -530,7 +537,7 @@ def validate_args(args, defaults={}):
         raise RuntimeError('--use-dist-ckpt only support Megatron Core, please add --use-mcore-models.')
     
     # Validate json arguments
-    if args.flexpipe_config is not None:
+    if args.flexpipe_config is not None or args.prof_tp_size is not None:
         validate_json_args(args)
         
     args.share_embeddings_and_output_weights = not args.untie_embeddings_and_output_weights
@@ -558,18 +565,6 @@ def _print_args(title, args):
 
 def _check_arg_is_not_none(args, arg):
     assert getattr(args, arg) is not None, '{} argument is None'.format(arg)
-
-def flex_config_from_args(args, config_class=None):
-    config_class = config_class or FlexModelConfig
-
-    kw_args = {}
-    for f in dataclasses.fields(config_class):
-        if hasattr(args, f.name):
-            kw_args[f.name] = getattr(args, f.name)
-    kw_args['recompute_ops'] = args.recompute_ops
-    kw_args['flex_recompute_activations'] = args.flex_recompute_activations
-    kw_args['scatter_gather_tensors_in_pipeline'] = args.scatter_gather_tensors_in_pipeline
-    return config_class(**kw_args)
 
 def core_transformer_config_from_args(args, config_class=None):
 
@@ -949,7 +944,7 @@ def _add_training_args(parser):
     group.add_argument('--recompute-activations', action='store_true',
                        help='recompute activation to allow for training '
                        'with larger models, sequences, and batch sizes.')
-    group.add_argument('--recompute-granularity', type=str, default=None,
+    group.add_argument('--recompute-granularity', type=str, default='selective',
                        choices=['full', 'selective'],
                        help='Checkpoint activations to allow for training '
                        'with larger models, sequences, and batch sizes. '

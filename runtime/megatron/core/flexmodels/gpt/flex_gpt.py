@@ -1,5 +1,4 @@
 from megatron.core.models.common.language_module.language_module import LanguageModule
-from megatron.core.flexmodels.common.flex_model_config import FlexModelConfig
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.spec_utils import ModuleSpec
 from typing import Dict, Literal, Optional, Tuple, Union
@@ -26,7 +25,6 @@ class FlexGPTModel(LanguageModule):
     def __init__(
         self,
         config: TransformerConfig,
-        flex_config: FlexModelConfig,
         transformer_layer_spec: ModuleSpec,
         pre_process: bool = True,
         post_process: bool = True,
@@ -78,7 +76,6 @@ class FlexGPTModel(LanguageModule):
 
             self.language_model = get_flex_model(
                 config,
-                flex_config,
                 full_model_op_list=current_op_list,
                 pre_process=pre_process,
                 post_process=post_process,

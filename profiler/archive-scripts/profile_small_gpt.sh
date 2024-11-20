@@ -4,7 +4,7 @@ MASTER_PORT=7000
 NNODES=1
 NODE_RANK=0
 
-RUNTIME_PATH=$(pwd)/
+RUNTIME_PATH=$(pwd)/../results/
 PROFILING_PATH=${RUNTIME_PATH}profiled-time-miniset/
 
 VOCAB_FILE=/workspace/file/vocabs/gpt2-vocab.json

@@ -6,27 +6,9 @@
         8,
         4
     ],
-    "flex_recompute_activations": [
-        true,
-        true
-    ],
     "num_ops_in_each_stage": [
         5,
         3
-    ],
-    "recompute_ops": [
-        [
-            false,
-            true,
-            true,
-            true,
-            true
-        ],
-        [
-            true,
-            true,
-            false
-        ]
     ],
     "tensor_parallel_size_of_each_stage":[2, 1],
     "data_parallel_size_of_each_stage": [1, 1],
