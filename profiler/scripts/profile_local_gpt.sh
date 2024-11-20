@@ -15,7 +15,7 @@ MERGE_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-merges.txt
 #  num_layers, seq_len, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype are fake.
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16
-SEQ_LENGTH=2048
+SEQ_LENGTH=1024
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 MICRO_BATCH_SIZE=4
 GLOBAL_BATCH_SIZE=16
@@ -44,7 +44,7 @@ GPT_ARGS="
     --fp16 \
     --tokenizer-type GPT2BPETokenizer \
     --use-mcore-models \
-    --transformer-impl local \
+    --transformer-impl transformer_engine \
 "
 
 FLEX_ARGS="
@@ -59,28 +59,38 @@ fi
 mkdir -p ${PROFILING_PATH}
 mkdir -p logs
 mkdir -p logs/csv
+MAX_NUM_GPUS=8
 MODEL_NAME=gpt
 MODEL_SIZE=350M
-tp_size=1
-GPUS_PER_NODE=${tp_size}
-DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
 
-echo [TIME] before profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
+for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
+do
+    GPUS_PER_NODE=${tp_size}
+    DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
 
-torchrun $DISTRIBUTED_ARGS \
-    op_profiler.py \
-    ${DATA_ARGS} \
-    ${GPT_ARGS} \
-    ${FLEX_ARGS} \
-    --use-mcore-models \
-    --prof-op \
-    --prof-tp-size $tp_size \
-    --prof-path $PROFILING_PATH \
-    --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_op_profile.pkl \
-    --prof-model-name $MODEL_NAME \
-    --prof-model-size $MODEL_SIZE \
-    --prof-warmup-times 10 \
-    --prof-repeat-times 800 \
-    2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_op_tp${tp_size}.log
+    FLEX_ARGS="
+        --log-path ./logs \
+        --nproc-per-node $GPUS_PER_NODE \
+        --nnodes $NNODES \
+    "
 
-echo [TIME] after profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
+    echo [TIME] before profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
+
+    torchrun $DISTRIBUTED_ARGS \
+        op_profiler.py \
+        ${DATA_ARGS} \
+        ${GPT_ARGS} \
+        ${FLEX_ARGS} \
+        --use-mcore-models \
+        --prof-op \
+        --prof-tp-size $tp_size \
+        --prof-path $PROFILING_PATH \
+        --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_op_profile.pkl \
+        --prof-model-name $MODEL_NAME \
+        --prof-model-size $MODEL_SIZE \
+        --prof-warmup-times 10 \
+        --prof-repeat-times 800 \
+        2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_op_tp${tp_size}.log
+
+    echo [TIME] after profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
+done

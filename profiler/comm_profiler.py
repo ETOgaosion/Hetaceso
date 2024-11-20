@@ -241,6 +241,8 @@ def run_profile(task):
         num_item_per_mb = 1024 * 1024 / 4
     else:
         raise RuntimeError(f"data type {data_type} not support.")
+    
+    print(f'mbs_list: {mbs_list}, tp_size_list: {tp_size_list}, algo_list: {algo_list}')
 
     data_size_list = []
     for mbs in mbs_list:
@@ -250,6 +252,7 @@ def run_profile(task):
                     args.prof_op_time_path
                     + f"{model}_{size}_mbs{mbs}_tp{tp}_algo{algo}.csv"
                 )
+                print(file_name)
                 if os.path.exists(file_name):
                     f_op_time = open(file_name, "r")
                     f_csv = csv.reader(f_op_time)
@@ -259,6 +262,8 @@ def run_profile(task):
                             data_size = int(float(row[index]) * num_item_per_mb)
                             if data_size not in data_size_list and data_size > 0:
                                 data_size_list.append(data_size)
+                else:
+                    print(f"file {file_name} not exist.")
 
     torch.multiprocessing.spawn(
         run,
@@ -289,6 +294,7 @@ if __name__ == "__main__":
             all_prof_tasks.append({"model": model, "size": size})
 
     ## TODO: distribute profiling tasks if using multiple nodes
+    print(all_prof_tasks)
 
     ## run profiling tasks
     for prof_task in all_prof_tasks:

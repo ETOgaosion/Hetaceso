@@ -1,6 +1,6 @@
 #! /bin/bash
 RUNTIME_PATH=$(pwd)/../results/
-PROFILING_PATH=${RUNTIME_PATH}profiled-p2p-hetaceso/
+PROFILING_PATH=${RUNTIME_PATH}profiled-dist-p2p-hetaceso/
 mkdir ${PROFILING_PATH}
 FILE_NAME=${PROFILING_PATH}p2p_inter_node.csv
 

@@ -408,7 +408,6 @@ def get_outputs_and_grads(output_tensors: dict, output_extra_tensors, grad_type)
     output_grads = []
     ## add one more dummy op for each output tensor
     for output_tensor in origin_outputs:
-        print(f'output_tensor.shape: {output_tensor.shape}, dtype: {output_tensor.dtype}')
         if output_tensor == None:
             continue
         output_tensor_grad = torch.randn(
@@ -417,7 +416,6 @@ def get_outputs_and_grads(output_tensors: dict, output_extra_tensors, grad_type)
             device=torch.cuda.current_device(),
             dtype=grad_type,
         )
-        print(f'output_tensor_grad.shape: {output_tensor_grad.shape}, dtype: {output_tensor_grad.dtype}')
         output_grads.append(output_tensor_grad)
 
     return origin_outputs, output_grads
@@ -459,7 +457,7 @@ def profile_op(
 
             torch.cuda.synchronize()
             start_time = time.time()
-            torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True, inputs=input_tensors)
+            torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True)
             torch.cuda.synchronize()
             end_time = time.time()
             if index >= args.prof_warmup_times:
@@ -474,6 +472,15 @@ def profile_op(
             output_data = op(
                 input_data, input_extra_tensors, output_extra_tensors, profiling=True
             )
+
+            origin_outputs, output_grads = get_outputs_and_grads(
+                output_data, output_extra_tensors, grad_type
+            )
+
+            ### one-time warmup for backward
+            torch.autograd.backward(
+                origin_outputs, grad_tensors=output_grads, retain_graph=True
+            )
         torch.cuda.synchronize()
         end_time = time.time()
         sum_warmup_time = end_time - start_time
@@ -487,53 +494,37 @@ def profile_op(
         #     remaining_fwd_times = args.prof_repeat_times[1]
         #     remaining_bwd_times = args.prof_repeat_times[1]
         # else:
-        remaining_fwd_times = args.prof_repeat_times[0]
-        remaining_bwd_times = args.prof_repeat_times[0]
+        remaining_times = args.prof_repeat_times[0]
 
         # if args.prof_warmup_threshold is not None and avg_warmup_time >= args.prof_warmup_threshold:
         #     remaining_fwd_times = max(remaining_fwd_times - args.prof_warmup_times, 0)
         #     sum_fwd_time += sum_warmup_time
 
         ##### forward, sync after all runs
-        torch.cuda.synchronize()
-        start_time = time.time()
-        for index in range(remaining_fwd_times):
+        for index in range(remaining_times):
+            torch.cuda.synchronize()
+            start_time = time.time()
             output_data = op(
                 input_data, input_extra_tensors, output_extra_tensors, profiling=True
             )
-        torch.cuda.synchronize()
-        end_time = time.time()
-        sum_fwd_time += end_time - start_time
-        if (
-            args.prof_warmup_threshold is not None
-            and avg_warmup_time >= args.prof_warmup_threshold
-        ):
-            avg_fwd_time = (
-                sum_fwd_time * 1000000 / (remaining_fwd_times + args.prof_warmup_times)
+            torch.cuda.synchronize()
+            end_time = time.time()
+            sum_fwd_time += end_time - start_time
+            ## backward, sync after all run
+            origin_outputs, output_grads = get_outputs_and_grads(
+                output_data, output_extra_tensors, grad_type
             )
-        else:
-            avg_fwd_time = sum_fwd_time * 1000000 / remaining_fwd_times
-
-        origin_outputs, output_grads = get_outputs_and_grads(
-            output_data, output_extra_tensors, grad_type
-        )
-
-        ### one-time warmup for backward
-        torch.autograd.backward(
-            origin_outputs, grad_tensors=output_grads, retain_graph=True
-        )
-
-        ## backward, sync after all run
-        torch.cuda.synchronize()
-        start_time = time.time()
-        for index in range(remaining_bwd_times):
+            torch.cuda.synchronize()
+            start_time = time.time()
             torch.autograd.backward(
                 origin_outputs, grad_tensors=output_grads, retain_graph=True
             )
-        torch.cuda.synchronize()
-        end_time = time.time()
-        sum_bwd_time += end_time - start_time
-        avg_bwd_time = sum_bwd_time * 1000000 / remaining_bwd_times
+            torch.cuda.synchronize()
+            end_time = time.time()
+            sum_bwd_time += end_time - start_time
+            
+        avg_fwd_time = sum_fwd_time * 1000000 / remaining_times
+        avg_bwd_time = sum_bwd_time * 1000000 / remaining_times
 
     ## Profiling memory
     _mem_reserved_fwd = 0
@@ -604,7 +595,7 @@ def profile_op(
             ## workaround for softmax op.
             if "mask" not in input_extra_name and "labels" not in input_extra_name:
                 input_tensors.append(input_extra_tensors[input_extra_name])
-        torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True, inputs=input_tensors)
+        torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True)
 
     mem_allocated_bwd = torch.cuda.memory_allocated() / (1024.0 * 1024.0)
     mem_reserved_bwd = torch.cuda.memory_reserved() / (1024.0 * 1024.0)

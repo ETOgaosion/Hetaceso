@@ -78,7 +78,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args.ring_context_parallel_size_of_each_stage = [1]
         args.ulysses_context_parallel_size_of_each_stage = [1]
         args.data_parallel_split_of_each_stage = [[1]]
-        args.ulysses_context_parallel_split_of_each_stage = [[[1024]]]
+        args.ulysses_context_parallel_split_of_each_stage = [[[1024] for _ in range(args.prof_tp_size)]]
 
         if len(args.prof_repeat_times) > 1:
             assert args.prof_repeat_threshold is not None, "when args.prof_repeat_times is a list, a threshold is required."
@@ -537,7 +537,7 @@ def validate_args(args, defaults={}):
         raise RuntimeError('--use-dist-ckpt only support Megatron Core, please add --use-mcore-models.')
     
     # Validate json arguments
-    if args.flexpipe_config is not None:
+    if args.flexpipe_config is not None or args.prof_tp_size is not None:
         validate_json_args(args)
         
     args.share_embeddings_and_output_weights = not args.untie_embeddings_and_output_weights

@@ -7,14 +7,14 @@ NODE_RANK=$1
 REPROFILE=${1:-1}
 
 RUNTIME_PATH=$(pwd)/../results/
-PROFILING_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
+PROFILING_PATH=${RUNTIME_PATH}profiled-dist-gpt-hetaceso/
 
 VOCAB_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-vocab.json
 MERGE_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-merges.txt
 #  num_layers, seq_len, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype are fake.
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16
-SEQ_LENGTH=2048
+SEQ_LENGTH=1024
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 MICRO_BATCH_SIZE=4
 GLOBAL_BATCH_SIZE=16
@@ -69,7 +69,7 @@ do
 
     echo [TIME] before profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
 
-    python3 -m torch.distributed.launch $DISTRIBUTED_ARGS \
+    torchrun $DISTRIBUTED_ARGS \
         op_profiler.py \
         ${DATA_ARGS} \
         ${GPT_ARGS} \
@@ -85,28 +85,8 @@ do
         --prof-warmup-threshold 100000 \
         --prof-num-nodes $NNODES \
         --prof-node-rank $NODE_RANK \
-        --prof-ref-data ${RUNTIME_PATH}profiled-time-eurosys/${MODEL_NAME}_op_profile.pkl \
+        --prof-ref-data ${RUNTIME_PATH}profiled-gpt-hetaceso/${MODEL_NAME}_op_profile.pkl \
         2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_op_tp${tp_size}.log
 
     echo [TIME] after profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
-done
-
-for ((num_gpus=2; num_gpus<=$MAX_NUM_GPUS; num_gpus=num_gpus*2))
-do
-    echo [TIME] before profiling communication ${num_gpus}-gpus : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
-
-    python3 comm_profiler.py \
-        --prof-path $PROFILING_PATH \
-        --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_comm_profile.pkl \
-        --prof-op-time-path $PROFILING_PATH \
-        --prof-tp-size $num_gpus \
-        --prof-model-name $MODEL_NAME \
-        --prof-model-size $MODEL_SIZE \
-        --prof-warmup-times 5 \
-        --prof-repeat-times 20 \
-        --max-data-size 4096 \
-        2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_comm${num_gpus}gpus.log
-
-    echo [TIME] after profiling communication ${num_gpus}-gpus : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
-
 done
