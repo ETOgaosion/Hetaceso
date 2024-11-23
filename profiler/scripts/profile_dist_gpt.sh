@@ -4,6 +4,12 @@ MASTER_PORT=7000
 NNODES=2
 NODE_RANK=$1
 
+if [ "$NODE_RANK" -eq 1 ]; then
+    export NCCL_SOCKET_IFNAME=eno1
+else
+    export NCCL_SOCKET_IFNAME=eno2
+fi
+
 REPROFILE=${2:-1}
 
 RUNTIME_PATH=$(pwd)/../results/

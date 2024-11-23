@@ -1,6 +1,6 @@
 #!/bin/bash
 
-pids=$(ps aux | grep 'multiprocessing' | grep -v grep | awk '{print $2}')
+pids=$(ps aux | grep 'python3' | grep -v grep | awk '{print $2}')
 
 # 检查是否有找到进程
 if [ -z "$pids" ]; then

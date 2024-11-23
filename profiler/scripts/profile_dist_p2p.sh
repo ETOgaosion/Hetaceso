@@ -7,6 +7,12 @@ FILE_NAME=${PROFILING_PATH}p2p_inter_node.csv
 MASTER_ADDR=10.156.154.242
 NODE_RANK=$1
 
+if [ "$NODE_RANK" -eq 1 ]; then
+    export NCCL_SOCKET_IFNAME=eno1
+else
+    export NCCL_SOCKET_IFNAME=eno2
+fi
+
 if [[ $NODE_RANK -eq 0 || $NODE_RANK -eq 1 ]]; then
     MASTER_ADDR=$MASTER_ADDR \
     MASTER_PORT=7000 \
