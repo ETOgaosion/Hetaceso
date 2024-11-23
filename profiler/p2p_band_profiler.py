@@ -73,6 +73,7 @@ def init_process(local_rank, global_rank, world_size, fn, backend="nccl"):
     master_ip = os.getenv("MASTER_ADDR", "localhost")
     master_port = os.getenv("MASTER_PORT", "6000")
     init_method += master_ip + ":" + master_port
+    print(f"Rank {global_rank} init method: {init_method}")
 
     dist.init_process_group(
         backend=backend,
