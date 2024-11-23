@@ -65,6 +65,7 @@ MODEL_SIZE=all
 for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
 do
     GPUS_PER_NODE=${tp_size}
+    TOTAL_TP_SIZE= $(($tp_size * 2))
     DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
 
     FLEX_ARGS="
@@ -80,7 +81,7 @@ do
         ${DATA_ARGS} \
         ${GPT_ARGS} \
         ${FLEX_ARGS} \
-        --prof-tp-size $tp_size \
+        --prof-tp-size $TOTAL_TP_SIZE \
         --prof-path $PROFILING_PATH \
         --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_op_profile.pkl \
         --prof-model-name $MODEL_NAME \
