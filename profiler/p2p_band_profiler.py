@@ -80,6 +80,8 @@ def init_process(local_rank, global_rank, world_size, fn, backend="nccl"):
         rank=global_rank,
         init_method=init_method,
     )
+    
+    print(f"Rank {global_rank} initialized")
 
     fn(local_rank, global_rank)
 
