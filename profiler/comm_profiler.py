@@ -225,7 +225,10 @@ def run_profile(task):
     model = task["model"]
     size = task["size"]
     if args.prof_mbs_list is None:
-        mbs_list = model_prof_configs[model]["mbs"]
+        if isinstance(model_prof_configs[model]["mbs"], dict):
+            mbs_list = model_prof_configs[model]["mbs"][size]
+        else:
+            mbs_list = model_prof_configs[model]["mbs"]
     else:
         mbs_list = args.prof_mbs_list
 

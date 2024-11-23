@@ -61,7 +61,7 @@ mkdir -p logs
 mkdir -p logs/csv
 MAX_NUM_GPUS=8
 MODEL_NAME=gpt
-MODEL_SIZE=350M
+MODEL_SIZE=all
 
 for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
 do

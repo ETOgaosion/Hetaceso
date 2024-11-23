@@ -882,7 +882,10 @@ if __name__ == "__main__":
         )
         for size in model_sizes:
             if args.prof_mbs_list is None:
-                micro_batch_sizes = model_prof_configs[model]["mbs"]
+                if isinstance(model_prof_configs[model]["mbs"], dict):
+                    micro_batch_sizes = model_prof_configs[model]["mbs"][size]
+                else:
+                    micro_batch_sizes = model_prof_configs[model]["mbs"]
             else:
                 micro_batch_sizes = args.prof_mbs_list
             for mbs in micro_batch_sizes:

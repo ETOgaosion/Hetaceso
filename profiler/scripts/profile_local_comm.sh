@@ -7,13 +7,13 @@ NODE_RANK=$1
 REPROFILE=${1:-1}
 
 RUNTIME_PATH=$(pwd)/../results/
-PROFILING_PATH=${RUNTIME_PATH}profiled-dist-comm-hetaceso/
+PROFILING_PATH=${RUNTIME_PATH}profiled-local-comm-hetaceso/
 PROFILING_OP_TIME_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
 
 mkdir -p ${PROFILING_PATH}
 MAX_NUM_GPUS=8
 MODEL_NAME=gpt
-MODEL_SIZE=350M
+MODEL_SIZE=all
 
 for ((num_gpus=2; num_gpus<=$MAX_NUM_GPUS; num_gpus=num_gpus*2))
 do
