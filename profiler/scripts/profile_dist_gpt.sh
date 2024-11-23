@@ -4,7 +4,7 @@ MASTER_PORT=7000
 NNODES=2
 NODE_RANK=$1
 
-REPROFILE=${1:-1}
+REPROFILE=${2:-1}
 
 RUNTIME_PATH=$(pwd)/../results/
 PROFILING_PATH=${RUNTIME_PATH}profiled-dist-gpt-hetaceso/
