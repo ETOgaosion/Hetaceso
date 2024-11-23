@@ -65,7 +65,7 @@ MODEL_SIZE=all
 for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
 do
     GPUS_PER_NODE=${tp_size}
-    TOTAL_TP_SIZE= $(($tp_size * 2))
+    TOTAL_TP_SIZE=$(echo $(($tp_size * 2))$)
     DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
 
     FLEX_ARGS="
