@@ -4,7 +4,7 @@ PROFILING_PATH=${RUNTIME_PATH}profiled-dist-p2p-hetaceso/
 mkdir ${PROFILING_PATH}
 FILE_NAME=${PROFILING_PATH}p2p_inter_node.csv
 
-MASTER_ADDR=localhost
+MASTER_ADDR=10.156.154.242
 NODE_RANK=$1
 
 if [[ $NODE_RANK -eq 0 || $NODE_RANK -eq 1 ]]; then
