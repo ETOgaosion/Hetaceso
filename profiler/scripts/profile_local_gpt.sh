@@ -61,7 +61,7 @@ mkdir -p logs
 mkdir -p logs/csv
 MAX_NUM_GPUS=4
 MODEL_NAME=gpt
-MODEL_SIZE=all
+MODEL_SIZE=350M
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export NCCL_SOCKET_IFNAME=eno2

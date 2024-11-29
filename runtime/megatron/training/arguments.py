@@ -944,7 +944,7 @@ def _add_training_args(parser):
     group.add_argument('--recompute-activations', action='store_true',
                        help='recompute activation to allow for training '
                        'with larger models, sequences, and batch sizes.')
-    group.add_argument('--recompute-granularity', type=str, default='selective',
+    group.add_argument('--recompute-granularity', type=str, default=None,
                        choices=['full', 'selective'],
                        help='Checkpoint activations to allow for training '
                        'with larger models, sequences, and batch sizes. '
