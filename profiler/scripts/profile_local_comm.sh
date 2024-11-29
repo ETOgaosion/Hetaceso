@@ -4,7 +4,8 @@ MASTER_PORT=7000
 NNODES=2
 NODE_RANK=$1
 
-REPROFILE=${1:-1}
+MACHINE=${1:-0}
+REPROFILE=${2:-1}
 
 RUNTIME_PATH=$(pwd)/../results/
 PROFILING_PATH=${RUNTIME_PATH}profiled-local-comm-hetaceso/
@@ -15,8 +16,14 @@ MAX_NUM_GPUS=4
 MODEL_NAME=gpt
 MODEL_SIZE=350M
 
-export CUDA_VISIBLE_DEVICES=3,4,5,7
-export NCCL_SOCKET_IFNAME=eno2
+if [[ $MACHINE -eq "0" ]]; then
+    export CUDA_DEVICE_MAX_CONNECTIONS=1
+    export NCCL_SOCKET_IFNAME=eno2
+    export CUDA_VISIBLE_DEVICES=3,4,5,7
+else
+    export CUDA_DEVICE_MAX_CONNECTIONS=1
+    export NCCL_SOCKET_IFNAME=eno1
+fi
 
 for ((num_gpus=2; num_gpus<=$MAX_NUM_GPUS; num_gpus=num_gpus*2))
 do
