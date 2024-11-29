@@ -27,4 +27,5 @@ python3 aceso_cost_model.py \
     --num-gpus-per-node $num_gpus_per_node \
     --num-nodes $num_nodes \
     --save-to-csv $SAVE_TO_CSV \
-    --dist-optimizer
+    --dist-optimizer \
+    --support-comm-predict

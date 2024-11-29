@@ -256,7 +256,8 @@ def get_reshard_primitives(input_spec, required_spec):
 
 
 def get_reshard_time(prim, num_devices, data_size):
-    assert num_devices > 1
+    if num_devices <= 1:
+        return 0
     if prim in ["all_reduce", "all_gather", "reduce_scatter", "all_to_all"]:
         _data_size = "{:.0f}".format(float(data_size))
         if _data_size in collective_time[prim][num_devices]:

@@ -11,9 +11,12 @@ PROFILING_PATH=${RUNTIME_PATH}profiled-local-comm-hetaceso/
 PROFILING_OP_TIME_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
 
 mkdir -p ${PROFILING_PATH}
-MAX_NUM_GPUS=8
+MAX_NUM_GPUS=4
 MODEL_NAME=gpt
 MODEL_SIZE=all
+
+export CUDA_VISIBLE_DEVICES=3,4,5,7
+export NCCL_SOCKET_IFNAME=eno2
 
 for ((num_gpus=2; num_gpus<=$MAX_NUM_GPUS; num_gpus=num_gpus*2))
 do

@@ -59,12 +59,13 @@ FLEX_ARGS="
 # mkdir -p ${PROFILING_PATH}
 mkdir -p logs
 mkdir -p logs/csv
-MAX_NUM_GPUS=8
+MAX_NUM_GPUS=4
 MODEL_NAME=gpt
 MODEL_SIZE=all
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export NCCL_SOCKET_IFNAME=eno2
+export CUDA_VISIBLE_DEVICES=3,4,5,7
 
 for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
 do
