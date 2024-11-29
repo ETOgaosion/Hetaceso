@@ -1,2 +1,6 @@
-./scripts/profile_local_gpt.sh
-./scripts/profile_local_comm.sh
+#!/bin/bash
+
+MACHINE=${1:-0}
+
+./scripts/profile_local_gpt.sh $MACHINE
+./scripts/profile_local_comm.sh $MACHINE
