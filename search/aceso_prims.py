@@ -4,7 +4,7 @@
 import copy 
 from aceso_utils import parse_args, timers, debug_info, config_details, check_legality, MAX_VALUE, MIN_VALUE
 from aceso_policy import get_target_stage, get_partner_stage
-from aceso_cost_model import wrap_predict_delta_time, predict_stage_time_helper, predict_value_after_move, update_recompute, predict_time_breakdown, check_recompute, predict_stage_time, predict_stage_memory
+from aceso_cost_model import wrap_predict_delta_time, predict_stage_time_helper, predict_value_after_move, predict_time_breakdown, predict_stage_time, predict_stage_memory
 from model_ops_info import get_tunable_op_list
 
 NUM_EXPLORED_CONFIGS = 0
@@ -63,7 +63,7 @@ def get_move_count():
     global move_visit_count, move_hit_count, move_set
     return move_visit_count, move_hit_count
 
-def action_move_once(config, stage_bottleneck, stage_lowest, step_size=1, updated_recompute_ops=None):
+def action_move_once(config, stage_bottleneck, stage_lowest, step_size=1):
     global move_visit_count, move_hit_count, move_set
     move_visit_count += 1
     move_str = config_details(config, get_string=True) + f"h{stage_bottleneck}l{stage_lowest}s{step_size}"
@@ -88,9 +88,7 @@ def action_move_once(config, stage_bottleneck, stage_lowest, step_size=1, update
 
     if stage_bottleneck < stage_lowest:
         new_config.stages[btnk_right].ops = new_config.stages[btnk].ops[-step_size:] + new_config.stages[btnk_right].ops
-        new_config.stages[btnk_right].recompute_ops = [0 for _ in range(step_size)] + new_config.stages[btnk_right].recompute_ops 
         new_config.stages[btnk].ops = new_config.stages[btnk].ops[:-step_size]
-        new_config.stages[btnk].recompute_ops = new_config.stages[btnk].recompute_ops[:-step_size]
 
         new_tp_size = [new_config.stages[btnk_right].tp_size[0] for _ in range(step_size)]
         new_dp_size = [new_config.stages[btnk_right].dp_size[0] for _ in range(step_size)]
@@ -98,20 +96,10 @@ def action_move_once(config, stage_bottleneck, stage_lowest, step_size=1, update
         new_config.stages[btnk_right].dp_size = new_dp_size + new_config.stages[btnk_right].dp_size
         new_config.stages[btnk].tp_size = new_config.stages[btnk].tp_size[:-step_size]
         new_config.stages[btnk].dp_size = new_config.stages[btnk].dp_size[:-step_size]
-        new_config.stages[btnk_right].algo = new_config.stages[btnk].algo[-step_size:] + new_config.stages[btnk_right].algo
-        new_config.stages[btnk].algo = new_config.stages[btnk].algo[:-step_size]
-
-        if updated_recompute_ops is not None:
-            new_config.stages[btnk].recompute_ops = updated_recompute_ops
-        else:
-            update_recompute(new_config, stage_bottleneck) 
-        update_recompute(new_config, stage_bottleneck + 1) 
-
+        
     elif stage_bottleneck > stage_lowest:
         new_config.stages[btnk_left].ops = new_config.stages[btnk_left].ops + new_config.stages[btnk].ops[:step_size]
-        new_config.stages[btnk_left].recompute_ops = new_config.stages[btnk_left].recompute_ops + [0 for _ in range(step_size)]
         new_config.stages[btnk].ops = new_config.stages[btnk].ops[step_size:]
-        new_config.stages[btnk].recompute_ops = new_config.stages[btnk].recompute_ops[step_size:]
 
         new_tp_size = [new_config.stages[btnk_left].tp_size[-1] for _ in range(step_size)]
         new_dp_size = [new_config.stages[btnk_left].dp_size[-1] for _ in range(step_size)]
@@ -119,14 +107,7 @@ def action_move_once(config, stage_bottleneck, stage_lowest, step_size=1, update
         new_config.stages[btnk_left].dp_size = new_config.stages[btnk_left].dp_size + new_dp_size
         new_config.stages[btnk].tp_size = new_config.stages[btnk].tp_size[step_size:]
         new_config.stages[btnk].dp_size = new_config.stages[btnk].dp_size[step_size:]
-        new_config.stages[btnk_left].algo = new_config.stages[btnk_left].algo + new_config.stages[btnk].algo[:step_size]
-        new_config.stages[btnk].algo = new_config.stages[btnk].algo[step_size:]
 
-        if updated_recompute_ops is not None:
-            new_config.stages[btnk].recompute_ops = updated_recompute_ops
-        else:
-            update_recompute(new_config, stage_bottleneck) 
-        update_recompute(new_config, stage_bottleneck - 1) 
     else:
         return config
 
@@ -173,12 +154,11 @@ def prim_mig_op(config, bottleneck, action = ""):
                             break
                         if args.predict_delta_time and metric == "time_with_efficiency":
                             delta_time = wrap_predict_delta_time(_new_config, bottleneck, partner, num_ops)
-                            updated_recompute_ops = None
                             value_after_move = tmp_value_list[bottleneck] - delta_time
                         else:
-                            value_after_move, updated_recompute_ops = predict_value_after_move(_new_config, bottleneck, partner, num_ops, metric)
+                            value_after_move = predict_value_after_move(_new_config, bottleneck, partner, num_ops, metric)
                         if value_after_move < goal:
-                            _new_config = action_move_once(_new_config, bottleneck, partner, num_ops, updated_recompute_ops)
+                            _new_config = action_move_once(_new_config, bottleneck, partner, num_ops)
                             debug_info(f"======> success moving {num_ops} from {bottleneck}. ({value_after_move} < {goal} (goal))", args.print_move_op_details)
                             found = True
                             tmp_value_list = [predict_stage_time_helper(_new_config, stage_index) for stage_index in range(_new_config.num_stages)]
@@ -257,12 +237,11 @@ def prim_mig_op_simple(config, bottleneck, action = ""):
                     break
                 if args.predict_delta_time and metric == "time_with_efficiency":
                     delta_time = wrap_predict_delta_time(_new_config, bottleneck, partner, num_ops)
-                    updated_recompute_ops = None
                     value_after_move = tmp_value_list[bottleneck] - delta_time
                 else:
-                    value_after_move, updated_recompute_ops = predict_value_after_move(_new_config, bottleneck, partner, num_ops, metric)
+                    value_after_move = predict_value_after_move(_new_config, bottleneck, partner, num_ops, metric)
                 if value_after_move < goal:
-                    _new_config = action_move_once(_new_config, bottleneck, partner, num_ops, updated_recompute_ops)
+                    _new_config = action_move_once(_new_config, bottleneck, partner, num_ops)
                     debug_info(f"======> success moving {num_ops} from {bottleneck}. ({value_after_move} < {goal} (goal))", args.print_move_op_details)
                     success_flag = True
                     tmp_value_list = [predict_stage_time_helper(_new_config, stage_index) for stage_index in range(_new_config.num_stages)]
@@ -480,8 +459,6 @@ def prim_tp_dp(config, bottleneck, action):
         else:
             debug_info(f"NOT legal migration: partner stages {partner_stages} ({partner_actions})", args.print_gpu_mig_details)
 
-    if best_config is not None:
-        update_recompute(best_config)
     return best_config    
 
 def get_next_mbs(mbs, mbs_list, inc=True):
@@ -520,10 +497,9 @@ def best_total_gpu_time(stage_config, base_batch_size, num_gpus):
         if dp_size >= 1 and base_batch_size//dp_size in args.micro_batch_size:
             _tp_size = [tp_size for _ in range(len(ops))]
             _dp_size = [dp_size for _ in range(len(ops))]
-            recompute_ops = check_recompute(ops, base_batch_size, _tp_size, _dp_size, num_stages_behind, stage_config.algo)
-            total_gpu_time = predict_stage_time(ops, recompute_ops, _tp_size, _dp_size, base_batch_size, stage_config.algo) * num_gpus
+            total_gpu_time = predict_stage_time(ops, _tp_size, _dp_size, base_batch_size) * num_gpus
             # memory penalty
-            stage_memory = predict_stage_memory(ops, recompute_ops, _tp_size, _dp_size, base_batch_size, num_stages_behind, stage_config.algo)
+            stage_memory = predict_stage_memory(ops, _tp_size, _dp_size, base_batch_size, num_stages_behind)
 
             if stage_memory > args.memory_limit:
                 total_gpu_time += stage_memory * 10
@@ -533,7 +509,6 @@ def best_total_gpu_time(stage_config, base_batch_size, num_gpus):
                 best_stage_config.tp_size = _tp_size
                 best_stage_config.dp_size = _dp_size
                 best_stage_config.num_gpus = num_gpus
-                best_stage_config.recompute_ops = recompute_ops
         tp_size *= 2
 
     if best_time < MAX_VALUE:
@@ -571,10 +546,7 @@ def prim_mbs(config, bottleneck, action):
                     if new_stage_config is not None:
                         new_config_dec.stages[i] = new_stage_config
                     else:
-                        return None
-                else:
-                    if new_config_dec[stage_name]["base_bs"] // max(new_config_dec[stage_name]["dp_size"]) not in args.micro_batch_size:
-                        return None         
+                        return None    
             return new_config_dec
         else:
             return None
@@ -596,7 +568,7 @@ def finetune_dim_op_level_helper(config, index, op_index, inc_dim, reverse=False
     Helper function for finetune_dim_op_level
     """
     global NUM_EXPLORED_CONFIGS
-    new_tp_size, new_dp_size, new_recompute_ops, new_time, new_memory = None, None, None, None, None 
+    new_tp_size, new_dp_size, new_time, new_memory = None, None, None, None 
 
     ops = config.stages[index].ops
     tp_size = config.stages[index].tp_size
@@ -635,11 +607,10 @@ def finetune_dim_op_level_helper(config, index, op_index, inc_dim, reverse=False
         raise RuntimeError(f"inc dim {inc_dim} not supported.")
 
     if new_tp_size is not None:
-        new_recompute_ops = check_recompute(ops, base_batch_size, new_tp_size, new_dp_size, config.stages[index].num_stages_behind, config.stages[index].algo)
-        new_time = predict_stage_time(ops, new_recompute_ops, new_tp_size, new_dp_size, base_batch_size, config.stages[index].algo)
-        new_memory = predict_stage_memory(ops, new_recompute_ops, new_tp_size, new_dp_size, base_batch_size, config.stages[index].num_stages_behind, config.stages[index].algo)
+        new_time = predict_stage_time(ops, new_tp_size, new_dp_size, base_batch_size)
+        new_memory = predict_stage_memory(ops, new_tp_size, new_dp_size, base_batch_size, config.stages[index].num_stages_behind)
 
-    return new_tp_size, new_dp_size, new_recompute_ops, new_time, new_memory
+    return new_tp_size, new_dp_size, new_time, new_memory
 
 def finetune_dim_op_level(config, index, goal="time"):
     """
@@ -655,25 +626,22 @@ def finetune_dim_op_level(config, index, goal="time"):
     tp_size = config.stages[index].tp_size
     dp_size = config.stages[index].dp_size
     base_batch_size = config.micro_bs
-    algo_list = config.stages[index].algo
     num_stages_behind = config.stages[index].num_stages_behind
 
     time_list = []
     memory_list = []
     tuned_tp_size_list = []
     tuned_dp_size_list = []
-    tuned_recompute_ops_list = []
 
     for start_op_index in range(len(ops)):
         if ops[start_op_index] in ops_tunable:
             for inc_dim in ["tp", "dp"]:
                 for reverse in [False, True]:
-                    new_tp_size, new_dp_size, new_recompute_ops, new_time, new_memory \
+                    new_tp_size, new_dp_size, new_time, new_memory \
                         = finetune_dim_op_level_helper(config, index, start_op_index, inc_dim, reverse=reverse)
                     if new_tp_size is not None:
                         tuned_tp_size_list.append(new_tp_size)
                         tuned_dp_size_list.append(new_dp_size)
-                        tuned_recompute_ops_list.append(new_recompute_ops)
                         time_list.append(new_time)
                         memory_list.append(new_memory)
 
@@ -695,69 +663,10 @@ def finetune_dim_op_level(config, index, goal="time"):
         new_config = copy.deepcopy(config)
         new_config.stages[index].tp_size = tuned_tp_size_list[best_index]
         new_config.stages[index].dp_size = tuned_dp_size_list[best_index]
-        new_config.stages[index].recompute_ops = tuned_recompute_ops_list[best_index]
 
         return new_config
     else:
         return None     
-
-def finetune_algo_op_level(config, index):
-    global NUM_EXPLORED_CONFIGS
-
-    if config.stages[index].num_gpus == 1:
-        return None
-
-    ops = config.stages[index].ops
-    recompute_ops = config.stages[index].recompute_ops
-    tp_size = config.stages[index].tp_size
-    dp_size = config.stages[index].dp_size
-    base_batch_size = config.micro_bs
-    algo_list = config.stages[index].algo
-    num_stages_behind = config.stages[index].num_stages_behind
-    prev_time = predict_stage_time(ops, recompute_ops, tp_size, dp_size, base_batch_size, algo_list)
-    prev_memory = predict_stage_memory(ops, recompute_ops, tp_size, dp_size, base_batch_size, num_stages_behind, algo_list)
-
-    action_success = False 
-    for i in range(len(ops)):
-        if ops[i] in ops_tunable:
-            time_list = []
-            memory_list = []
-            new_algos_list = []
-            for algo_index in range(args.num_algos):
-                if algo_index != algo_list[i]:
-                    NUM_EXPLORED_CONFIGS += 1
-                    new_algos = list(algo_list)
-                    new_algos[i] = algo_index   
-                    time_list.append(predict_stage_time(ops, recompute_ops, tp_size, dp_size, base_batch_size, new_algos))
-                    memory_list.append(predict_stage_memory(ops, recompute_ops, tp_size, dp_size, base_batch_size, num_stages_behind, new_algos))  
-                    new_algos_list.append(new_algos)         
-
-            best_index = -1
-            if prev_memory > args.memory_limit:
-                best_time = MAX_VALUE
-                for j in range(len(time_list)):
-                    if time_list[j] < best_time:
-                        best_time = time_list[j]
-                        best_index = j
-            else:
-                best_time = prev_time
-                for j in range(len(time_list)):
-                    if time_list[j] < best_time and memory_list[j] < args.memory_limit:
-                        best_time = time_list[j]
-                        best_index = j
-
-            if best_index >= 0:
-                action_success = True
-                algo_list = new_algos_list[best_index]
-                prev_memory = memory_list[best_index]
-                prev_time = time_list[best_index]
-
-    if action_success:
-        new_config = copy.deepcopy(config)
-        new_config.stages[index].algo = algo_list
-        return new_config
-    else:
-        return None
 
 def finetune(config):
     for stage_index in range(config.num_stages):
@@ -770,14 +679,6 @@ def finetune(config):
             if time_ < initial_time and memory_ <= args.memory_limit:
                 config = config_ 
                 initial_time = time_ 
-
-        config_ = finetune_algo_op_level(config, stage_index)
-        if config_ is not None:
-            predict_time_breakdown(config_)  
-            time_ = config_.time_list[stage_index]
-            memory_ = config_.memory_list[stage_index]                       
-            if time_ < initial_time and memory_ <= args.memory_limit:
-                config = config_ 
 
     return config
 
@@ -803,9 +704,6 @@ def prim_tp_dp_exchange(config, index, action):
         for i in range(len(new_config.stages[index].ops)):
             new_config.stages[index].dp_size[i] *= 2
             new_config.stages[index].tp_size[i] //= 2
-
-    if new_config is not None:
-        update_recompute(new_config)     
     
     return new_config 
 

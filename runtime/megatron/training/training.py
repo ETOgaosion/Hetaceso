@@ -867,17 +867,14 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         total_loss_dict[skipped_iters_key] = 0
         total_loss_dict[nan_iters_key] = 0
         print_rank_last(log_string)
-        if report_memory_flag and learning_rate > 0.:
-            # Report memory after optimizer state has been initialized.
-            report_memory('(after {} iterations)'.format(iteration))
-            report_memory_flag = False
-        _time_to_csv = timers.log(timers_to_log, normalizer=args.log_interval)
-        if iteration == (args.train_iters - 1):
-            time_to_csv = [["global_batch_size", "time"] + _time_to_csv[0], [batch_size, f"{elapsed_time_per_iteration * 1000.0:.2f}"] + _time_to_csv[1]]
-            # with open(f"{args.log_path}/csv/stage{mpu.get_pipeline_model_parallel_rank()}_rank{torch.distributed.get_rank()}.csv", mode="w", newline="") as file:
-            #     writer = csv.writer(file)
-            #     for row in time_to_csv:
-            #         writer.writerow(row)
+        # Report memory after optimizer state has been initialized.
+        memory_string = report_memory('(after {} iterations)'.format(iteration))
+        with open(f"{args.log_path}/memory_rank{torch.distributed.get_rank()}.log", mode="a+") as file:
+            file.write(memory_string + "\n")
+        timers_string = timers.log(timers_to_log, normalizer=args.log_interval)
+        if iteration > 0 and torch.distributed.get_rank() == 0:
+            with open(f"{args.log_path}/times_{iteration}.log", mode="a+") as file:
+                file.write(timers_string)
 
     return report_memory_flag, elapsed_time_per_iteration * 1000.0
 

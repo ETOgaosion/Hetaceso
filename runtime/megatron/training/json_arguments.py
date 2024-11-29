@@ -18,6 +18,42 @@ def load_json_args(json_file, args):
         args.ring_context_parallel_size_of_each_stage = config_dict["ring_context_parallel_size_of_each_stage"]
         args.data_parallel_split_of_each_stage = config_dict["data_parallel_split_of_each_stage"]
         args.ulysses_context_parallel_split_of_each_stage = config_dict["ulysses_context_parallel_split_of_each_stage"]
+        if config_dict.get("seq_length") is not None:
+            args.seq_length = config_dict["seq_length"]
+        if config_dict.get("max_position_embeddings") is not None:
+            args.max_position_embeddings = config_dict["max_position_embeddings"]
+        if config_dict.get("num_attention_head") is not None:
+            args.num_attention_heads = config_dict["num_attention_head"]
+        if config_dict.get("hidden_size") is not None:
+            args.hidden_size = config_dict["hidden_size"]
+        if config_dict.get("global_batch_size") is not None:
+            args.global_batch_size = config_dict["global_batch_size"]
+        if config_dict.get("micro_batch_size") is not None:
+            args.micro_batch_size = config_dict["micro_batch_size"]
+        if config_dict.get("model_size") is not None:
+            args.model_size = config_dict["model_size"]
+            if args.model_size == '350M':
+                # args.num_layers = 24
+                args.num_attention_heads = 16
+                args.hidden_size = 1024
+            elif args.model_size == '1_3B':
+                # args.num_layers = 24
+                args.num_attention_heads = 24
+                args.hidden_size = 2048
+            elif args.model_size == '2_7B':
+                # args.num_layers = 32
+                args.num_attention_heads = 32
+                args.hidden_size = 2560
+            elif args.model_size == '6_7B':
+                # args.num_layers = 32
+                args.num_attention_heads = 32
+                args.hidden_size = 4096
+            elif args.model_size == '13B':
+                # args.num_layers = 40
+                args.num_attention_heads = 40
+                args.hidden_size = 5140
+        if config_dict.get("model_name") is not None:
+            args.model_name = config_dict["model_name"]
     return args
 
 def validate_json_args(args):

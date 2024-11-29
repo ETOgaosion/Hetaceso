@@ -4,9 +4,9 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
-# export NCCL_DEBUG=TRACE
-# export NCCL_DEBUG_FILE=./nccl.log
-# export NCCL_DEBUG_SUBSYS=ALL
+export NCCL_DEBUG=TRACE
+export NCCL_DEBUG_FILE=./nccl.log
+export NCCL_DEBUG_SUBSYS=ALL
 
 GPUS_PER_NODE=4
 # Change for multinode config

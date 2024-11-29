@@ -123,6 +123,7 @@ def report_memory(name):
     if mpu.get_data_parallel_rank() == 0:
         print("[Rank {}] {}".format(torch.distributed.get_rank(), string),
               flush=True)
+    return string
 
 
 def print_params_min_max_norm(optimizer, iteration):

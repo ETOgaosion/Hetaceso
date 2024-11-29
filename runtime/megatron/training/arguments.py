@@ -821,7 +821,7 @@ def _add_logging_args(parser):
                        'example the user adds a level 1 timer that is not '
                        'called by all ranks.',
                        dest='barrier_with_L1_time')
-    group.add_argument('--timing-log-option', type=str, default='minmax',
+    group.add_argument('--timing-log-option', type=str, default='all',
                        choices=['max', 'minmax', 'all'],
                        help='Options for logging timing:'
                        '  max: report the max timing across all ranks'

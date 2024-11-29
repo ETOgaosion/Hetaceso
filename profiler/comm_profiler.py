@@ -233,7 +233,6 @@ def run_profile(task):
         mbs_list = args.prof_mbs_list
 
     data_type = model_prof_configs[model]["dtype"]
-    algo_list = model_prof_configs[model]["algo"]
     tp_size_list = [1, 2, 4, 8]
 
     if data_type == "fp16":
@@ -245,28 +244,27 @@ def run_profile(task):
     else:
         raise RuntimeError(f"data type {data_type} not support.")
     
-    print(f'mbs_list: {mbs_list}, tp_size_list: {tp_size_list}, algo_list: {algo_list}')
+    print(f'mbs_list: {mbs_list}, tp_size_list: {tp_size_list}')
 
     data_size_list = []
     for mbs in mbs_list:
         for tp in tp_size_list:
-            for algo in algo_list:
-                file_name = (
-                    args.prof_op_time_path
-                    + f"{model}_{size}_mbs{mbs}_tp{tp}_algo{algo}.csv"
-                )
-                print(file_name)
-                if os.path.exists(file_name):
-                    f_op_time = open(file_name, "r")
-                    f_csv = csv.reader(f_op_time)
-                    headers = next(f_csv)
-                    for row in f_csv:
-                        for index in [-3, -5]:
-                            data_size = int(float(row[index]) * num_item_per_mb)
-                            if data_size not in data_size_list and data_size > 0:
-                                data_size_list.append(data_size)
-                else:
-                    print(f"file {file_name} not exist.")
+            file_name = (
+                args.prof_op_time_path
+                + f"{model}_{size}_mbs{mbs}_tp{tp}.csv"
+            )
+            print(file_name)
+            if os.path.exists(file_name):
+                f_op_time = open(file_name, "r")
+                f_csv = csv.reader(f_op_time)
+                headers = next(f_csv)
+                for row in f_csv:
+                    for index in [-3, -5]:
+                        data_size = int(float(row[index]) * num_item_per_mb)
+                        if data_size not in data_size_list and data_size > 0:
+                            data_size_list.append(data_size)
+            else:
+                print(f"file {file_name} not exist.")
 
     torch.multiprocessing.spawn(
         run,

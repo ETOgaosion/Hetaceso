@@ -53,15 +53,18 @@ FLEX_ARGS="
     --nnodes $NNODES \
 "
 
-if [ $REPROFILE -eq 1 ]; then
-    rm -rf ${PROFILING_PATH}
-fi
-mkdir -p ${PROFILING_PATH}
+# if [ $REPROFILE -eq 1 ]; then
+#     rm -rf ${PROFILING_PATH}
+# fi
+# mkdir -p ${PROFILING_PATH}
 mkdir -p logs
 mkdir -p logs/csv
 MAX_NUM_GPUS=8
 MODEL_NAME=gpt
 MODEL_SIZE=all
+
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+export NCCL_SOCKET_IFNAME=eno2
 
 for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
 do

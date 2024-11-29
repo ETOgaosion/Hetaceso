@@ -117,13 +117,7 @@ def get_model(model_name, model_size):
 
     args = get_args()
 
-    if model_name == "resnet":
-        num_layers_list, base_channels, width_factor, params_dtype = resnet_configs[
-            model_size
-        ]
-        params_dtype = get_params_dtype(params_dtype)
-        # model = FlexResNet(num_layers_list=num_layers_list, in_channels=base_channels, width_factor=width_factor, profiling=True)
-    elif model_name == "gpt":
+    if model_name == "gpt":
         (
             num_layers,
             seq_len,
@@ -171,37 +165,12 @@ def get_model(model_name, model_size):
         )
         args.model_name = model_name
         return model, config
-    elif model_name == "t5":
-        (
-            num_layers,
-            encoder_seq_length,
-            decoder_seq_length,
-            hidden_size,
-            ffn_hidden_size,
-            num_attention_heads,
-            kv_channels,
-            vocab_size,
-            params_dtype,
-        ) = t5_configs[model_size]
-        params_dtype = get_params_dtype(params_dtype)
-        args.encoder_seq_length = encoder_seq_length
-        args.decoder_seq_length = decoder_seq_length
-        args.seq_length = encoder_seq_length
-        args.hidden_size = hidden_size
-        args.ffn_hidden_size = ffn_hidden_size
-        args.num_attention_heads = num_attention_heads
-        args.kv_channels = kv_channels
-        args.max_position_embeddings = encoder_seq_length
-        args.padded_vocab_size = vocab_size
-        args.num_layers = num_layers
-        args.resharding_stages = [False]
-        # model = FlexT5Model(profiling=True)
 
     args.model_name = model_name
     return model
 
 
-def infer_data_size(op_list: list[OpInfo], save_filename_prefix: str, mbs: int, algo):
+def infer_data_size(op_list: list[OpInfo], save_filename_prefix: str, mbs: int):
     """
     Infer each op's input/output tensor shape, which will be used to generate input/output tensor during the profiling.
     """
@@ -215,7 +184,7 @@ def infer_data_size(op_list: list[OpInfo], save_filename_prefix: str, mbs: int, 
         op_uniq_name = (
             save_filename_prefix
             + op_info.op_name
-            + f"mbs{mbs}tp_size{tp_size}algo{algo}"
+            + f"mbs{mbs}tp_size{tp_size}"
         )
         op = unwrap_model(gen_op(op_info), (DDP, Float16Module))
 
@@ -349,7 +318,7 @@ def get_inputs(op_uniq_name, params_dtype):
 
 ## this function is used for resnet, to find same operators.
 ## for GPT and T5, no need to hash op, because the possiblities are less.
-def get_op_hash(op_info: OpInfo, micro_batch_size, tp_size, algo, save_filename_prefix):
+def get_op_hash(op_info: OpInfo, micro_batch_size, tp_size, save_filename_prefix):
     hash_str = (
         save_filename_prefix + "mbs" + str(micro_batch_size) + "tp" + str(tp_size)
     )
@@ -363,13 +332,8 @@ def get_op_hash(op_info: OpInfo, micro_batch_size, tp_size, algo, save_filename_
         for attr, value in op_info.__dict__.items():
             if attr not in ["op_name", "prev_name", "op_index"]:
                 hash_str += str(value)
-        if current_op_type in ["conv", "downsample"]:
-            hash_str += "_algo" + str(algo)
     else:
         hash_str += op_info.op_name
-        for gemm_op_name in ["qkv", "dense", "GEMM"]:
-            if gemm_op_name in op_info.op_name:
-                hash_str += "_algo" + str(algo)
 
     return hash_str
 
@@ -423,7 +387,6 @@ def get_outputs_and_grads(output_tensors: dict, output_extra_tensors, grad_type)
 
 def profile_op(
     mbs,
-    algo,
     op_info: OpInfo,
     params_dtype,
     grad_type,
@@ -451,10 +414,14 @@ def profile_op(
             end_time = time.time()
             if index >= args.prof_warmup_times:
                 sum_fwd_time += end_time - start_time
+
+        for index in range(args.prof_repeat_times[0] + args.prof_warmup_times):
+            output_data = op(
+                input_data, input_extra_tensors, output_extra_tensors, profiling=True
+            )
             outputs, output_grads = get_outputs_and_grads(
                 output_data, output_extra_tensors, grad_type
             )
-
             torch.cuda.synchronize()
             start_time = time.time()
             torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True)
@@ -510,7 +477,12 @@ def profile_op(
             torch.cuda.synchronize()
             end_time = time.time()
             sum_fwd_time += end_time - start_time
-            ## backward, sync after all run
+        
+        ## backward, sync after all run
+        for index in range(remaining_times):
+            output_data = op(
+                input_data, input_extra_tensors, output_extra_tensors, profiling=True
+            )
             origin_outputs, output_grads = get_outputs_and_grads(
                 output_data, output_extra_tensors, grad_type
             )
@@ -613,15 +585,15 @@ def profile_op(
     )
 
 
-def dump_profiled_results(save_filename_prefix, mbs, algo, op_list: list[OpInfo]):
+def dump_profiled_results(save_filename_prefix, mbs, op_list: list[OpInfo]):
     global profiled_results
     args = get_args()
     if torch.distributed.get_rank() == 0:
         print_rank0(
-            f"====== PROFILING RESULTS ({save_filename_prefix}, mbs = {mbs}, tp = {args.prof_tp_size}, algo = {algo}) ======"
+            f"====== PROFILING RESULTS ({save_filename_prefix}, mbs = {mbs}, tp = {args.prof_tp_size}) ======"
         )
         save_file_name = (
-            f"{save_filename_prefix}_mbs{mbs}_tp{args.prof_tp_size}_algo{algo}.csv"
+            f"{save_filename_prefix}_mbs{mbs}_tp{args.prof_tp_size}.csv"
         )
         result_title = [
             "op_name",
@@ -642,7 +614,7 @@ def dump_profiled_results(save_filename_prefix, mbs, algo, op_list: list[OpInfo]
             op_name = (
                 save_filename_prefix
                 + op_info.op_name
-                + f"mbs{mbs}tp_size{args.prof_tp_size}algo{algo}"
+                + f"mbs{mbs}tp_size{args.prof_tp_size}"
             )
             fwd_time = "{:.3f}".format(float(profiled_results[op_name][0]))
             bwd_time = "{:.3f}".format(float(profiled_results[op_name][1]))
@@ -684,33 +656,31 @@ def estimate_profile_time(task):
     flex_model, config = get_model(model, size)
     op_list: list[OpInfo] = flex_model.full_op_list
     tp_size = args.prof_tp_size
-    algo_list = model_prof_configs[model]["algo"]
     save_filename_prefix = f"{model}_{size}"
 
     sum_time = 0
-    for algo in algo_list:
-        for op_info in op_list:
-            op_uniq_name = (
-                save_filename_prefix
-                + op_info.op_name
-                + f"mbs{mbs}tp_size{tp_size}algo{algo}"
-            )
-            op_hash = get_op_hash(op_info, mbs, tp_size, algo, save_filename_prefix)
-            if op_uniq_name in ref_data:
-                if op_hash not in new_hash_list:
-                    _profiled_results = list(ref_data[op_uniq_name])
-                    for _time in [_profiled_results[0], _profiled_results[1]]:
-                        if _time < args.prof_warmup_threshold:
-                            sum_time += _time * args.prof_warmup_times
+    for op_info in op_list:
+        op_uniq_name = (
+            save_filename_prefix
+            + op_info.op_name
+            + f"mbs{mbs}tp_size{tp_size}"
+        )
+        op_hash = get_op_hash(op_info, mbs, tp_size, save_filename_prefix)
+        if op_uniq_name in ref_data:
+            if op_hash not in new_hash_list:
+                _profiled_results = list(ref_data[op_uniq_name])
+                for _time in [_profiled_results[0], _profiled_results[1]]:
+                    if _time < args.prof_warmup_threshold:
+                        sum_time += _time * args.prof_warmup_times
 
-                        if _time < args.prof_repeat_threshold:
-                            sum_time += _time * args.prof_repeat_times[0]
-                        else:
-                            sum_time += _time * args.prof_repeat_times[1]
-                    new_hash_list.append(op_hash)
-                continue
-            else:
-                raise RuntimeError(f"op {op_uniq_name} not in database.")
+                    if _time < args.prof_repeat_threshold:
+                        sum_time += _time * args.prof_repeat_times[0]
+                    else:
+                        sum_time += _time * args.prof_repeat_times[1]
+                new_hash_list.append(op_hash)
+            continue
+        else:
+            raise RuntimeError(f"op {op_uniq_name} not in database.")
 
     return sum_time / 1000000
 
@@ -722,95 +692,93 @@ def run_profile(task):
     mbs = task["mbs"]
 
     grad_type = torch.float16
-    flex_model, config = get_model(model, size)
-    op_list: list[OpInfo] = flex_model.full_op_list
 
     args = get_args()
     tp_size = args.prof_tp_size
-    algo_list = model_prof_configs[model]["algo"]
     params_dtype = args.params_dtype
     save_filename_prefix = f"{model}_{size}"
 
     args.micro_batch_size = mbs
-    for algo in algo_list:
-        ## infer the data size according to op specs
-        infer_data_size(op_list, save_filename_prefix, mbs, algo)
-        # run profiling
-        for op_info in op_list:
-            op_uniq_name = (
-                save_filename_prefix
-                + op_info.op_name
-                + f"mbs{mbs}tp_size{tp_size}algo{algo}"
+    
+    flex_model, config = get_model(model, size)
+    op_list: list[OpInfo] = flex_model.full_op_list
+    ## infer the data size according to op specs
+    infer_data_size(op_list, save_filename_prefix, mbs)
+    # run profiling
+    for op_info in op_list:
+        op_uniq_name = (
+            save_filename_prefix
+            + op_info.op_name
+            + f"mbs{mbs}tp_size{tp_size}"
+        )
+        op_hash = get_op_hash(op_info, mbs, tp_size, save_filename_prefix)
+        if op_uniq_name in profiled_results:
+            print_rank0(
+                f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size} ... Hit same op in cache!!!"
             )
-            op_hash = get_op_hash(op_info, mbs, tp_size, algo, save_filename_prefix)
-            if op_uniq_name in profiled_results:
-                print_rank0(
-                    f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... Hit same op in cache!!!"
-                )
-                continue
-            elif op_hash in op_hash_list:
-                print_rank0(
-                    f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... Hit identical op in cache!!!"
-                )
-                _profiled_results = list(profiled_results[op_hash_list[op_hash]])
-                _profiled_results[2] = input_size_dict[op_uniq_name]
-                _profiled_results[3] = output_size_dict[op_uniq_name]
-                profiled_results[op_uniq_name] = _profiled_results
-                continue
-            else:
-                print_rank0(
-                    f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size}, algo = {algo} ... "
-                )
-                try:
-                    if SKIP_RUNNING:
-                        (
-                            _fwd_time,
-                            _bwd_time,
-                            _reserved_fwd,
-                            _reserved_bwd,
-                            _allocated_fwd,
-                        ) = (0, 0, 0, 0, 0)
-                    else:
-                        (
-                            _fwd_time,
-                            _bwd_time,
-                            _reserved_fwd,
-                            _reserved_bwd,
-                            _allocated_fwd,
-                        ) = profile_op(
-                            mbs,
-                            algo,
-                            op_info,
-                            params_dtype,
-                            grad_type,
-                            op_uniq_name,
-                            config,
-                        )
-                except RuntimeError as e:
-                    print(f"RuntimeError: {e}. {traceback.format_exc()}")
+            continue
+        elif op_hash in op_hash_list:
+            print_rank0(
+                f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size} ... Hit identical op in cache!!!"
+            )
+            _profiled_results = list(profiled_results[op_hash_list[op_hash]])
+            _profiled_results[2] = input_size_dict[op_uniq_name]
+            _profiled_results[3] = output_size_dict[op_uniq_name]
+            profiled_results[op_uniq_name] = _profiled_results
+            continue
+        else:
+            print_rank0(
+                f"working on {op_info.op_name}, mbs = {mbs}, tp = {tp_size} ... "
+            )
+            try:
+                if SKIP_RUNNING:
                     (
                         _fwd_time,
                         _bwd_time,
                         _reserved_fwd,
                         _reserved_bwd,
                         _allocated_fwd,
-                    ) = (10000000, 10000000, 10000000, 10000000, 10000000)
-                print(
-                    f"[results] {op_info.op_name}: fwd_compute = {_fwd_time:.2f} us, bwd_compute = {_bwd_time:.2f} us, fwd_allocated = {_allocated_fwd:.1f} MB, fwd_reserved = {_reserved_fwd:.1f} MB, bwd_reserved = {_reserved_bwd:.1f} MB."
-                )
+                    ) = (0, 0, 0, 0, 0)
+                else:
+                    (
+                        _fwd_time,
+                        _bwd_time,
+                        _reserved_fwd,
+                        _reserved_bwd,
+                        _allocated_fwd,
+                    ) = profile_op(
+                        mbs,
+                        op_info,
+                        params_dtype,
+                        grad_type,
+                        op_uniq_name,
+                        config,
+                    )
+            except RuntimeError as e:
+                print(f"RuntimeError: {e}. {traceback.format_exc()}")
+                (
+                    _fwd_time,
+                    _bwd_time,
+                    _reserved_fwd,
+                    _reserved_bwd,
+                    _allocated_fwd,
+                ) = (10000000, 10000000, 10000000, 10000000, 10000000)
+            print(
+                f"[results] {op_info.op_name}: fwd_compute = {_fwd_time:.2f} us, bwd_compute = {_bwd_time:.2f} us, fwd_allocated = {_allocated_fwd:.1f} MB, fwd_reserved = {_reserved_fwd:.1f} MB, bwd_reserved = {_reserved_bwd:.1f} MB."
+            )
 
-            profiled_results[op_uniq_name] = [
-                _fwd_time,
-                _bwd_time,
-                input_size_dict[op_uniq_name],
-                output_size_dict[op_uniq_name],
-                weight_size_dict[op_uniq_name],
-                _allocated_fwd,
-                _reserved_fwd,
-                _reserved_bwd,
-            ]
-            op_hash_list[op_hash] = op_uniq_name
-        dump_profiled_results(save_filename_prefix, mbs, algo, op_list)
+        profiled_results[op_uniq_name] = [
+            _fwd_time,
+            _bwd_time,
+            input_size_dict[op_uniq_name],
+            output_size_dict[op_uniq_name],
+            weight_size_dict[op_uniq_name],
+            _allocated_fwd,
+            _reserved_fwd,
+            _reserved_bwd,
+        ]
+        op_hash_list[op_hash] = op_uniq_name
+    dump_profiled_results(save_filename_prefix, mbs, op_list)
 
 
 def get_prof_tasks_by_rank(all_tasks, num_nodes, node_rank):

@@ -1,47 +1,42 @@
 #!/bin/bash
 
-export CUDA_DEVICE_MAX_CONNECTIONS=1
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
+export CUDA_VISIBLE_DEVICES=3,4,5,7 # 0
+export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export NCCL_DEBUG=TRACE
 # export NCCL_DEBUG_FILE=./nccl.log
 # export NCCL_DEBUG_SUBSYS=ALL
-
+# export NCCL_IB_DISABLE=1
+# export NCCL_SET_THREAD_NAME=1
+# export NCCL_TOPO_FILE=nccl/rank_topo.xml
+export NCCL_SOCKET_IFNAME=eno2
+# export NCCL_SOCKET_FAMILY=AF_INET
+# export NCCL_P2P_DISABLE=1
 GPUS_PER_NODE=4
 # Change for multinode config
-MASTER_ADDR=10.156.154.242
-MASTER_PORT=6000
-NNODES=3
-NODE_RANK=$1
+MASTER_ADDR=localhost
+MASTER_PORT=7000
+NNODES=1
+NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
-
-if [ "$NODE_RANK" -ne 1 ]; then
-    export CUDA_VISIBLE_DEVICES=0,1,2,3
-else
-    export CUDA_VISIBLE_DEVICES=4,5,6,7
-fi
-
-if [ "$NODE_RANK" -eq 2 ]; then
-    export NCCL_SOCKET_IFNAME=eno1
-else
-    export NCCL_SOCKET_IFNAME=eno2
-fi
-
-TEST_NUM=${2:-0}
 
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16
-SEQ_LENGTH=1024
+SEQ_LENGTH=2048
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
-MICRO_BATCH_SIZE=4
-GLOBAL_BATCH_SIZE=16
+MICRO_BATCH_SIZE=8
+GLOBAL_BATCH_SIZE=1024
 
+TEST_NUM=${1:-0}
 
 VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../vocabs/gpt2-merges.txt
 
+rm -rf logs_${TEST_NUM}
+mkdir -p logs_${TEST_NUM}
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -83,7 +78,7 @@ GPT_ARGS="
 
 FLEX_ARGS="
     --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
-    --log-path ./logs \
+    --log-path ./logs_${TEST_NUM} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
 "

@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from aceso_cost_model import read_profiled_time, predict_time_breakdown, update_recompute, get_reserved_memory_list
+from aceso_cost_model import read_profiled_time, predict_time_breakdown, get_reserved_memory_list
 from multiprocessing import Process, Queue
 from aceso_utils import *
 from aceso_prims import action_resource_table, finetune_dim_stage_level, finetune, get_explored_cases, reset_explored_cases
@@ -15,7 +15,7 @@ from aceso_prims import reset_move_count, get_move_count
 args = parse_args()
 print_args(args)
 
-read_profiled_time(args.model_name, args.model_size, args.profiled_time_path)
+read_profiled_time(args.model_name, args.model_size, args.profiled_gpt_path, args.profiled_dist_p2p_path, args.profiled_local_p2p_path, args.profiled_local_comm_path)
 
 config_visited = {}
 
@@ -24,7 +24,6 @@ def initialize_search(num_stages):
     print(f"working on num_stages = {num_stages}")        
     config = generate_initial_config(num_stages, args)  
     if config is not None:
-        update_recompute(config)
         predict_time_breakdown(config)   
         print_simple_config_info(config, info="start", print_debug_info=args.print_debug_info, add_history=True) 
         if max(config.memory_list) < args.memory_limit:
