@@ -434,6 +434,7 @@ def profile_op(
         end.record() 
         torch.cuda.synchronize()
         sum_minus_time = start.elapsed_time(end)
+        avg_minus_time = sum_minus_time * 1000 / args.prof_repeat_times[0]
         
         for index in range(args.prof_warmup_times):
             output_data = op(
@@ -442,7 +443,7 @@ def profile_op(
             outputs, output_grads = get_outputs_and_grads(
                 output_data, output_extra_tensors, grad_type
             )
-            torch.autograd.grad(outputs=outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
+            torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True)
 
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
@@ -454,7 +455,7 @@ def profile_op(
             outputs, output_grads = get_outputs_and_grads(
                 output_data, output_extra_tensors, grad_type
             )
-            torch.autograd.grad(outputs=outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
+            torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True)
         end.record() 
         torch.cuda.synchronize()
         sum_bwd_time = start.elapsed_time(end) - sum_minus_time
