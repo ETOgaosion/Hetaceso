@@ -442,7 +442,7 @@ def profile_op(
             outputs, output_grads = get_outputs_and_grads(
                 output_data, output_extra_tensors, grad_type
             )
-            torch.autograd.grad(outputs=origin_outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
+            torch.autograd.grad(outputs=outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
 
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
@@ -454,7 +454,7 @@ def profile_op(
             outputs, output_grads = get_outputs_and_grads(
                 output_data, output_extra_tensors, grad_type
             )
-            torch.autograd.grad(outputs=origin_outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
+            torch.autograd.grad(outputs=outputs, grad_outputs=output_grads, inputs=input_tensors, allow_unused=False, retain_graph=True)
         end.record() 
         torch.cuda.synchronize()
         sum_bwd_time = start.elapsed_time(end) - sum_minus_time
