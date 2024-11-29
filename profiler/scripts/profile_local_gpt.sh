@@ -56,7 +56,7 @@ FLEX_ARGS="
 # if [ $REPROFILE -eq 1 ]; then
 #     rm -rf ${PROFILING_PATH}
 # fi
-# mkdir -p ${PROFILING_PATH}
+mkdir -p ${PROFILING_PATH}
 mkdir -p logs
 mkdir -p logs/csv
 MAX_NUM_GPUS=4
