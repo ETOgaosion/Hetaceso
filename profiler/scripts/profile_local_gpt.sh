@@ -53,9 +53,9 @@ FLEX_ARGS="
     --nnodes $NNODES \
 "
 
-# if [ $REPROFILE -eq 1 ]; then
-#     rm -rf ${PROFILING_PATH}
-# fi
+if [ $REPROFILE -eq 1 ]; then
+    rm -rf ${PROFILING_PATH}
+fi
 mkdir -p ${PROFILING_PATH}
 mkdir -p logs
 mkdir -p logs/csv
