@@ -530,6 +530,29 @@ class SelfAttention(Attention):
             self.run_realtime_tests()
 
         return query, key, value
+    
+    def forward(
+        self,
+        hidden_states,
+        attention_mask,
+        key_value_states=None,
+        inference_params=None,
+        rotary_pos_emb=None,
+        packed_seq_params=None,
+    ):
+        if self.config.timers is not None:
+            self.config.timers('self-attention-forward', log_level=1).start()
+        output, bias = super().forward(
+            hidden_states,
+            attention_mask,
+            key_value_states,
+            inference_params,
+            rotary_pos_emb,
+            packed_seq_params,
+        )
+        if self.config.timers is not None:
+            self.config.timers('self-attention-forward').stop()
+        return output, bias
 
 
 class CrossAttention(Attention):
@@ -613,3 +636,26 @@ class CrossAttention(Attention):
         query = query.view(*new_tensor_shape)
 
         return query, key, value
+
+    def forward(
+        self,
+        hidden_states,
+        attention_mask,
+        key_value_states=None,
+        inference_params=None,
+        rotary_pos_emb=None,
+        packed_seq_params=None,
+    ):
+        if self.config.timers is not None:
+            self.config.timers('cross-attention-forward', log_level=1).start()
+        output, bias = super().forward(
+            hidden_states,
+            attention_mask,
+            key_value_states,
+            inference_params,
+            rotary_pos_emb,
+            packed_seq_params,
+        )
+        if self.config.timers is not None:
+            self.config.timers('cross-attention-forward').stop()
+        return output, bias

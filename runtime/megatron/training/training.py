@@ -19,6 +19,7 @@ import time
 # The earliest we can measure the start time.
 _TRAIN_START_TIME = time.time()
 import torch
+from torch.profiler import profile, ProfilerActivity
 
 from megatron.core import mpu, tensor_parallel
 from megatron.core.utils import get_model_config
@@ -647,7 +648,7 @@ def train_step(forward_step_func, data_iterator,
 
 
 def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_rate, iteration,
-                 loss_scale, report_memory_flag, skipped_iter,
+                 loss_scale, skipped_iter,
                  grad_norm, params_norm, num_zeros_in_grad):
     """Log training information such as losses, timing, ...."""
     args = get_args()
@@ -710,7 +711,14 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'optimizer-count-zeros',
         'optimizer-inner-step',
         'optimizer-copy-main-to-model-params',
-        'optimizer']
+        'optimizer',
+        # specific op's timer
+        'self-attention-forward',
+        'cross-attention-forward',
+        'dec-embedding-forward',
+        'dec-self-attention-forward',
+        'dec-mlp-forward',
+        'dec-post-process-forward']
 
     # Calculate batch size.
     batch_size = args.micro_batch_size * get_num_microbatches()
@@ -876,7 +884,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
             with open(f"{args.log_path}/times_{iteration}.log", mode="a+") as file:
                 file.write(timers_string)
 
-    return report_memory_flag, elapsed_time_per_iteration * 1000.0
+    return elapsed_time_per_iteration * 1000.0
 
 
 def compute_throughputs_and_append_to_progress_log(iteration,
@@ -985,7 +993,6 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
     timers('interval-time', log_level=0).start(barrier=True)
     print_datetime('before the start of training step')
-    report_memory_flag = True
     exit = False
 
     if args.manual_gc:
@@ -1020,7 +1027,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 'validation_iterations_time_msecs_avg': validation_iterations_time_msecs_avg
             })
 
-    while iteration < args.train_iters:
+    def train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far):
         if args.profile and \
            iteration == args.profile_step_start and \
            torch.distributed.get_rank() in args.profile_ranks:
@@ -1073,12 +1080,11 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 decoupled_learning_rate = param_group['lr']
             else:
                 learning_rate = param_group['lr']
-        report_memory_flag = training_log(loss_dict, total_loss_dict,
-                                          learning_rate,
-                                          decoupled_learning_rate,
-                                          iteration, loss_scale,
-                                          report_memory_flag, skipped_iter,
-                                          grad_norm, params_norm, num_zeros_in_grad)
+        training_log(loss_dict, total_loss_dict,
+                    learning_rate, decoupled_learning_rate,
+                    iteration, loss_scale,
+                    skipped_iter, grad_norm, params_norm, 
+                    num_zeros_in_grad)
 
         # Autoresume
         if args.adlr_autoresume and \
@@ -1113,6 +1119,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
         # Checkpointing
         saved_checkpoint = False
+        _exit = False
         if args.exit_signal_handler:
             signal_handler = get_signal_handler()
             if any(signal_handler.signals_received()):
@@ -1120,8 +1127,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                          opt_param_scheduler,
                                          num_floating_point_operations_so_far)
                 print_datetime('exiting program after receiving SIGTERM.')
-                exit = True
-                break
+                _exit = True
+                return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
         if args.save and args.save_interval and \
            iteration % args.save_interval == 0:
@@ -1147,8 +1154,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                              opt_param_scheduler,
                                              num_floating_point_operations_so_far)
                 print_datetime('exiting program after {} minutes'.format(train_time))
-                exit = True
-                break
+                _exit = True
+                return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
         # Exiting based on iterations
         if args.exit_interval and iteration % args.exit_interval == 0:
@@ -1158,8 +1165,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                          num_floating_point_operations_so_far)
             torch.distributed.barrier()
             print_datetime('exiting program at iteration {}'.format(iteration))
-            exit = True
-            break
+            _exit = True
+            return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
         if args.profile and \
            iteration == args.profile_step_end and \
@@ -1169,7 +1176,31 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         if args.manual_gc:
             if args.manual_gc_interval != 0 and iteration % args.manual_gc_interval == 0:
                 gc.collect()
+        return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
+
+    if args.profile_method == 'torch' and torch.distributed.get_rank() == 0:
+        if not os.path.exists(args.profile_output_dir):
+            os.makedirs(args.profile_output_dir)
+        dir_name = os.path.join(args.profile_output_dir, f"rank{torch.distributed.get_rank()}")
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
+        with profile(
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=args.train_iters-2, repeat=1),
+            record_shapes=True, profile_memory=True,
+            with_stack=True, with_modules=True, with_flops=True,
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(dir_name)
+        ) as p:
+            for iteration in range(args.iteration, args.train_iters):
+                _, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far)
+                p.step()
+
+    while (args.profile_method == 'nsys' or torch.distributed.get_rank() != 0) and iteration < args.train_iters:
+        iteration, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far)
+        if _exit:
+            break
+        
     track_e2e_metrics()
 
     # Flush TensorBoard and WandB writers.
@@ -1185,7 +1216,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         optimizer.disable_pre_hook()
 
     # If any exit conditions (signal handler, duration, iterations) have been reached, exit.
-    if exit:
+    if _exit:
         sys.exit()
 
     return iteration, num_floating_point_operations_so_far

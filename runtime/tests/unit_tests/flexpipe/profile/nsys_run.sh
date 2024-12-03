@@ -37,6 +37,7 @@ MERGE_FILE=../../../../vocabs/gpt2-merges.txt
 
 rm -rf logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}
+mkdir -p logs_${TEST_NUM}/profile_nsys
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -76,21 +77,61 @@ GPT_ARGS="
     --no-scatter-gather-tensors-in-pipeline \
 "
 
+PROFILE_ARGS="
+    --profile \
+    --profile-method nsys \
+    --profile-step-start 1 \
+    --profile-step-end 5 \
+    --profile-ranks 0,1,2,3 \
+"
+
 FLEX_ARGS="
     --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
     --log-path ./logs_${TEST_NUM} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
+    --distributed-backend nccl \
 "
+
+NSIGHT_PROFILE_ARGS=(
+    # output
+    -w true
+    -o logs_${TEST_NUM}/profile_nsys
+    -f true
+    -x true
+    #  cuda                   os           python
+    -t cuda,nvtx,cudnn,cublas,osrt,syscall,python-gil
+    # GPU/CUDA
+    --capture-range=cudaProfilerApi --capture-range-end=stop
+    --cudabacktrace=all
+    --cuda-memory-usage=true
+    --python-backtrace=cuda
+    --gpuctxsw
+    --gpu-metrics-devices=all
+    --enable nvml_metrics # NVML Power and temperature
+    --soc-metrics=true
+    # CPU
+    --cpuctxsw
+    # Network
+    # NVSHMEM_NVTX=common
+    # NIC/IB metrics
+    --enable network_interface # Check Multiple --enable
+    # Python backtrace
+    --python-sampling=true
+    --python-function-trace=/opt/nvidia/nsight-systems-cli/2024.7.1/target-linux-x64/PythonFunctionsTrace/annotations.json
+)
 
 mkdir -p logs
 mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
-export USE_FLASH_ATTN=1 && \
-torchrun $DISTRIBUTED_ARGS \
+export USE_FLASH_ATTN=1
+
+nsys profile \
+    ${NSIGHT_PROFILE_ARGS[@]} \
+    torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \
+    $PROFILE_ARGS \
     $FLEX_ARGS \
     $DATA_ARGS \
-    --distributed-backend nccl \

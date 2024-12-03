@@ -27,7 +27,7 @@ from megatron.core.distributed import DistributedDataParallel as DDP
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import report_memory, debug_mem_report, unwrap_model
 from megatron.core.transformer.spec_utils import import_module
-from model_configs import model_prof_configs, resnet_configs, gpt_configs, t5_configs
+from model_configs import model_prof_configs, gpt_configs
 from megatron.core.models.gpt.gpt_layer_specs import (
     get_gpt_layer_local_spec,
     get_gpt_layer_with_transformer_engine_spec,
@@ -686,6 +686,7 @@ def run_profile(task):
     model = task["model"]
     size = task["size"]
     mbs = task["mbs"]
+    seqlen = task["seqlen"]
 
     grad_type = torch.float16
 
@@ -695,6 +696,7 @@ def run_profile(task):
     save_filename_prefix = f"{model}_{size}"
 
     args.micro_batch_size = mbs
+    args.seq_length = seqlen
     
     flex_model, config = get_model(model, size)
     op_list: list[OpInfo] = flex_model.full_op_list
@@ -852,8 +854,14 @@ if __name__ == "__main__":
                     micro_batch_sizes = model_prof_configs[model]["mbs"]
             else:
                 micro_batch_sizes = args.prof_mbs_list
+            assert model_prof_configs[model].get("seqlen") is not None, f'seqlen not defined for model {model} {model_prof_configs[model]}'
+            if isinstance(model_prof_configs[model]["seqlen"], dict):
+                seq_lens = model_prof_configs[model]["seqlen"][size]
+            else:
+                seq_lens = model_prof_configs[model]["seqlen"]
             for mbs in micro_batch_sizes:
-                all_prof_tasks.append({"model": model, "size": size, "mbs": mbs})
+                for seqlen in seq_lens:
+                    all_prof_tasks.append({"model": model, "size": size, "mbs": mbs, "seqlen": seqlen})
 
     ## distribute profiling tasks if using multiple nodes
     if args.prof_num_nodes is not None:

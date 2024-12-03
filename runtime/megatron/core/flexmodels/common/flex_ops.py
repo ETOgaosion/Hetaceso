@@ -94,6 +94,24 @@ class FlexModule(MegatronModule):
                         self.embedding.word_embeddings.weight.data = new_data[key][0]
 
 
+class OpHooks:
+    def __init__(self, opName: str, timers):
+        self.opName = opName
+        self.fwd_timers = timers(opName + '-forward', log_level=1)
+        self.bwd_timers = timers(opName + '-backward', log_level=1)
+        
+    def pre_forward_hook(self, module, args):
+        self.fwd_timers.start()
+    
+    def forward_hook(self, module, args, output):
+        self.fwd_timers.stop()
+    
+    def pre_backward_hook(self, module, grad_output):
+        self.bwd_timers.start()
+    
+    def backward_hook(self, module, grad_input, grad_output):
+        self.bwd_timers.stop()
+
 @dataclass
 class OpInfo:
     op_type: OpType
@@ -185,6 +203,13 @@ class FlexEmbedding(FlexModule):
                 "dp_split_dim": -1,
             }
         }
+        
+        if self.config.timers:
+            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.register_forward_pre_hook(self.hooks.pre_forward_hook)
+            self.register_forward_hook(self.hooks.forward_hook)
+            self.register_backward_pre_hook(self.hooks.pre_backward_hook)
+            self.register_backward_hook(self.hooks.backward_hook)
 
     def forward(
         self,
@@ -305,6 +330,14 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
                 "recv_from": 0,
             }
         }
+        
+        if self.config.timers:
+            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.register_forward_pre_hook(self.hooks.pre_forward_hook)
+            self.register_forward_hook(self.hooks.forward_hook)
+            self.register_backward_pre_hook(self.hooks.pre_backward_hook)
+            self.register_backward_hook(self.hooks.backward_hook)
+        
     def forward(
         self,
         input_tensors: Dict | list,
@@ -345,6 +378,7 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             )(attention_output_with_bias, residual, self.hidden_dropout)
 
         output_tensors["hidden_states"] = hidden_states
+        
         return output_tensors
 
 
@@ -418,6 +452,13 @@ class FlexLayerNormMlpDropout(FlexModule):
                 "cp_split_dim": 0
             }
         }
+        
+        if self.config.timers:
+            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.register_forward_pre_hook(self.hooks.pre_forward_hook)
+            self.register_forward_hook(self.hooks.forward_hook)
+            self.register_backward_pre_hook(self.hooks.pre_backward_hook)
+            self.register_backward_hook(self.hooks.backward_hook)
 
     def forward(
         self,
@@ -425,7 +466,7 @@ class FlexLayerNormMlpDropout(FlexModule):
         input_extra_tensors: Dict,
         output_extra_tensors: Dict,
         profiling=False,
-    ):
+    ):        
         output_tensors = {}
         if type(input_tensors) is list:
             input_tensors = input_tensors[0]
@@ -459,6 +500,7 @@ class FlexLayerNormMlpDropout(FlexModule):
         )
 
         output_tensors["hidden_states"] = output
+        
         return output_tensors
 
 
@@ -566,13 +608,20 @@ class FlexLayerNormPostProcess(FlexModule):
             }
         }
         
+        if self.config.timers:
+            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.register_forward_pre_hook(self.hooks.pre_forward_hook)
+            self.register_forward_hook(self.hooks.forward_hook)
+            self.register_backward_pre_hook(self.hooks.pre_backward_hook)
+            self.register_backward_hook(self.hooks.backward_hook)
+        
     def forward(
         self,
         input_tensors: Dict | list,
         input_extra_tensors: Dict,
         output_extra_tensors: Dict,
         profiling=False,
-    ):
+    ):        
         output_tensors = {}
 
         if type(input_tensors) is list:

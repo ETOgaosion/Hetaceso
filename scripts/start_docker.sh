@@ -1,1 +1,1 @@
-docker run --gpus all -d  -v $(pwd):/workspace/Hetaceso --net=host --shm-size=8g --ulimit memlock=-1 --name hetaceso-$(whoami) whatcanyousee/hetaceso  sleep infinity
+docker run --gpus all -d -v $(pwd):/workspace/Hetaceso --privileged=true --net=host --shm-size=8g --ulimit memlock=-1 --name hetaceso-$(whoami) whatcanyousee/hetaceso  sleep infinity

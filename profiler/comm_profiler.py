@@ -9,7 +9,7 @@ import time
 import csv
 import pickle
 import argparse
-from model_configs import model_prof_configs, resnet_configs, gpt_configs, t5_configs
+from model_configs import model_prof_configs
 
 
 def parse_args():
@@ -231,6 +231,11 @@ def run_profile(task):
             mbs_list = model_prof_configs[model]["mbs"]
     else:
         mbs_list = args.prof_mbs_list
+    if model_prof_configs[model].get("seqlen") is not None:
+        if isinstance(model_prof_configs[model]["seqlen"], dict):
+            seqlen_list = model_prof_configs[model]["seqlen"][size]
+        else:
+            seqlen_list = model_prof_configs[model]["seqlen"]
 
     data_type = model_prof_configs[model]["dtype"]
     tp_size_list = [1, 2, 4, 8]
@@ -244,27 +249,28 @@ def run_profile(task):
     else:
         raise RuntimeError(f"data type {data_type} not support.")
     
-    print(f'mbs_list: {mbs_list}, tp_size_list: {tp_size_list}')
+    print(f'mbs_list: {mbs_list}, tp_size_list: {tp_size_list}, seqlen_list: {seqlen_list}')
 
     data_size_list = []
     for mbs in mbs_list:
-        for tp in tp_size_list:
-            file_name = (
-                args.prof_op_time_path
-                + f"{model}_{size}_mbs{mbs}_tp{tp}.csv"
-            )
-            print(file_name)
-            if os.path.exists(file_name):
-                f_op_time = open(file_name, "r")
-                f_csv = csv.reader(f_op_time)
-                headers = next(f_csv)
-                for row in f_csv:
-                    for index in [-3, -5]:
-                        data_size = int(float(row[index]) * num_item_per_mb)
-                        if data_size not in data_size_list and data_size > 0:
-                            data_size_list.append(data_size)
-            else:
-                print(f"file {file_name} not exist.")
+        # for seq_len in seqlen_list:
+            for tp in tp_size_list:
+                file_name = (
+                    args.prof_op_time_path
+                    + f"{model}_{size}_mbs{mbs}_tp{tp}.csv"
+                )
+                print(file_name)
+                if os.path.exists(file_name):
+                    f_op_time = open(file_name, "r")
+                    f_csv = csv.reader(f_op_time)
+                    headers = next(f_csv)
+                    for row in f_csv:
+                        for index in [-3, -5]:
+                            data_size = int(float(row[index]) * num_item_per_mb)
+                            if data_size not in data_size_list and data_size > 0:
+                                data_size_list.append(data_size)
+                else:
+                    print(f"file {file_name} not exist.")
 
     torch.multiprocessing.spawn(
         run,
