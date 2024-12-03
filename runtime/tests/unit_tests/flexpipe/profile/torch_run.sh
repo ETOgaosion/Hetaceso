@@ -3,7 +3,6 @@
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
-export CUDA_VISIBLE_DEVICES=3,4,5,7 # 0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export NCCL_DEBUG=TRACE
 # export NCCL_DEBUG_FILE=./nccl.log
@@ -11,9 +10,13 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export NCCL_IB_DISABLE=1
 # export NCCL_SET_THREAD_NAME=1
 # export NCCL_TOPO_FILE=nccl/rank_topo.xml
-export NCCL_SOCKET_IFNAME=eno2
 # export NCCL_SOCKET_FAMILY=AF_INET
 # export NCCL_P2P_DISABLE=1
+
+if [ -e export.sh ]; then
+    ./export.sh
+fi
+
 GPUS_PER_NODE=4
 # Change for multinode config
 MASTER_ADDR=localhost
@@ -35,7 +38,7 @@ TEST_NUM=${1:-0}
 VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../vocabs/gpt2-merges.txt
 
-rm -rf logs_${TEST_NUM}
+# rm -rf logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}/profile_torch
 

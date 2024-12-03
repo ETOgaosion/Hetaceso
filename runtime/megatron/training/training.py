@@ -1193,6 +1193,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             dir_name = os.path.join(args.profile_output_dir, f"rank{torch.distributed.get_rank()}", f"iter{iteration}")
             if not os.path.exists(dir_name):
                 os.makedirs(dir_name)
+            device = 'cuda'
+            sort_by_keyword = device + "_time_total"
             with profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 record_shapes=True, profile_memory=True,
@@ -1200,7 +1202,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 # on_trace_ready=torch.profiler.tensorboard_trace_handler(dir_name)
             ) as prof:
                 _, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far)
-                prof.export_chrome_trace(os.path.join(dir_name, "trace.json"))
+            print(prof.key_averages().table(sort_by=sort_by_keyword, row_limit=10))
+            prof.export_chrome_trace(os.path.join(dir_name, "trace.json"))
                     
     while (args.profile_method == 'nsys') and iteration < args.train_iters:
         iteration, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far)

@@ -3,7 +3,6 @@
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
-export CUDA_VISIBLE_DEVICES=3,4,5,7 # 0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export NCCL_DEBUG=TRACE
 # export NCCL_DEBUG_FILE=./nccl.log
@@ -11,9 +10,13 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export NCCL_IB_DISABLE=1
 # export NCCL_SET_THREAD_NAME=1
 # export NCCL_TOPO_FILE=nccl/rank_topo.xml
-export NCCL_SOCKET_IFNAME=eno2
 # export NCCL_SOCKET_FAMILY=AF_INET
 # export NCCL_P2P_DISABLE=1
+
+if [ -e export.sh ]; then
+    ./export.sh
+fi
+
 GPUS_PER_NODE=4
 # Change for multinode config
 MASTER_ADDR=localhost
@@ -35,7 +38,7 @@ TEST_NUM=${1:-0}
 VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../vocabs/gpt2-merges.txt
 
-rm -rf logs_${TEST_NUM}
+# rm -rf logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}/profile_nsys
 
@@ -82,7 +85,7 @@ PROFILE_ARGS="
     --profile-method nsys \
     --profile-step-start 1 \
     --profile-step-end 5 \
-    --profile-ranks 0,1,2,3 \
+    --profile-ranks 0 1 2 3 \
 "
 
 FLEX_ARGS="
@@ -106,19 +109,19 @@ NSIGHT_PROFILE_ARGS=(
     --cudabacktrace=all
     --cuda-memory-usage=true
     --python-backtrace=cuda
-    --gpuctxsw
+    --gpuctxsw=true
     --gpu-metrics-devices=all
     --enable nvml_metrics # NVML Power and temperature
-    --soc-metrics=true
+    # --soc-metrics=true
     # CPU
-    --cpuctxsw
+    --cpuctxsw=process-tree
     # Network
     # NVSHMEM_NVTX=common
     # NIC/IB metrics
     --enable network_interface # Check Multiple --enable
     # Python backtrace
     --python-sampling=true
-    --python-function-trace=/opt/nvidia/nsight-systems-cli/2024.7.1/target-linux-x64/PythonFunctionsTrace/annotations.json
+    --python-functions-trace=/opt/nvidia/nsight-systems-cli/2024.7.1/target-linux-x64/PythonFunctionsTrace/annotations.json
 )
 
 mkdir -p logs
