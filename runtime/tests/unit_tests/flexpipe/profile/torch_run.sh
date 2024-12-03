@@ -14,7 +14,7 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export NCCL_P2P_DISABLE=1
 
 if [ -e export.sh ]; then
-    ./export.sh
+    source export.sh
 fi
 
 GPUS_PER_NODE=4
