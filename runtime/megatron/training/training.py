@@ -1178,25 +1178,31 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 gc.collect()
         return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
+    def trace_handler(p):
+        device = 'cuda'
+        sort_by_keyword = "self_" + device + "_time_total"
+        output = p.key_averages().table(sort_by=sort_by_keyword, row_limit=10)
+        print(output)
+        dir_name = os.path.join(args.profile_output_dir, f"rank{torch.distributed.get_rank()}", f"iter{p.step_num}")
+        p.export_chrome_trace(os.path.join(dir_name, "res.json"))
 
-    if args.profile_method == 'torch' and torch.distributed.get_rank() == 0:
+    if args.profile_method == 'torch':
         if not os.path.exists(args.profile_output_dir):
             os.makedirs(args.profile_output_dir)
-        dir_name = os.path.join(args.profile_output_dir, f"rank{torch.distributed.get_rank()}")
-        if not os.path.exists(dir_name):
-            os.makedirs(dir_name)
-        with profile(
-            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-            schedule=torch.profiler.schedule(wait=1, warmup=1, active=args.train_iters-2, repeat=1),
-            record_shapes=True, profile_memory=True,
-            with_stack=True, with_modules=True, with_flops=True,
-            on_trace_ready=torch.profiler.tensorboard_trace_handler(dir_name)
-        ) as p:
-            for iteration in range(args.iteration, args.train_iters):
+        for iteration in range(args.iteration, args.train_iters):
+            dir_name = os.path.join(args.profile_output_dir, f"rank{torch.distributed.get_rank()}", f"iter{iteration}")
+            if not os.path.exists(dir_name):
+                os.makedirs(dir_name)
+            with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                record_shapes=True, profile_memory=True,
+                with_stack=True, with_modules=True, with_flops=True,
+                # on_trace_ready=torch.profiler.tensorboard_trace_handler(dir_name)
+            ) as prof:
                 _, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far)
-                p.step()
-
-    while (args.profile_method == 'nsys' or torch.distributed.get_rank() != 0) and iteration < args.train_iters:
+                prof.export_chrome_trace(os.path.join(dir_name, "trace.json"))
+                    
+    while (args.profile_method == 'nsys') and iteration < args.train_iters:
         iteration, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far)
         if _exit:
             break
