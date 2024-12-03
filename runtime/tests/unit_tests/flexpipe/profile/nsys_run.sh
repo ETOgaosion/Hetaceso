@@ -34,6 +34,7 @@ MICRO_BATCH_SIZE=8
 GLOBAL_BATCH_SIZE=1024
 
 TEST_NUM=${1:-0}
+TRAIN_ITERS=${2:-3}
 
 VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../vocabs/gpt2-merges.txt
@@ -66,7 +67,7 @@ GPT_ARGS="
     --micro-batch-size $MICRO_BATCH_SIZE \
     --global-batch-size $GLOBAL_BATCH_SIZE \
     --lr 0.00015 \
-    --train-iters 5 \
+    --train-iters $TRAIN_ITERS \
     --lr-decay-iters 320000 \
     --lr-decay-style cosine \
     --min-lr 1.0e-5 \
@@ -84,7 +85,7 @@ PROFILE_ARGS="
     --profile \
     --profile-method nsys \
     --profile-step-start 1 \
-    --profile-step-end 5 \
+    --profile-step-end $TRAIN_ITERS \
     --profile-ranks 0 1 2 3 \
 "
 
@@ -99,7 +100,7 @@ FLEX_ARGS="
 NSIGHT_PROFILE_ARGS=(
     # output
     -w true
-    -o logs_${TEST_NUM}/profile_nsys
+    -o logs_${TEST_NUM}/profile_nsys/res
     -f true
     -x true
     #  cuda                   os           python
