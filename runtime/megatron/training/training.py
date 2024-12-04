@@ -716,9 +716,13 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'self-attention-forward',
         'cross-attention-forward',
         'dec-embedding-forward',
+        'dec-embedding-backward',
         'dec-self-attention-forward',
+        'dec-self-attention-backward',
         'dec-mlp-forward',
-        'dec-post-process-forward']
+        'dec-mlp-backward',
+        'dec-post-process-forward',
+        'dec-post-process-backward']
 
     # Calculate batch size.
     batch_size = args.micro_batch_size * get_num_microbatches()
@@ -1026,9 +1030,14 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 'train_iterations_time_msecs_avg': train_iterations_time_msecs_avg,
                 'validation_iterations_time_msecs_avg': validation_iterations_time_msecs_avg
             })
+    
+    def trace_handler(prof):
+        print(prof.key_averages().table(
+            sort_by="self_cuda_time_total", row_limit=-1))
+        prof.export_chrome_trace(os.path.join(f'{args.profile_path}', f'rank{torch.distributed.get_rank()}', f'iter{prof.step_num}.json'))
 
-    def train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far):
-        if args.profile and \
+    def train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far, inside_torchprofile=False):
+        if args.profile and args.profile_method == 'nsys' and \
            iteration == args.profile_step_start and \
            torch.distributed.get_rank() in args.profile_ranks:
             torch.cuda.cudart().cudaProfilerStart()
@@ -1049,13 +1058,38 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         update_num_microbatches(args.consumed_train_samples, consistency_check=True)
 
         args.curr_iteration = iteration
-        loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
+        
+        if inside_torchprofile and iteration == args.train_iters - 1:
+            if torch.distributed.get_rank() == 0:
+                prof = torch.profiler.profile(
+                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    # record_shapes=True, 
+                    profile_memory=True,
+                    with_stack=True,
+                    # with_modules=True, with_flops=True,
+                    experimental_config=torch._C._profiler._ExperimentalConfig(verbose=True),
+                    # on_trace_ready=torch.profiler.tensorboard_trace_handler(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}')),
+                )
+                prof.start()
+            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
             train_step(forward_step_func,
-                       train_data_iterator,
-                       model,
-                       optimizer,
-                       opt_param_scheduler,
-                       config)
+                    train_data_iterator,
+                    model,
+                    optimizer,
+                    opt_param_scheduler,
+                    config)
+            if torch.distributed.get_rank() == 0:
+                prof.stop()
+                prof.export_chrome_trace(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}', f'iter{iteration}-with-stack.json'))
+                del prof
+        else:
+            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
+            train_step(forward_step_func,
+                    train_data_iterator,
+                    model,
+                    optimizer,
+                    opt_param_scheduler,
+                    config)
         iteration += 1
         # [TOCHECK] whether need to multiply by 
         # batch_size = mpu.get_data_parallel_world_size() * \
@@ -1168,7 +1202,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             _exit = True
             return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
-        if args.profile and \
+        if args.profile and args.profile_method == 'nsys' and \
            iteration == args.profile_step_end and \
            torch.distributed.get_rank() in args.profile_ranks:
             torch.cuda.cudart().cudaProfilerStop()
@@ -1178,31 +1212,34 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 gc.collect()
         return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
-    def trace_handler(p):
-        device = 'cuda'
-        sort_by_keyword = "self_" + device + "_time_total"
-        output = p.key_averages().table(sort_by=sort_by_keyword, row_limit=10)
-        print(output)
-        file_name = os.path.join(args.profile_output_dir, f"rank{torch.distributed.get_rank()}", f"iter{p.step_num}.json")
-        p.export_chrome_trace(file_name)
-
+    _exit = False
+    
     if args.profile_method == 'torch':
         if not os.path.exists(args.profile_output_dir):
             os.makedirs(args.profile_output_dir)
         dir_name = os.path.join(args.profile_output_dir, f"rank{torch.distributed.get_rank()}")
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
-        with profile(
-            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-            record_shapes=True, profile_memory=True,
-            schedule=torch.profiler.schedule(wait=1, warmup=1, active=args.train_iters - 2, repeat=1),
-            with_stack=True, with_modules=True, with_flops=True,
-            # on_trace_ready=torch.profiler.tensorboard_trace_handler(dir_name)
-            on_trace_ready=trace_handler
-        ) as prof:
-            for iteration in range(args.iteration, args.train_iters):
-                _, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far)
+        if torch.distributed.get_rank() in args.profile_ranks:
+            prof = torch.profiler.profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                schedule=torch.profiler.schedule(wait=args.train_iters - 2, warmup=1, active=1, repeat=1),
+                # record_shapes=True, 
+                profile_memory=True,
+                with_stack=True,
+                # with_modules=True, with_flops=True,
+                experimental_config=torch._C._profiler._ExperimentalConfig(verbose=True),
+                # on_trace_ready=torch.profiler.tensorboard_trace_handler(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}')),
+            )
+            prof.start()
+        for iteration in range(args.iteration, args.train_iters):
+            if torch.distributed.get_rank() == 0:
                 prof.step()
+            _, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far, False)
+        if torch.distributed.get_rank() == 0:
+            prof.stop()
+            prof.export_chrome_trace(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}', f'iter{iteration}-with-stack.json'))
+            del prof
                     
     while (args.profile_method == 'nsys') and iteration < args.train_iters:
         iteration, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far)

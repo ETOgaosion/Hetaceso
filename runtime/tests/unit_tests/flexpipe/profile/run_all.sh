@@ -1,7 +1,3 @@
-./torch_run.sh 0
-./torch_run.sh 1
-./torch_run.sh 2
-
-./nsys_run.sh 0
-./nsys_run.sh 1
-./nsys_run.sh 2
+./run.sh 0
+./run.sh 1
+./run.sh 2

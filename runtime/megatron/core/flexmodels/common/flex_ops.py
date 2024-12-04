@@ -97,6 +97,7 @@ class FlexModule(MegatronModule):
 class OpHooks:
     def __init__(self, opName: str, timers):
         self.opName = opName
+        print('hook ', opName + '-forward', opName + '-backward')
         self.fwd_timers = timers(opName + '-forward', log_level=1)
         self.bwd_timers = timers(opName + '-backward', log_level=1)
         
@@ -208,8 +209,8 @@ class FlexEmbedding(FlexModule):
             self.hooks = OpHooks(self.op_name, self.config.timers)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
-            self.register_backward_pre_hook(self.hooks.pre_backward_hook)
-            self.register_backward_hook(self.hooks.backward_hook)
+            # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
+            # self.register_full_backward_hook(self.hooks.backward_hook)
 
     def forward(
         self,
@@ -335,8 +336,8 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             self.hooks = OpHooks(self.op_name, self.config.timers)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
-            self.register_backward_pre_hook(self.hooks.pre_backward_hook)
-            self.register_backward_hook(self.hooks.backward_hook)
+            self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
+            self.register_full_backward_hook(self.hooks.backward_hook)
         
     def forward(
         self,
@@ -457,8 +458,8 @@ class FlexLayerNormMlpDropout(FlexModule):
             self.hooks = OpHooks(self.op_name, self.config.timers)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
-            self.register_backward_pre_hook(self.hooks.pre_backward_hook)
-            self.register_backward_hook(self.hooks.backward_hook)
+            # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
+            # self.register_full_backward_hook(self.hooks.backward_hook)
 
     def forward(
         self,
@@ -612,8 +613,8 @@ class FlexLayerNormPostProcess(FlexModule):
             self.hooks = OpHooks(self.op_name, self.config.timers)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
-            self.register_backward_pre_hook(self.hooks.pre_backward_hook)
-            self.register_backward_hook(self.hooks.backward_hook)
+            # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
+            # self.register_full_backward_hook(self.hooks.backward_hook)
         
     def forward(
         self,
