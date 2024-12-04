@@ -524,9 +524,13 @@ class FlexPipeModel(MegatronModule):
 
         for index in range(self.num_ops):
             op = self.ops[index]
+            if self.config.timers:
+                self.config.timers(f"{op.op_name}-forward-outside", log_level=1).start()
             hidden_states = op(
                 hidden_states, input_extra_tensors, output_extra_tensors
             )
+            if self.config.timers:
+                self.config.timers(f"{op.op_name}-forward-outside").stop()
                 
         NUM_BATCHES = NUM_BATCHES + 1
         output = hidden_states

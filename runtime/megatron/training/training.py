@@ -690,6 +690,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
     timers_to_log = [
         'forward-backward',
         'forward-compute',
+        'forward-compute-outside',
         'backward-compute',
         'batch-generator',
         'forward-recv',
@@ -716,13 +717,18 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'self-attention-forward',
         'cross-attention-forward',
         'dec-embedding-forward',
+        'dec-embedding-forward-outside',
         'dec-embedding-backward',
         'dec-self-attention-forward',
+        'dec-self-attention-forward-outside',
         'dec-self-attention-backward',
         'dec-mlp-forward',
+        'dec-mlp-forward-outside',
         'dec-mlp-backward',
         'dec-post-process-forward',
-        'dec-post-process-backward']
+        'dec-post-process-forward-outside',
+        'dec-post-process-backward',
+        ]
 
     # Calculate batch size.
     batch_size = args.micro_batch_size * get_num_microbatches()
@@ -1055,6 +1061,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                      num_floating_point_operations_so_far)
         num_microbatches = get_num_microbatches()
         update_num_microbatches(args.consumed_train_samples, consistency_check=True)
+        
+        print(f'num_microbatches: {num_microbatches}')
 
         args.curr_iteration = iteration
         
