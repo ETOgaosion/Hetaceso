@@ -78,7 +78,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args.ring_context_parallel_size_of_each_stage = [1]
         args.ulysses_context_parallel_size_of_each_stage = [1]
         args.data_parallel_split_of_each_stage = [[1]]
-        args.ulysses_context_parallel_split_of_each_stage = [[[1024] for _ in range(args.prof_tp_size)]]
+        args.ring_context_parallel_split_of_each_stage = [[1024]]
 
         if len(args.prof_repeat_times) > 1:
             assert args.prof_repeat_threshold is not None, "when args.prof_repeat_times is a list, a threshold is required."
@@ -1675,7 +1675,7 @@ def _add_profiler_args(parser):
     group.add_argument('--prof-time-only', action='store_true', help='')
     group.add_argument('--prof-memory-only', action='store_true', help='')
     group.add_argument('--prof-warmup-times', type=int, default=20, help='')
-    group.add_argument('--prof-repeat-times', nargs='+', type=int, default=[50], help='')
+    group.add_argument('--prof-repeat-times', nargs='+', type=int, default=[3], help='')
     group.add_argument('--prof-warmup-threshold', type=int, default=None, help='')
     group.add_argument('--prof-repeat-threshold', type=int, default=None, help='')
     group.add_argument('--prof-skip-running', action='store_true', help='')

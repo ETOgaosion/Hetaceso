@@ -890,8 +890,9 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         with open(f"{args.log_path}/memory_iter{iteration}_rank{torch.distributed.get_rank()}.log", mode="w") as file:
             file.write(memory_string + "\n")
         timers_string = timers.log(timers_to_log, normalizer=args.log_interval)
-        with open(f"{args.log_path}/times_iter{iteration}_rank{torch.distributed.get_rank()}.log", mode="w") as file:
-            file.write(timers_string)
+        if torch.distributed.get_rank() == 0:
+            with open(f"{args.log_path}/times_iter{iteration}.log", mode="w") as file:
+                file.write(timers_string)
 
     return elapsed_time_per_iteration * 1000.0
 

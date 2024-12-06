@@ -10,13 +10,8 @@ def get_op_list(args):
     global op_list
     if op_list is None:
         op_list = []
-        if args.model_name == "scale-layer":
-            src_data_file = args.profiled_gpt_path + f"gpt_scale-layer_mbs{args.micro_batch_size[0]}_tp1.csv"
-        else:
-            model_size = args.model_size
-            if args.model_name == "t5" and args.model_size == "22B":
-                model_size = "11B"
-            src_data_file = args.profiled_gpt_path + args.model_name + f"_{model_size}_mbs{args.micro_batch_size[0]}_tp1.csv"
+        model_size = args.model_size
+        src_data_file = args.profiled_gpt_path + args.model_name + f"_{model_size}_mbs1_seqlen2048_tp1.csv"
         with open(src_data_file) as f:
             src_data = csv.reader(f)
             line_index = 0

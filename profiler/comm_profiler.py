@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument("--prof-op-time-path", type=str, default=None, help="")
     parser.add_argument("--max-data-size", type=int, default=4096, help="")
     parser.add_argument("--prof-mbs-list", nargs="+", type=int, default=None, help="")
+    parser.add_argument("--prof-seqlen-list", nargs="+", type=int, default=None, help="")
 
     args = parser.parse_args()
     return args
@@ -238,7 +239,7 @@ def run_profile(task):
             seqlen_list = model_prof_configs[model]["seqlen"]
 
     data_type = model_prof_configs[model]["dtype"]
-    tp_size_list = [1, 2, 4, 8]
+    tp_size_list = [1]
 
     if data_type == "fp16":
         torch_data_type = torch.half
@@ -249,15 +250,15 @@ def run_profile(task):
     else:
         raise RuntimeError(f"data type {data_type} not support.")
     
-    print(f'mbs_list: {mbs_list}, tp_size_list: {tp_size_list}, seqlen_list: {seqlen_list}')
+    print(f'mbs_list: {mbs_list}, seqlen_list: {seqlen_list}, tp_size_list: {tp_size_list}')
 
     data_size_list = []
     for mbs in mbs_list:
-        # for seq_len in seqlen_list:
+        for seq_len in seqlen_list:
             for tp in tp_size_list:
                 file_name = (
                     args.prof_op_time_path
-                    + f"{model}_{size}_mbs{mbs}_tp{tp}.csv"
+                    + f"{model}_{size}_mbs{mbs}_seqlen{seq_len}_tp{tp}.csv"
                 )
                 print(file_name)
                 if os.path.exists(file_name):

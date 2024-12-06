@@ -12,36 +12,14 @@ from dataclasses import dataclass, field
 from typing import List
 from model_ops_info import get_full_op_list
 
-# model_size: (num_layers, in_channels, width_factor, params_dtype)
-resnet_configs = {
-    "250M": ([3, 4, 6, 3], 160, 2, "fp32"),
-    "500M": ([3, 4, 6, 3], 224, 2, "fp32"),
-    "1B": ([3, 4, 6, 3], 320, 2, "fp32"),
-    "2B": ([3, 4, 6, 3], 448, 2, "fp32"),
-    "4B": ([3, 4, 6, 3], 640, 2, "fp32"),
-    "6_8B": ([3, 4, 6, 3], 320, 16, "fp32"),
-    "13B": ([3, 4, 23, 3], 320, 16, "fp32"),
-}
-
-# model_size: (num_layers, seq_len, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype)
+# model_size: (num_layers, total_seqlen, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype)
 gpt_configs = {
-    "350M": (24, 1024, 1024, 1024 * 4, 16, 1024 // 16, 51200, "fp16"),
-    "1_3B": (24, 1024, 2048, 2048 * 4, 32, 2048 // 32, 51200, "fp16"),
-    "2_6B": (32, 1024, 2560, 2560 * 4, 32, 2560 // 32, 51200, "fp16"),
-    "6_7B": (32, 1024, 4096, 4096 * 4, 32, 4096 // 32, 51200, "fp16"),
-    "13B": (40, 1024, 5120, 5120 * 4, 40, 5120 // 40, 51200, "fp16"),
-    "scale-layer": (1, 1024, 512, 512 * 4, 8, 512 // 8, 51200, "fp16"),
-}
-
-
-# model_size: (num_layers, encoder_seq_length, decoder_seq_length, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype)
-t5_configs = {
-    # "220M": (12, SEQ_LEN, DECODER_SEQ_LEN, 768, 3072, 12, 64, 30592, "fp16"),
-    "770M": (24, 2048, 512, 1024, 4096, 16, 64, 30592, "fp16"),
-    "3B": (24, 2048, 512, 1024, 16384, 32, 128, 30592, "fp16"),
-    "6B": (24, 2048, 512, 1024, 32768, 64, 128, 30592, "fp16"),
-    "11B": (24, 2048, 512, 1024, 65536, 128, 128, 30592, "fp16"),
-    "22B": (48, 2048, 512, 1024, 65536, 128, 128, 30592, "fp16"),
+    "350M": (24, 2048, 1024, 1024 * 4, 16, 1024 // 16, 51200, "fp16"),
+    "1_3B": (24, 2048, 2048, 2048 * 4, 32, 2048 // 32, 51200, "fp16"),
+    "2_6B": (32, 2048, 2560, 2560 * 4, 32, 2560 // 32, 51200, "fp16"),
+    "6_7B": (32, 2048, 4096, 4096 * 4, 32, 4096 // 32, 51200, "fp16"),
+    "13B": (40, 2048, 5120, 5120 * 4, 40, 5120 // 40, 51200, "fp16"),
+    # "scale-layer": (1, 1024, 512, 512 * 4, 8, 512 // 8, 51200, "fp16"),
 }
 
 ## NOTE: For GPT and T5 models, we use fp16, which will introduce a "main_param" in Megatron
@@ -62,8 +40,13 @@ class AcesoStageInfo:
     num_stages_behind: int
     num_gpus: int
     ops: List[str]
-    tp_size: List[int]
-    dp_size: List[int]
+    tp_size: int
+    cp_size: int
+    usp_size: int
+    rsp_size: int
+    dp_size: int
+    rsp_split: List[int]
+    dp_split: List[int]
 
 
 @dataclass
@@ -94,24 +77,46 @@ def debug_info(info, print_debug_info):
 
 
 def get_config(
-    num_ops_list,
-    tp_size_list,
-    dp_size_list,
-    aggregate_mbs,
+    num_layers,
+    total_seqlen,
     global_batch_size,
+    aggregate_mbs,
+    
+    num_stages,
+    num_gpu_list,
+    num_ops_list,
+    
+    tp_size_list,
+    cp_size_list,
+    usp_size_list,
+    rsp_size_list,
+    dp_size_list,
+    rsp_split_list,
+    dp_split_list,
     full_op_list,
 ):
     op_start_index = 0
-    num_stages = len(num_ops_list)
     stages_info_list = []
+    assert num_layers * 2 + 2 == sum(num_ops_list), f"num_layers: {num_layers} not match num_ops_list: {num_ops_list}"
+    assert num_stages == len(num_gpu_list) == len(num_ops_list) == len(tp_size_list) == len(cp_size_list) == len(usp_size_list) == len(rsp_size_list) == len(dp_size_list) == len(rsp_split_list), f"num_stages: {num_stages} not match num_gpu_list: {num_gpu_list}, num_ops_list: {num_ops_list}, tp_size_list: {tp_size_list}, cp_size_list: {cp_size_list}, usp_size_list: {usp_size_list}, rsp_size_list: {rsp_size_list}, dp_size_list: {dp_size_list}, rsp_split_list: {rsp_split_list}"
     for i in range(num_stages):
+        assert num_gpu_list[i] == tp_size_list[i] * cp_size_list[i] * dp_size_list[i], f'3d parallelism mul is not equal to num gpus: {num_gpu_list[i]} != {tp_size_list[i]} * {cp_size_list[i]} * {dp_size_list[i]}'
+        assert cp_size_list[i] == usp_size_list[i] * rsp_size_list[i], f'context parallelism mul is not equal to num gpus: {cp_size_list[i]} != {usp_size_list[i]} * {rsp_size_list[i]}'
+        assert len(rsp_split_list[i]) == rsp_size_list[i], f'rsp split list format error, {len(rsp_split_list)}, {rsp_size_list[i]}'
+        assert total_seqlen == sum(rsp_split_list[i]), f'sum of rsp split is not equal to total seqlen'
+        assert aggregate_mbs == sum(dp_split_list[i]), f'sum of dp split is not equal to total mbs'
         stage_info = AcesoStageInfo(
             index=i,
             num_stages_behind=(num_stages - 1 - i),
-            num_gpus=tp_size_list[i] * dp_size_list[i],
+            num_gpus=num_gpu_list[i],
             ops=list(full_op_list[op_start_index : op_start_index + num_ops_list[i]]),
             tp_size=tp_size_list[i],
+            cp_size=cp_size_list[i],
+            usp_size=usp_size_list[i],
+            rsp_size=rsp_size_list[i],
             dp_size=dp_size_list[i],
+            rsp_split=rsp_split_list[i],
+            dp_split=dp_split_list[i]
         )
         stages_info_list.append(stage_info)
         op_start_index += num_ops_list[i]
@@ -130,16 +135,26 @@ def config_details(config, get_string=False):
         return ""
     num_ops_stage = []
     tp_size_list = []
+    cp_size_list = []
+    usp_size_list = []
+    rsp_size_list = []
     dp_size_list = []
-    base_batch_size = config.micro_bs
+    rsp_split_list = []
+    dp_split_list = []
+    total_mbs = config.micro_bs
     for i in range(config.num_stages):
         num_ops_stage.append(len(config.stages[i].ops))
         tp_size_list.append(config.stages[i].tp_size)
+        cp_size_list.append(config.stages[i].cp_size)
+        usp_size_list.append(config.stages[i].usp_size)
+        rsp_size_list.append(config.stages[i].rsp_size)
         dp_size_list.append(config.stages[i].dp_size)
+        rsp_split_list.append(config.stages[i].rsp_split)
+        dp_split_list.append(config.stages[i].dp_split)
     if get_string:
-        return f"{num_ops_stage}, {tp_size_list}, {dp_size_list}, {base_batch_size}"
+        return f"{num_ops_stage} , {total_mbs}, {tp_size_list}, {cp_size_list}, {usp_size_list}, {rsp_size_list}, {dp_size_list}, {rsp_split_list}, {dp_split_list}"
     else:
-        return num_ops_stage, tp_size_list, dp_size_list, base_batch_size
+        return num_ops_stage, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
 
 
 def dump_config_to_json(config, file_name, args):
@@ -162,7 +177,7 @@ def dump_config_to_json(config, file_name, args):
             _,
         ) = gpt_configs[model_size]
         config_dict["num_layers"] = num_layers
-        config_dict["seq_length"] = seq_len
+        config_dict["total_seqlen"] = seq_len
         config_dict["max_position_embeddings"] = seq_len
         config_dict["num_attention_heads"] = num_attention_heads
         config_dict["hidden_size"] = hidden_size
@@ -172,29 +187,38 @@ def dump_config_to_json(config, file_name, args):
     config_dict["global_batch_size"] = config.global_bs
     config_dict["micro_batch_size"] = config.micro_bs
     config_dict["num_stages"] = config.num_stages
-
-    tp_size_of_each_op = []
-    dp_size_of_each_op = []
-    num_ops_in_each_stage = []
     config_dict["num_gpus"] = []
-    config_dict["resharding_stages"] = []
+    
+    num_ops_in_each_stage = []
+    
+    tp_size_of_each_stage = []
+    cp_size_of_each_stage = []
+    usp_size_of_each_stage = []
+    rsp_size_of_each_stage = []
+    dp_size_of_each_stage = []
+    rsp_split_list_of_each_stage = []
+    dp_split_list_of_each_stage = []
+    
     for i in range(config.num_stages):
-        tp_size_of_each_op.append(config.stages[i].tp_size)
-        dp_size_of_each_op.append(config.stages[i].dp_size)
+        tp_size_of_each_stage.append(config.stages[i].tp_size)
+        cp_size_of_each_stage.append(config.stages[i].cp_size)
+        usp_size_of_each_stage.append(config.stages[i].usp_size)
+        rsp_size_of_each_stage.append(config.stages[i].rsp_size)
+        dp_size_of_each_stage.append(config.stages[i].dp_size)
+        rsp_split_list_of_each_stage.append(config.stages[i].rsp_split)
+        dp_split_list_of_each_stage.append(config.stages[i].dp_split)
         num_ops_in_each_stage.append(len(config.stages[i].ops))
 
         config_dict["num_gpus"].append(config.stages[i].num_gpus)
-        if (
-            max(config.stages[i].tp_size) != min(config.stages[i].tp_size)
-            or max(config.stages[i].dp_size) != min(config.stages[i].dp_size)
-        ):
-            config_dict["resharding_stages"].append(True)
-        else:
-            config_dict["resharding_stages"].append(False)
 
     config_dict["num_ops_in_each_stage"] = num_ops_in_each_stage
-    config_dict["model_parallel_size_of_each_op"] = tp_size_of_each_op
-    config_dict["data_parallel_size_of_each_op"] = dp_size_of_each_op
+    config_dict["tensor_parallel_size_of_each_stage"] = tp_size_of_each_stage
+    config_dict["context_parallel_size_of_each_stage"] = cp_size_of_each_stage["ulysses_context_parallel_size_of_each_stage"] = usp_size_of_each_stage
+    config_dict["ring_context_parallel_size_of_each_stage"] = rsp_size_of_each_stage
+    config_dict
+    config_dict["data_parallel_size_of_each_stage"] = dp_size_of_each_stage
+    config_dict["ring_context_parallel_split_of_each_stage"] = rsp_split_list_of_each_stage
+    config_dict["data_parallel_split_of_each_stage"] = dp_split_list_of_each_stage
 
     json.dump(config_dict, open(file_name, "w"), indent=4)
     print(f"config has been saved to {file_name}")
@@ -206,35 +230,64 @@ def read_config_from_json(args, return_config_dict=False):
         config_dict = json.load(f)
 
     model_name = config_dict["model_name"]
-    num_layers = config_dict["num_layers"]
     model_size = config_dict["model_size"]
-
+    
+    num_layers = config_dict["num_layers"]
+    total_seqlen = config_dict["total_seqlen"]
     aggregate_mbs = config_dict["micro_batch_size"]
     global_batch_size = config_dict["global_batch_size"]
+    
+    num_stages = config_dict["num_stages"]
+    num_gpus = config_dict["num_gpus"]
     num_ops_list = config_dict["num_ops_in_each_stage"]
+    
     tp_size_list = config_dict["tensor_parallel_size_of_each_stage"]
+    cp_size_list = config_dict["context_parallel_size_of_each_stage"]
+    usp_size_list = config_dict["ulysses_context_parallel_size_of_each_stage"]
+    rsp_size_list = config_dict["ring_context_parallel_size_of_each_stage"]
+    rsp_split_list = config_dict["ring_context_parallel_split_of_each_stage"]
     dp_size_list = config_dict["data_parallel_size_of_each_stage"]
+    dp_split_list = config_dict["data_parallel_split_of_each_stage"]
+    
     full_op_list = get_full_op_list(args)
 
     if return_config_dict:
         return (
             get_config(
+                num_layers,
+                total_seqlen,
+                global_batch_size,
+                aggregate_mbs,
+                num_stages,
+                num_gpus,
                 num_ops_list,
                 tp_size_list,
+                cp_size_list,
+                usp_size_list,
+                rsp_size_list,
                 dp_size_list,
-                aggregate_mbs,
-                global_batch_size,
+                rsp_split_list,
+                dp_split_list,
                 full_op_list,
             ),
             config_dict,
         )
     else:
         return get_config(
+            num_layers,
+            total_seqlen,
+            global_batch_size,
+            aggregate_mbs,
+            num_stages,
+            num_gpus,
             num_ops_list,
             tp_size_list,
+            usp_size_list,
+            cp_size_list,
+            rsp_size_list,
             dp_size_list,
-            aggregate_mbs,
-            global_batch_size,
+            rsp_split_list,
+            dp_split_list,
             full_op_list,
         )
 
@@ -368,7 +421,7 @@ def print_args(args):
 
 def add_model_args(parser):
     group = parser.add_argument_group(title="model information")
-    group.add_argument("--model-name", type=str, default=None, help="")
+    group.add_argument("--model-name", type=str, default="gpt", help="")
     group.add_argument("--model-size", type=str, default=None, help="")
     group.add_argument("--num-layers", type=int, default=None, help="")
     group.add_argument("--global-batch-size", type=int, default=None, help="")
@@ -376,7 +429,7 @@ def add_model_args(parser):
     group.add_argument("--seq-len", type=int, default=2048, help="")
     group.add_argument("--decoder-seq-len", type=int, default=512, help="")
     group.add_argument("--max-tp", type=int, default=None, help="")
-    parser.add_argument('--dist-optimizer', action='store_true', help='')
+    group.add_argument('--dist-optimizer', action='store_true', help='')
 
     return parser
 
@@ -513,12 +566,8 @@ def parse_args():
         raise RuntimeError(f"model {args.model_name} is not supported yet.")
 
     if args.num_layers is None:
-        if args.model_name == "resnet":
-            args.num_layers = sum(resnet_configs[args.model_size][0])
-        elif args.model_name == "gpt":
+        if args.model_name == "gpt":
             args.num_layers = gpt_configs[args.model_size][0]
-        elif args.model_name == "t5":
-            args.num_layers = t5_configs[args.model_size][0]
         elif args.model_name == "scale-layer":
             raise RuntimeError(f"should provide --num-layers for scale-layer exp")
 
@@ -563,221 +612,6 @@ def parse_args():
 def update_args(new_args):
     global global_args
     global_args = new_args
-
-
-def generate_balance_config(full_op_list, num_stages, args):
-    num_gpus = args.num_gpus
-    global_bs = args.global_batch_size
-    micro_bs = args.micro_batch_size[0]
-
-    num_gpus_list = [1 for _ in range(num_stages)]
-    stop_flag = True
-    while sum(num_gpus_list) < num_gpus and stop_flag:
-        stop_flag = False
-        for i in range(num_stages):
-            if (
-                sum(num_gpus_list) < num_gpus
-                and num_gpus_list[i] < args.max_tp
-                and num_gpus_list[i] <= (num_gpus - sum(num_gpus_list))
-            ):
-                num_gpus_list[i] *= 2
-                stop_flag = True
-    if sum(num_gpus_list) != num_gpus:
-        return None
-
-    num_ops = len(full_op_list)
-    num_ops_per_stage = [num_ops // num_stages for _ in range(num_stages)]
-    num_ops_per_stage[-1] += num_ops - num_stages * (num_ops // num_stages)
-
-    tp_size_list = []
-    dp_size_list = []
-    for i in range(num_stages):
-        if args.init_dim == "tp":
-            tp_size_list += [num_gpus_list[i] for _ in range(num_ops_per_stage[i])]
-            dp_size_list += [1 for _ in range(num_ops_per_stage[i])]
-        elif args.init_dim == "dp":
-            dp_size_list += [num_gpus_list[i] // 2 for _ in range(num_ops_per_stage[i])]
-            tp_size_list += [2 for _ in range(num_ops_per_stage[i])]
-
-    initial_config = get_config(
-        num_ops_per_stage, tp_size_list, dp_size_list, micro_bs, global_bs, full_op_list
-    )
-
-    return initial_config
-
-
-def generate_test_config(full_op_list, num_stages, args):
-    num_gpus = args.num_gpus
-    global_bs = args.global_batch_size
-    micro_bs = args.micro_batch_size[0]
-
-    num_gpus_list = [1 for _ in range(num_stages)]
-    num_gpus_left = num_gpus - sum(num_gpus_list)
-    while num_gpus_left > 0:
-        initial_num_gpus_left = num_gpus_left
-        for i in range(num_stages):
-            if (
-                num_gpus_list[num_stages - 1 - i] <= num_gpus_left
-                and num_gpus_list[num_stages - 1 - i] == min(num_gpus_list)
-                and num_gpus_list[num_stages - 1 - i] <= 4
-            ):
-                num_gpus_left -= num_gpus_list[num_stages - 1 - i]
-                num_gpus_list[num_stages - 1 - i] *= 2
-                break
-        if num_gpus_left == initial_num_gpus_left:
-            break
-    if sum(num_gpus_list) != num_gpus:
-        return generate_initial_config(full_op_list, num_stages, num_gpus)
-
-    num_ops = len(full_op_list)
-    num_ops_per_stage = []
-    for i in range(num_stages):
-        num_ops_per_stage.append(int(num_ops * (num_gpus_list[i] / num_gpus)))
-    num_ops_per_stage[-1] += num_ops - sum(num_ops_per_stage)
-
-    tp_size_list = []
-    dp_size_list = []
-    for i in range(num_stages):
-        tp_size_list += [num_gpus_list[i] for _ in range(num_ops_per_stage[i])]
-        dp_size_list += [1 for _ in range(num_ops_per_stage[i])]
-
-    initial_config = get_config(
-        num_ops_per_stage,
-        tp_size_list,
-        dp_size_list,
-        micro_bs,
-        global_bs,
-        full_op_list,
-    )
-
-    return initial_config
-
-
-def generate_imbalance_gpu_config(full_op_list, num_stages, args):
-    num_gpus = args.num_gpus
-    global_bs = args.global_batch_size
-    micro_bs = args.micro_batch_size[0]
-    num_ops = len(full_op_list)
-    ## op distribution
-    num_ops_per_stage = [num_ops // num_stages for _ in range(num_stages)]
-    num_ops_per_stage[-1] += num_ops - num_stages * (num_ops // num_stages)
-    ## gpu distribution
-    num_gpus_list = [1 for _ in range(num_stages)]
-    num_gpus_remained = num_gpus - sum(num_gpus_list)
-    print(f"{num_gpus_list}")
-    micro_bs_index = 0
-    while num_gpus_remained > 0:
-        found = False
-        for i in range(num_stages):
-            if num_gpus_list[num_stages - 1 - i] <= num_gpus_remained and (
-                num_gpus_list[num_stages - 1 - i] * 2 // args.max_tp == 0
-                or micro_bs // (num_gpus_list[num_stages - 1 - i] * 2 // args.max_tp)
-                in args.micro_batch_size
-            ):
-                num_gpus_remained -= num_gpus_list[num_stages - 1 - i]
-                num_gpus_list[num_stages - 1 - i] *= 2
-                found = True
-                print(
-                    f"update: {num_gpus_list} (inc gpus in stage {num_stages - 1 - i})"
-                )
-                break
-            else:
-                print(f"fail to update on stage {num_stages - 1 - i}")
-        if not found:
-            micro_bs_index += 1
-            assert micro_bs_index < len(args.micro_batch_size)
-            micro_bs = args.micro_batch_size[micro_bs_index]
-
-    tp_size_list = []
-    dp_size_list = []
-    for i in range(num_stages):
-        if num_gpus_list[i] <= args.max_tp:
-            tp_size_list += [num_gpus_list[i] for _ in range(num_ops_per_stage[i])]
-            dp_size_list += [1 for _ in range(num_ops_per_stage[i])]
-        else:
-            tp_size_list += [args.max_tp for _ in range(num_ops_per_stage[i])]
-            dp_size_list += [
-                num_gpus_list[i] // args.max_tp for _ in range(num_ops_per_stage[i])
-            ]
-
-    initial_config = get_config(
-        num_ops_per_stage,
-        tp_size_list,
-        dp_size_list,
-        micro_bs,
-        global_bs,
-        full_op_list,
-    )
-
-    return initial_config
-
-
-def generate_imbalance_op_config(full_op_list, num_stages, args):
-    num_gpus = args.num_gpus
-    global_bs = args.global_batch_size
-    micro_bs = args.micro_batch_size[0]
-
-    num_gpus_list = [1 for _ in range(num_stages)]
-    stop_flag = True
-    while sum(num_gpus_list) < num_gpus and stop_flag:
-        stop_flag = False
-        for i in range(num_stages):
-            if (
-                sum(num_gpus_list) < num_gpus
-                and num_gpus_list[i] < args.max_tp
-                and num_gpus_list[i] <= (num_gpus - sum(num_gpus_list))
-            ):
-                num_gpus_list[i] *= 2
-                stop_flag = True
-    if sum(num_gpus_list) != num_gpus:
-        return None
-
-    if args.model_name == "resnet":
-        num_ops = len(full_op_list)
-        num_layers_list = [1 for _ in range(num_stages)]
-        num_layers_list[0] += 33 - sum(num_layers_list)
-        num_ops_per_stage = [num_layers_list[i] * 8 for i in range(num_stages)]
-        num_ops_per_stage[0] += 4
-        num_ops_per_stage[-1] += 2
-    elif args.model_name in ["gpt", "scale-layer"]:
-        num_ops = len(full_op_list)
-        num_layers_list = [1 for _ in range(num_stages)]
-        num_layers_list[-1] += args.num_layers - sum(num_layers_list)
-
-        num_ops_per_stage = [num_layers_list[i] * 13 for i in range(num_stages)]
-        num_ops_per_stage[0] += 1
-        num_ops_per_stage[-1] += 2
-
-    tp_size_list = []
-    dp_size_list = []
-    for i in range(num_stages):
-        tp_size_list += [num_gpus_list[i] for _ in range(num_ops_per_stage[i])]
-        dp_size_list += [1 for _ in range(num_ops_per_stage[i])]
-
-    initial_config = get_config(
-        num_ops_per_stage,
-        tp_size_list,
-        dp_size_list,
-        micro_bs,
-        global_bs,
-        full_op_list,
-    )
-
-    return initial_config
-
-
-def generate_initial_config(num_stages, args):
-    full_op_list = get_full_op_list(args)
-    if args.initial_point == "balance":
-        return generate_balance_config(full_op_list, num_stages, args)
-    elif args.initial_point == "imbalance_gpu":
-        return generate_imbalance_gpu_config(full_op_list, num_stages, args)
-    elif args.initial_point == "imbalance_op":
-        return generate_imbalance_op_config(full_op_list, num_stages, args)
-    elif args.initial_point == "test":
-        return generate_test_config(full_op_list, num_stages, args)
-    else:
-        return read_config_from_json(args)
 
 
 def sort_configs(config_list, sort_metric):
@@ -861,21 +695,35 @@ def print_simple_config_info(
 
     (
         num_ops_stage,
+        _,
         tp_per_stage,
+        cp_per_stage,
+        usp_per_stage,
+        rsp_per_stage,
         dp_per_stage,
+        rsp_split_list,
+        dp_split_list,
         base_batch_size,
     ) = config_details(config)
     gpu_list = [config.stages[i].num_gpus for i in range(config.num_stages)]
     detailed_tp_size = format_size_list(tp_per_stage)
+    detailed_cp_size = format_size_list(cp_per_stage)
+    detailed_usp_size = format_size_list(usp_per_stage)
+    detailed_rsp_size = format_size_list(rsp_per_stage)
     detailed_dp_size = format_size_list(dp_per_stage)
 
-    history = "{}|{:.2f}|{:.2f}| op = {}| tp = {} | dp = {} | gpus = {} | micro_bs = {} | time = {} | memory = {}".format(
+    history = "{}|{:.2f}|{:.2f}| op = {}| tp = {} | cp = {} | usp = {} | rsp = {} | dp = {} | rsp_split = {} | dp_split = {} | gpus = {} | micro_bs = {} | time = {} | memory = {}".format(
         info,
         max(config.time_list),
         max(config.memory_list),
         num_ops_stage,
         detailed_tp_size,
+        detailed_cp_size,
+        detailed_usp_size,
+        detailed_rsp_size,
         detailed_dp_size,
+        rsp_split_list,
+        dp_split_list,
         gpu_list,
         base_batch_size,
         list(map(int, config.time_list)),

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export CUDA_VISIBLE_DEVICES=4,5,6,7
+export CUDA_VISIBLE_DEVICES=3,4,5,7
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
@@ -13,7 +13,7 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export NCCL_SET_THREAD_NAME=1
 # export NCCL_TOPO_FILE=./nccl_topo.succ_4_1.xml
 # export NCCL_TOPO_DUMP_FILE=./nccl_topo.xml
-# export NCCL_SOCKET_IFNAME=eno2
+export NCCL_SOCKET_IFNAME=eno2
 # export NCCL_SOCKET_FAMILY=AF_INET
 # export NCCL_P2P_DISABLE=1
 

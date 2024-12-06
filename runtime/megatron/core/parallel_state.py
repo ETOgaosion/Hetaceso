@@ -252,8 +252,7 @@ def initialize_model_parallel_flexpipe2(
     ring_context_parallel_size_of_each_stage: list[int],
     ulysses_context_parallel_size_of_each_stage: list[int],
     data_parallel_split_of_each_stage: list[list[int]],
-    ulysses_context_parallel_split_of_each_stage: list[list[int]],
-    total_seqlen: int,
+    ring_context_parallel_split_of_each_stage: list[list[int]],
 ) -> None:
     """
     Initialize model data parallel groups for FlexPipe.
@@ -472,8 +471,9 @@ def initialize_model_parallel_flexpipe2(
                 * tensor_parallel_size_of_each_stage[i]
                 * ulysses_context_parallel_size_of_each_stage[i]
             )
+            ring_rank = j % ring_context_parallel_size_of_each_stage[i]
             for k in range(tensor_parallel_size_of_each_stage[i]):
-                seq_start = sum(ulysses_context_parallel_split_of_each_stage[i][k][: j] * ulysses_context_parallel_size_of_each_stage[i]) % total_seqlen
+                seq_start = sum(ring_context_parallel_split_of_each_stage[i][:ring_rank])
                 ulysses_cp_group_ranks = list(
                     range(
                         ulysses_cp_start_rank + k,
@@ -497,7 +497,7 @@ def initialize_model_parallel_flexpipe2(
                     )
                 ):
                     _RANK_INFOS[r].ulysses_cp_group = copy.deepcopy(ulysses_cp_group_ranks)
-                    seqlen = ulysses_context_parallel_split_of_each_stage[i][k][j]
+                    seqlen = ring_context_parallel_split_of_each_stage[i][ring_rank] // ulysses_context_parallel_size_of_each_stage[i]
                     if rank in ulysses_cp_group_ranks:
                         ulysses_seqlen_idx.append([j, k])
                     _RANK_INFOS[r].ds.seqlen = (

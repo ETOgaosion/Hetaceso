@@ -16,8 +16,13 @@ class AcesoStageInfo:
     num_stages_behind: int
     num_gpus: int
     ops: List[str]
-    tp_size: List[int]
-    dp_size: List[int]
+    tp_size: int
+    cp_size: int
+    usp_size: int
+    rsp_size: int
+    dp_size: int
+    rsp_split: List[int]
+    dp_split: List[int]
 
 @dataclass
 class AcesoConfig:
@@ -87,18 +92,28 @@ def print_simple_config_info(config, info=""):
     num_ops_stage = []
     num_layers_stage = []
     tp_size_list = []
+    cp_size_list = []
+    usp_size_list = []
+    rsp_size_list = []
     dp_size_list = []
+    rsp_split_list = []
+    dp_split_list = []
     gpu_list = []
 
     for i in range(config.num_stages):
         num_ops_stage.append(len(config.stages[i].ops))
         num_layers_stage.append(len(config.stages[i].ops)//num_ops_per_layer)
-        tp_size_list.append(config.stages[i].tp_size[0])
-        dp_size_list.append(config.stages[i].dp_size[0])
+        tp_size_list.append(config.stages[i].tp_size)
+        cp_size_list.append(config.stages[i].cp_size)
+        usp_size_list.append(config.stages[i].usp_size)
+        rsp_size_list.append(config.stages[i].rsp_size)
+        dp_size_list.append(config.stages[i].dp_size)
+        rsp_split_list.append(config.stages[i].rsp_split)
+        dp_split_list.append(config.stages[i].dp_split)
         gpu_list.append(config.stages[i].num_gpus)
 
-    print("{}|{:.2f}|{:.2f}| layer# = {} | op# = {} | tp = {} | dp = {} | gpus = {} | micro_bs = {} | time = {} | memory = {}| weight = {} | weight (no-embed) = {}\n".format(
-        info, max(config.time_list), max(config.memory_list), num_layers_stage, num_ops_stage, tp_size_list, dp_size_list, gpu_list, config.micro_bs, list(map(int, config.time_list)), list(map(int, config.memory_list)), list(map(int, config.weight_size_list)), list(map(int, config.weight_size_no_embed_list))))
+    print("{}|{:.2f}|{:.2f}| layer# = {} | op# = {} | tp = {} | cp = {} | usp = {} | rsp = {} | dp = {} | rsp_split = {} | dp_split = {} | gpus = {} | micro_bs = {} | time = {} | memory = {}| weight = {} | weight (no-embed) = {}\n".format(
+        info, max(config.time_list), max(config.memory_list), num_layers_stage, num_ops_stage, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list, gpu_list, config.micro_bs, list(map(int, config.time_list)), list(map(int, config.memory_list)), list(map(int, config.weight_size_list)), list(map(int, config.weight_size_no_embed_list))))
     
     return 
 
@@ -114,24 +129,57 @@ def get_full_op_list(num_layers):
     return full_op_list
     
 
-def get_config(num_ops_list, tp_size_list, dp_size_list, aggregate_mbs, global_batch_size, full_op_list, num_layers_in_each_stage):
+def get_config(
+    num_layers,
+    total_seqlen,
+    global_batch_size,
+    aggregate_mbs,
+    
+    num_stages,
+    num_gpu_list,
+    num_ops_list,
+    
+    tp_size_list,
+    cp_size_list,
+    usp_size_list,
+    rsp_size_list,
+    dp_size_list,
+    rsp_split_list,
+    dp_split_list,
+    full_op_list,
+):
     op_start_index = 0
-    num_stages = len(num_ops_list)
     stages_info_list = []
+    assert num_layers * 2 + 2 == sum(num_ops_list), f"num_layers: {num_layers} not match num_ops_list: {num_ops_list}"
+    assert num_stages == len(num_gpu_list) == len(num_ops_list) == len(tp_size_list) == len(cp_size_list) == len(usp_size_list) == len(rsp_size_list) == len(dp_size_list) == len(rsp_split_list), f"num_stages: {num_stages} not match num_gpu_list: {num_gpu_list}, num_ops_list: {num_ops_list}, tp_size_list: {tp_size_list}, cp_size_list: {cp_size_list}, usp_size_list: {usp_size_list}, rsp_size_list: {rsp_size_list}, dp_size_list: {dp_size_list}, rsp_split_list: {rsp_split_list}"
     for i in range(num_stages):
+        assert num_gpu_list[i] == tp_size_list[i] * cp_size_list[i] * dp_size_list[i], f'3d parallelism mul is not equal to num gpus: {num_gpu_list[i]} != {tp_size_list[i]} * {cp_size_list[i]} * {dp_size_list[i]}'
+        assert cp_size_list[i] == usp_size_list[i] * rsp_size_list[i], f'context parallelism mul is not equal to num gpus: {cp_size_list[i]} != {usp_size_list[i]} * {rsp_size_list[i]}'
+        assert len(rsp_split_list[i]) == rsp_size_list[i], f'rsp split list format error, {len(rsp_split_list)}, {rsp_size_list[i]}'
+        assert total_seqlen == sum(rsp_split_list[i]), f'sum of rsp split is not equal to total seqlen'
+        assert aggregate_mbs == sum(dp_split_list[i]), f'sum of dp split is not equal to total mbs'
         stage_info = AcesoStageInfo(
-            index = i, 
-            num_stages_behind = (num_stages - 1 - i),
-            num_gpus = tp_size_list[op_start_index] * dp_size_list[op_start_index],
-            ops = list(full_op_list[op_start_index: op_start_index + num_ops_list[i]]),
-            tp_size = list(tp_size_list[op_start_index: op_start_index + num_ops_list[i]]),
-            dp_size = list(dp_size_list[op_start_index: op_start_index + num_ops_list[i]]),
+            index=i,
+            num_stages_behind=(num_stages - 1 - i),
+            num_gpus=num_gpu_list[i],
+            ops=list(full_op_list[op_start_index : op_start_index + num_ops_list[i]]),
+            tp_size=tp_size_list[i],
+            cp_size=cp_size_list[i],
+            usp_size=usp_size_list[i],
+            rsp_size=rsp_size_list[i],
+            dp_size=dp_size_list[i],
+            rsp_split=rsp_split_list[i],
+            dp_split=dp_split_list[i]
         )
         stages_info_list.append(stage_info)
         op_start_index += num_ops_list[i]
 
-    current_config = AcesoConfig(global_bs=global_batch_size, micro_bs=aggregate_mbs, num_micro_batches=global_batch_size//aggregate_mbs, stages=stages_info_list, num_stages=num_stages, num_layers_in_each_stage=num_layers_in_each_stage)
-
+    current_config = AcesoConfig(
+        global_bs=global_batch_size,
+        micro_bs=aggregate_mbs,
+        stages=stages_info_list,
+        num_stages=num_stages,
+    )
     return current_config
 
 def read_config_from_json(config_file_name, return_config_dict=False):
@@ -139,22 +187,44 @@ def read_config_from_json(config_file_name, return_config_dict=False):
     with open(config_file_name, "r") as f:
         config_dict = json.load(f)
 
+    model_name = config_dict["model_name"]
+    model_size = config_dict["model_size"]
+    
     num_layers = config_dict["num_layers"]
+    total_seqlen = config_dict["total_seqlen"]
     aggregate_mbs = config_dict["micro_batch_size"]
     global_batch_size = config_dict["global_batch_size"]
+    
+    num_stages = config_dict["num_stages"]
+    num_gpus = config_dict["num_gpus"]
     num_ops_list = config_dict["num_ops_in_each_stage"]
-    num_layers_in_each_stage = config_dict["num_layers_in_each_stage"]
-
-    tp_size_list = []
-    for _tp_size_list in config_dict["model_parallel_size_of_each_op"]:
-        tp_size_list += _tp_size_list
-
-    dp_size_list = []
-    for _dp_size_list in config_dict["data_parallel_size_of_each_op"]:
-        dp_size_list += _dp_size_list
+    
+    tp_size_list = config_dict["tensor_parallel_size_of_each_stage"]
+    cp_size_list = config_dict["context_parallel_size_of_each_stage"]
+    usp_size_list = config_dict["ulysses_context_parallel_size_of_each_stage"]
+    rsp_size_list = config_dict["ring_context_parallel_size_of_each_stage"]
+    rsp_split_list = config_dict["ring_context_parallel_split_of_each_stage"]
+    dp_size_list = config_dict["data_parallel_size_of_each_stage"]
+    dp_split_list = config_dict["data_parallel_split_of_each_stage"]
 
     full_op_list = get_full_op_list(num_layers)
-    config = get_config(num_ops_list, tp_size_list, dp_size_list, aggregate_mbs, global_batch_size, full_op_list, num_layers_in_each_stage)
+    config = get_config(
+        num_layers,
+        total_seqlen,
+        global_batch_size,
+        aggregate_mbs,
+        num_stages,
+        num_gpus,
+        num_ops_list,
+        tp_size_list,
+        cp_size_list,
+        usp_size_list,
+        rsp_size_list,
+        dp_size_list,
+        rsp_split_list,
+        dp_split_list,
+        full_op_list,
+    )
 
     if return_config_dict:
         return config, config_dict
@@ -171,7 +241,7 @@ def dump_config_to_json(config, file_name, model_name, model_size, num_layers):
     if model_name == "gpt":
         _, seq_len, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, _ = gpt_configs[model_size]
         config_dict["num_layers"] = num_layers
-        config_dict["seq_length"] = seq_len
+        config_dict["total_seqlen"] = seq_len
         config_dict["max_position_embeddings"] = seq_len
         config_dict["num_attention_heads"] = num_attention_heads
         config_dict["hidden_size"] = hidden_size        
@@ -181,31 +251,38 @@ def dump_config_to_json(config, file_name, model_name, model_size, num_layers):
     config_dict["global_batch_size"] = config.global_bs
     config_dict["micro_batch_size"] = config.micro_bs
     config_dict["num_stages"] = config.num_stages
-    config_dict["device_mapping"] = config.device_mapping
-
-    tp_size_of_each_op = []
-    dp_size_of_each_op = []
-    num_ops_in_each_stage = []
-    num_layers_in_each_stage = []
     config_dict["num_gpus"] = []
-    config_dict["resharding_stages"] = []
+
+    num_ops_in_each_stage = []
+    
+    tp_size_of_each_stage = []
+    cp_size_of_each_stage = []
+    usp_size_of_each_stage = []
+    rsp_size_of_each_stage = []
+    dp_size_of_each_stage = []
+    rsp_split_list_of_each_stage = []
+    dp_split_list_of_each_stage = []
+    
     for i in range(config.num_stages):
-        tp_size_of_each_op.append(config.stages[i].tp_size)
-        dp_size_of_each_op.append(config.stages[i].dp_size)
+        tp_size_of_each_stage.append(config.stages[i].tp_size)
+        cp_size_of_each_stage.append(config.stages[i].cp_size)
+        usp_size_of_each_stage.append(config.stages[i].usp_size)
+        rsp_size_of_each_stage.append(config.stages[i].rsp_size)
+        dp_size_of_each_stage.append(config.stages[i].dp_size)
+        rsp_split_list_of_each_stage.append(config.stages[i].rsp_split)
+        dp_split_list_of_each_stage.append(config.stages[i].dp_split)
         num_ops_in_each_stage.append(len(config.stages[i].ops))
-        num_layers_in_each_stage.append(len(config.stages[i].ops) // num_ops_per_layer)
 
         config_dict["num_gpus"].append(config.stages[i].num_gpus)
-        if max(config.stages[i].tp_size) != min(config.stages[i].tp_size) \
-            or max(config.stages[i].dp_size) != min(config.stages[i].dp_size):
-            config_dict["resharding_stages"].append(True)
-        else:
-            config_dict["resharding_stages"].append(False)
-
+        
     config_dict["num_ops_in_each_stage"] = num_ops_in_each_stage
-    config_dict["num_layers_in_each_stage"] = num_layers_in_each_stage
-    config_dict["model_parallel_size_of_each_op"] = tp_size_of_each_op
-    config_dict["data_parallel_size_of_each_op"] = dp_size_of_each_op
+    config_dict["tensor_parallel_size_of_each_stage"] = tp_size_of_each_stage
+    config_dict["context_parallel_size_of_each_stage"] = cp_size_of_each_stage["ulysses_context_parallel_size_of_each_stage"] = usp_size_of_each_stage
+    config_dict["ring_context_parallel_size_of_each_stage"] = rsp_size_of_each_stage
+    config_dict
+    config_dict["data_parallel_size_of_each_stage"] = dp_size_of_each_stage
+    config_dict["ring_context_parallel_split_of_each_stage"] = rsp_split_list_of_each_stage
+    config_dict["data_parallel_split_of_each_stage"] = dp_split_list_of_each_stage
 
     # print(f"[WARNING] should use jsbeautifier")
     # json.dump(config_dict, open(file_name, 'w'), separators=(',', ':'), indent=4)

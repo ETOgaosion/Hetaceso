@@ -6,7 +6,7 @@ NODE_RANK=0
 GPUS_PER_NODE=1
 
 MACHINE=${1:-0}
-REPROFILE=${2:-1}
+REPROFILE=${2:-0}
 
 RUNTIME_PATH=$(pwd)/../results/
 PROFILING_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
@@ -60,7 +60,7 @@ fi
 mkdir -p ${PROFILING_PATH}
 mkdir -p logs
 mkdir -p logs/csv
-MAX_NUM_GPUS=4
+MAX_NUM_GPUS=1
 MODEL_NAME=gpt
 MODEL_SIZE=350M
 
@@ -98,8 +98,8 @@ do
         --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_op_profile.pkl \
         --prof-model-name $MODEL_NAME \
         --prof-model-size $MODEL_SIZE \
-        --prof-warmup-times 10 \
-        --prof-repeat-times 800 \
+        --prof-warmup-times 3 \
+        --prof-repeat-times 20 \
         2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_op_tp${tp_size}.log
 
     echo [TIME] after profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log

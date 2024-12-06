@@ -18,46 +18,31 @@ math_log_2 = {
     8: int(math.log(8, 2)),
     16: int(math.log(16, 2)),
 }
-global_mbs_index = None
 
 global compute_fwd_time, compute_bwd_time, input_size, output_size, weights, activations, collective_time
 global reserved_fwd, reserved_bwd
 global inter_band, intra_band
 
-global max_tp_size
-
-
-def get_mbs_index(mbs):
-    global global_mbs_index
-    assert global_mbs_index is not None
-    return global_mbs_index[mbs]
-
+global num_ops_stage, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
 
 def read_profiled(
-    model_name, model_size, gpt_path, dist_p2p_path, local_p2p_path, local_comm_path
+    model_name, model_size, config, gpt_path, dist_p2p_path, local_p2p_path, local_comm_path
 ):
-    global compute_fwd_time, compute_bwd_time, input_size, output_size, weights, activations, reserved_fwd, reserved_bwd, global_mbs_index
+    global compute_fwd_time, compute_bwd_time, input_size, output_size, weights, activations, reserved_fwd, reserved_bwd
+    
+    global num_ops_stage, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
+    
+    num_ops_stage, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list = config_details(config)
 
-    mbs_list = args.micro_batch_size
-    global_mbs_index = {}
-    for i in range(len(mbs_list)):
-        global_mbs_index[mbs_list[i]] = i
-        
-    global max_tp_size
-
-    if (model_name == "gpt" and model_size == "350M") or (
-        model_name == "t5" and model_size == "220M"
-    ):
-        max_tp_size = min(args.max_tp, 4)
-    else:
-        max_tp_size = min(args.max_tp, 8)
-
-    tp_size_list = []
-    tp = 1
-    while tp <= max_tp_size:
-        tp_size_list.append(tp)
-        tp *= 2
-    comm_num_gpus_list = tp_size_list[1:]
+    unique_config_list = []
+    unique_config_map = {}
+    comm_num_gpus_list = []
+    comm_num_gpus_map = {}
+    
+    for stage in len(num_ops_stage):
+        if (dp_split_list[stage], rsp_split_list[stage] // usp_size_list[stage], tp_size_list[stage]) not in unique_config_map:
+            unique_config_map[(dp_split_list[stage], rsp_split_list[stage] // usp_size_list[stage], tp_size_list[stage])] = stage
+            unique_config_list.append((dp_split_list[stage], rsp_split_list[stage] // usp_size_list[stage], tp_size_list[stage]))
 
     compute_fwd_time = {}
     compute_bwd_time = {}
@@ -75,99 +60,99 @@ def read_profiled(
         model_size = "11B"
 
     for op_name in op_list:
-        compute_fwd_time[op_name] = []
-        compute_bwd_time[op_name] = []
-        input_size[op_name] = []
-        output_size[op_name] = []
-        weights[op_name] = []
-        activations[op_name] = []
+        compute_fwd_time[op_name] = {}
+        compute_bwd_time[op_name] = {}
+        input_size[op_name] = {}
+        output_size[op_name] = {}
+        weights[op_name] = {}
+        activations[op_name] = {}
 
-        reserved_fwd[op_name] = []
-        reserved_bwd[op_name] = []
+        reserved_fwd[op_name] = {}
+        reserved_bwd[op_name] = {}
+        
+        for mbs, seqlen, tp in unique_config_list:
+            if mbs not in compute_fwd_time[op_name]:
+                compute_fwd_time[op_name][mbs] = {}
+                compute_bwd_time[op_name][mbs] = {}
+                input_size[op_name][mbs] = {}
+                output_size[op_name][mbs] = {}
+                weights[op_name][mbs] = {}
+                activations[op_name][mbs] = {}
 
-        for i in range(len(mbs_list)):
-            compute_fwd_time[op_name].append([])
-            compute_bwd_time[op_name].append([])
-            input_size[op_name].append([])
-            output_size[op_name].append([])
-            weights[op_name].append([])
-            activations[op_name].append([])
+                reserved_fwd[op_name][mbs] = {}
+                reserved_bwd[op_name][mbs] = {}
+            if seqlen not in compute_fwd_time[op_name][mbs]:
+                compute_fwd_time[op_name][mbs][seqlen] = {}
+                compute_bwd_time[op_name][mbs][seqlen] = {}
+                input_size[op_name][mbs][seqlen] = {}
+                output_size[op_name][mbs][seqlen] = {}
+                weights[op_name][mbs][seqlen] = {}
+                activations[op_name][mbs][seqlen] = {}
 
-            reserved_fwd[op_name].append([])
-            reserved_bwd[op_name].append([])
+                reserved_fwd[op_name][mbs][seqlen] = {}
+                reserved_bwd[op_name][mbs][seqlen] = {}
+            if tp not in compute_fwd_time[op_name][mbs][seqlen]:
+                compute_fwd_time[op_name][mbs][seqlen][tp] = 1000000
+                compute_bwd_time[op_name][mbs][seqlen][tp] = 1000000
+                input_size[op_name][mbs][seqlen][tp] = 1000000
+                output_size[op_name][mbs][seqlen][tp] = 1000000
+                weights[op_name][mbs][seqlen][tp] = 1000000
+                activations[op_name][mbs][seqlen][tp] = 1000000
 
-            for j in range(len(tp_size_list)):
-                compute_fwd_time[op_name][i].append(1000000)
-                compute_bwd_time[op_name][i].append(1000000)
-                input_size[op_name][i].append(1000000)
-                output_size[op_name][i].append(1000000)
-                weights[op_name][i].append(1000000)
-                activations[op_name][i].append(1000000)
+                reserved_fwd[op_name][mbs][seqlen][tp] = 1000000
+                reserved_bwd[op_name][mbs][seqlen][tp] = 1000000
+            if tp not in comm_num_gpus_map:
+                comm_num_gpus_list.append(tp)
+                comm_num_gpus_map[tp] = 1
 
-                reserved_fwd[op_name][i].append(1000000)
-                reserved_bwd[op_name][i].append(1000000)
+    for mbs, seqlen, tp in unique_config_list:
+        src_data_file = (
+            gpt_path + model_name + f"_{model_size}_mbs{mbs}_seqlen{seqlen}_tp{tp}.csv"
+        )
+        try:
+            with open(src_data_file) as f:
+                src_data = csv.reader(f)
+                line_index = 0
+                for row in src_data:
+                    line_index += 1
+                    if line_index > 1:
+                        op_name = row[0]
+                        compute_fwd_time[op_name][mbs][seqlen][tp] = float(
+                            row[1]
+                        )
+                        compute_bwd_time[op_name][mbs][seqlen][tp] = float(
+                            row[2]
+                        )
+                        input_size[op_name][mbs][seqlen][tp] = float(row[3])
+                        output_size[op_name][mbs][seqlen][tp] = float(row[4])
+                        weights[op_name][mbs][seqlen][tp] = float(row[5])
+                        activations[op_name][mbs][seqlen][tp] = float(row[6])
 
-    for mbs in mbs_list:
-        for tp in tp_size_list:
-            mbs_index = get_mbs_index(mbs)
-            tp_index = int(math.log(tp, 2))
-            if model_name == "scale-layer":
-                src_data_file = gpt_path + f"gpt_scale-layer_mbs{mbs}_tp{tp}.csv"
-            else:
-                src_data_file = (
-                    gpt_path + model_name + f"_{model_size}_mbs{mbs}_tp{tp}.csv"
-                )
-            try:
-                with open(src_data_file) as f:
-                    src_data = csv.reader(f)
-                    line_index = 0
-                    for row in src_data:
-                        line_index += 1
-                        if line_index > 1:
-                            op_name = row[0]
-                            compute_fwd_time[op_name][mbs_index][tp_index] = float(
-                                row[1]
+                        if args.consider_reserved_space:
+                            reserved_fwd[op_name][mbs][seqlen][tp] = float(
+                                row[7]
                             )
-                            compute_bwd_time[op_name][mbs_index][tp_index] = float(
-                                row[2]
+                            reserved_bwd[op_name][mbs][seqlen][tp] = float(
+                                row[8]
                             )
-                            input_size[op_name][mbs_index][tp_index] = float(row[3])
-                            output_size[op_name][mbs_index][tp_index] = float(row[4])
-                            weights[op_name][mbs_index][tp_index] = float(row[5])
-                            activations[op_name][mbs_index][tp_index] = float(row[6])
-
-                            if args.consider_reserved_space:
-                                reserved_fwd[op_name][mbs_index][tp_index] = float(
-                                    row[7]
-                                )
-                                reserved_bwd[op_name][mbs_index][tp_index] = float(
-                                    row[8]
-                                )
-            except:
-                print(
-                    f"file ({src_data_file}) not exist, or the file is not formatted as expected."
-                )
+        except:
+            print(
+                f"file ({src_data_file}) not exist, or the file is not formatted as expected."
+            )
     global collective_time
     collective_time = {}
     if model_name in ["gpt", "scale-layer"]:
         prim_list = ["all_gather", "all_reduce", "reduce_scatter", "all_to_all"]
-    elif model_name in ["t5"]:
-        prim_list = []
-    elif model_name in ["resnet"]:
-        prim_list = ["all_gather", "all_to_all"]
+    else:
+        raise RuntimeError(f"model_name {model_name} not implemented.")
     for prim in prim_list:
         collective_time[prim] = {}
         for num_gpus in comm_num_gpus_list:
             collective_time[prim][num_gpus] = {}
-            if model_name == "scale-layer":
-                src_data_file = (
-                    local_comm_path + f"prim_gpt_scale-layer_{prim}_{num_gpus}gpus.csv"
-                )
-            else:
-                src_data_file = (
-                    local_comm_path
-                    + f"prim_{model_name}_{model_size}_{prim}_{num_gpus}gpus.csv"
-                )
+            src_data_file = (
+                local_comm_path
+                + f"prim_{model_name}_{model_size}_{prim}_{num_gpus}gpus.csv"
+            )
             with open(src_data_file) as f:
                 src_data = csv.reader(f)
                 line_index = 0
@@ -323,7 +308,7 @@ def get_stage_of_op(op_index):
     else:
         return (op_index - 1) / 2
 
-def get_time_v3(ops, mbs, tp, dp, in_cross_node, out_cross_node):
+def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_node, out_cross_node):
     if len(ops) == 0:
         return 0, 0, 0, 0, 0
     global compute_fwd_time, compute_bwd_time, input_size, output_size
@@ -331,10 +316,8 @@ def get_time_v3(ops, mbs, tp, dp, in_cross_node, out_cross_node):
 
     for i in range(len(ops)):
         op_name = ops[i]
-        mbs_index = get_mbs_index(mbs[i])
-        tp_index = int(math.log(tp, 2))
-        fwd_comp += compute_fwd_time[op_name][mbs_index][tp_index]
-        bwd_comp += compute_bwd_time[op_name][mbs_index][tp_index]
+        fwd_comp += compute_fwd_time[op_name][mbs][seqlen][tp]
+        bwd_comp += compute_bwd_time[op_name][mbs][seqlen][tp]
         if args.support_comm_predict:
             # TODO: Check correctness, QKV/dense/GEMM ops need reshard time
             for op_name_suffix in ["attention", "mlp"]:
@@ -344,7 +327,7 @@ def get_time_v3(ops, mbs, tp, dp, in_cross_node, out_cross_node):
                         * get_reshard_time(
                             "all_reduce",
                             tp,
-                            output_size[op_name][mbs_index][tp_index],
+                            output_size[op_name][mbs][seqlen][tp],
                         )
                         * 1000
                     )
@@ -379,11 +362,11 @@ def get_time_v3(ops, mbs, tp, dp, in_cross_node, out_cross_node):
             tp_index = int(math.log(tp, 2))
             if fwd_prim is not None:
                 fwd_reshard += get_reshard_time(
-                    fwd_prim, num_devices, input_size[ops[i]][mbs_index][tp_index]
+                    fwd_prim, num_devices, input_size[ops[i]][mbs][seqlen][tp]
                 )
             if bwd_prim is not None:
                 bwd_reshard += get_reshard_time(
-                    bwd_prim, num_devices, input_size[ops[i]][mbs_index][tp_index]
+                    bwd_prim, num_devices, input_size[ops[i]][mbs][seqlen][tp]
                 )
 
     in_comm += fwd_reshard * 1000
@@ -405,10 +388,10 @@ def get_memory_v3(ops, mbs, tp):
         tp_index = int(math.log(tp, 2))
         # TODO: Be more precisely
         if args.consider_shared_space and ops[i] == "dec-self-attention":
-            _activations += activations[ops[i]][mbs_index][tp_index] * 1.5
+            _activations += activations[ops[i]][mbs][seqlen][tp] * 1.5
         else:
-            _activations += activations[ops[i]][mbs_index][tp_index]
-        _weights += weights[ops[i]][mbs_index][tp_index]
+            _activations += activations[ops[i]][mbs][seqlen][tp]
+        _weights += weights[ops[i]][mbs][seqlen][tp]
 
     return _weights, inputs, _activations
 
@@ -426,10 +409,10 @@ def get_activations_v3(ops, mbs, tp):
         # TODO: Be more precisely
         if args.consider_shared_space and ops[i] == "dec-self-attention":
             saved_activations += (
-                activations[ops[i]][mbs_index][tp_index] * 1.5
+                activations[ops[i]][mbs][seqlen][tp] * 1.5
             )
         else:
-            saved_activations += activations[ops[i]][mbs_index][tp_index]
+            saved_activations += activations[ops[i]][mbs][seqlen][tp]
 
     return saved_activations
 
@@ -449,7 +432,7 @@ def get_peak_activations(ops, mbs, tp):
         # TODO: Be more precisely
         if args.consider_shared_space and ops[i] == "dec-self-attention":
             saved_activations += (
-                activations[ops[i]][mbs_index][tp_index] * 1.5
+                activations[ops[i]][mbs][seqlen][tp] * 1.5
             )
             saved_activations_list.append(saved_activations)
             saved_activations = 0
@@ -468,10 +451,10 @@ def get_reserved_memory(ops, mbs, tp, dp, memory_weights):
     for i in range(len(ops) - 1):
         mbs_index = get_mbs_index(mbs[i])
         tp_index = int(math.log(tp, 2))
-        if reserved_fwd[ops[i]][mbs_index][tp_index] > current_reserved_fwd:
-            current_reserved_fwd = reserved_fwd[ops[i]][mbs_index][tp_index]
-        if reserved_bwd[ops[i]][mbs_index][tp_index] > current_reserved_bwd:
-            current_reserved_bwd = reserved_bwd[ops[i]][mbs_index][tp_index]
+        if reserved_fwd[ops[i]][mbs][seqlen][tp] > current_reserved_fwd:
+            current_reserved_fwd = reserved_fwd[ops[i]][mbs][seqlen][tp]
+        if reserved_bwd[ops[i]][mbs][seqlen][tp] > current_reserved_bwd:
+            current_reserved_bwd = reserved_bwd[ops[i]][mbs][seqlen][tp]
 
     max_collective = 0
     if args.consider_collective_memory:
@@ -492,7 +475,7 @@ def get_reserved_memory(ops, mbs, tp, dp, memory_weights):
                     fwd_collective = get_reshard_memory(
                         fwd_prim,
                         num_devices,
-                        input_size[ops[i]][mbs_index][tp_index],
+                        input_size[ops[i]][mbs][seqlen][tp],
                     )
                     if fwd_collective > max_collective:
                         max_collective = fwd_collective
@@ -500,7 +483,7 @@ def get_reserved_memory(ops, mbs, tp, dp, memory_weights):
                     bwd_collective = get_reshard_memory(
                         bwd_prim,
                         num_devices,
-                        input_size[ops[i]][mbs_index][tp_index],
+                        input_size[ops[i]][mbs][seqlen][tp],
                     )
                     if bwd_collective > max_collective:
                         max_collective = bwd_collective
@@ -522,7 +505,7 @@ def get_activation_size(op_name, mbs, tp):
     global activations
     mbs_index = get_mbs_index(mbs)
     tp_index = math_log_2[tp]
-    return activations[op_name][mbs_index][tp_index]
+    return activations[op_name][mbs][seqlen][tp]
 
 
 def predict_stage_time(
@@ -969,7 +952,7 @@ if __name__ == "__main__":
 
     config, config_dict = read_config_from_json(args, return_config_dict=True)
     read_profiled(
-        config_dict["model_name"], config_dict["model_size"], args.profiled_gpt_path, args.profiled_dist_p2p_path, args.profiled_local_p2p_path, args.profiled_local_comm_path
+        config_dict["model_name"], config_dict["model_size"], config_dict, args.profiled_gpt_path, args.profiled_dist_p2p_path, args.profiled_local_p2p_path, args.profiled_local_comm_path
     )
     predict_time_breakdown(config, print_time=True, print_memory=True)
     if args.save_to_csv is not None:

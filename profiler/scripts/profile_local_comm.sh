@@ -5,7 +5,7 @@ NNODES=2
 NODE_RANK=$1
 
 MACHINE=${1:-0}
-REPROFILE=${2:-1}
+REPROFILE=${2:-0}
 
 RUNTIME_PATH=$(pwd)/../results/
 PROFILING_PATH=${RUNTIME_PATH}profiled-local-comm-hetaceso/

@@ -2,9 +2,11 @@ num_gpus_per_node=4
 num_nodes=1
 MBS=${1:-4}
 TP=${2:-1}
-DP=${3:-4}
+USP=${3:-1}
+RSP=${4:-1}
+DP=${5:-4}
 
-CONFIG_TEST=mbs${MBS}_tp${TP}_dp${DP}
+CONFIG_TEST=mbs${MBS}_tp${TP}_usp${USP}_rsp${RSP}_dp${DP}
 
 config=single_gpu_configs/gpt_350M_$CONFIG_TEST.json
 PROFILED_GPT_PATH=../results/profiled-gpt-hetaceso/
