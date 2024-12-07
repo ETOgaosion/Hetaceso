@@ -28,6 +28,7 @@ class AcesoStageInfo:
 class AcesoConfig:
     global_bs: int
     micro_bs: int
+    total_seqlen: int
     num_micro_batches: int
     stages: List[AcesoStageInfo]
     num_stages: int
@@ -177,6 +178,8 @@ def get_config(
     current_config = AcesoConfig(
         global_bs=global_batch_size,
         micro_bs=aggregate_mbs,
+        total_seqlen=total_seqlen,
+        num_micro_batches=global_batch_size // aggregate_mbs,
         stages=stages_info_list,
         num_stages=num_stages,
     )

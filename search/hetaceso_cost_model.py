@@ -3,16 +3,31 @@ import csv
 from hetaceso_utils import (
     get_op_list,
 )
+from aceso_utils import (
+    config_details,
+)
 import os
 
 LOG_LEVEL = int(os.environ.get("LOG_LEVEL", "0"))
 
+global num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
 
 def read_profiled_results(
-    gpt_path, local_p2p_path, dist_p2p_path, model_name, model_size, max_tp_size, mbs_index_dict
+    model_name, model_size, config, gpt_path, dist_p2p_path, local_p2p_path, local_comm_path
 ):
+    global num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
+    
+    num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list = config_details(config)
 
-    tp_size_list = [2**i for i in range(int(math.log2(max_tp_size)) + 1)]
+    unique_config_list = []
+    unique_config_map = {}
+    comm_num_gpus_list = []
+    comm_num_gpus_map = {}
+    
+    for stage in len(num_ops_stage):
+        if (dp_split_list[stage], rsp_split_list[stage] // usp_size_list[stage], tp_size_list[stage]) not in unique_config_map:
+            unique_config_map[(dp_split_list[stage], rsp_split_list[stage] // usp_size_list[stage], tp_size_list[stage])] = stage
+            unique_config_list.append((dp_split_list[stage], rsp_split_list[stage] // usp_size_list[stage], tp_size_list[stage]))
 
     compute_fwd_time = {}
     compute_bwd_time = {}
@@ -23,79 +38,115 @@ def read_profiled_results(
     reserved_fwd = {}
     reserved_bwd = {}
 
-    if model_name == "gpt":
-        op_list = get_op_list()
-    else:
-        raise RuntimeError(f"not implemented for model {model_name}")
+    global op_list
+
+    ## T5 22B and 11B share same op.
+    if model_name == "t5" and model_size == "22B":
+        model_size = "11B"
 
     for op_name in op_list:
-        compute_fwd_time[op_name] = []
-        compute_bwd_time[op_name] = []
-        input_size[op_name] = []
-        output_size[op_name] = []
-        weights[op_name] = []
-        activations[op_name] = []
+        compute_fwd_time[op_name] = {}
+        compute_bwd_time[op_name] = {}
+        input_size[op_name] = {}
+        output_size[op_name] = {}
+        weights[op_name] = {}
+        activations[op_name] = {}
 
-        reserved_fwd[op_name] = []
-        reserved_bwd[op_name] = []
+        reserved_fwd[op_name] = {}
+        reserved_bwd[op_name] = {}
+        
+        for mbs, seqlen, tp in unique_config_list:
+            if mbs not in compute_fwd_time[op_name]:
+                compute_fwd_time[op_name][mbs] = {}
+                compute_bwd_time[op_name][mbs] = {}
+                input_size[op_name][mbs] = {}
+                output_size[op_name][mbs] = {}
+                weights[op_name][mbs] = {}
+                activations[op_name][mbs] = {}
 
-        for i in range(len(mbs_index_dict)):
-            compute_fwd_time[op_name].append([])
-            compute_bwd_time[op_name].append([])
-            input_size[op_name].append([])
-            output_size[op_name].append([])
-            weights[op_name].append([])
-            activations[op_name].append([])
+                reserved_fwd[op_name][mbs] = {}
+                reserved_bwd[op_name][mbs] = {}
+            if seqlen not in compute_fwd_time[op_name][mbs]:
+                compute_fwd_time[op_name][mbs][seqlen] = {}
+                compute_bwd_time[op_name][mbs][seqlen] = {}
+                input_size[op_name][mbs][seqlen] = {}
+                output_size[op_name][mbs][seqlen] = {}
+                weights[op_name][mbs][seqlen] = {}
+                activations[op_name][mbs][seqlen] = {}
 
-            reserved_fwd[op_name].append([])
-            reserved_bwd[op_name].append([])
+                reserved_fwd[op_name][mbs][seqlen] = {}
+                reserved_bwd[op_name][mbs][seqlen] = {}
+            if tp not in compute_fwd_time[op_name][mbs][seqlen]:
+                compute_fwd_time[op_name][mbs][seqlen][tp] = 1000000
+                compute_bwd_time[op_name][mbs][seqlen][tp] = 1000000
+                input_size[op_name][mbs][seqlen][tp] = 1000000
+                output_size[op_name][mbs][seqlen][tp] = 1000000
+                weights[op_name][mbs][seqlen][tp] = 1000000
+                activations[op_name][mbs][seqlen][tp] = 1000000
 
-            for j in range(len(tp_size_list)):
-                compute_fwd_time[op_name][i].append(1000000)
-                compute_bwd_time[op_name][i].append(1000000)
-                input_size[op_name][i].append(1000000)
-                output_size[op_name][i].append(1000000)
-                weights[op_name][i].append(1000000)
-                activations[op_name][i].append(1000000)
+                reserved_fwd[op_name][mbs][seqlen][tp] = 1000000
+                reserved_bwd[op_name][mbs][seqlen][tp] = 1000000
+            if tp not in comm_num_gpus_map:
+                comm_num_gpus_list.append(tp)
+                comm_num_gpus_map[tp] = 1
 
-                reserved_fwd[op_name][i].append(1000000)
-                reserved_bwd[op_name][i].append(1000000)
+    for mbs, seqlen, tp in unique_config_list:
+        src_data_file = (
+            gpt_path + model_name + f"_{model_size}_mbs{mbs}_seqlen{seqlen}_tp{tp}.csv"
+        )
+        try:
+            with open(src_data_file) as f:
+                src_data = csv.reader(f)
+                line_index = 0
+                for row in src_data:
+                    line_index += 1
+                    if line_index > 1:
+                        op_name = row[0]
+                        compute_fwd_time[op_name][mbs][seqlen][tp] = float(
+                            row[1]
+                        )
+                        compute_bwd_time[op_name][mbs][seqlen][tp] = float(
+                            row[2]
+                        )
+                        input_size[op_name][mbs][seqlen][tp] = float(row[3])
+                        output_size[op_name][mbs][seqlen][tp] = float(row[4])
+                        weights[op_name][mbs][seqlen][tp] = float(row[5])
+                        activations[op_name][mbs][seqlen][tp] = float(row[6])
 
-    for mbs in mbs_index_dict:
-        for tp in tp_size_list:
-            mbs_index = mbs_index_dict[mbs]
-            tp_index = int(math.log(tp, 2))
-            src_data_file = (
-                gpt_path + model_name + f"_{model_size}_mbs{mbs}_tp{tp}.csv"
+                        reserved_fwd[op_name][mbs][seqlen][tp] = float(
+                            row[7]
+                        )
+                        reserved_bwd[op_name][mbs][seqlen][tp] = float(
+                            row[8]
+                        )
+        except:
+            print(
+                f"file ({src_data_file}) not exist, or the file is not formatted as expected."
             )
-            try:
-                with open(src_data_file) as f:
-                    src_data = csv.reader(f)
-                    line_index = 0
-                    for row in src_data:
-                        line_index += 1
-                        if line_index > 1:
-                            op_name = row[0]
-                            compute_fwd_time[op_name][mbs_index][tp_index] = float(
-                                row[1]
-                            )
-                            compute_bwd_time[op_name][mbs_index][tp_index] = float(
-                                row[2]
-                            )
-                            input_size[op_name][mbs_index][tp_index] = float(row[3])
-                            output_size[op_name][mbs_index][tp_index] = float(row[4])
-                            weights[op_name][mbs_index][tp_index] = float(row[5])
-                            activations[op_name][mbs_index][tp_index] = float(row[6])
+    global collective_time
+    collective_time = {}
+    if model_name in ["gpt", "scale-layer"]:
+        prim_list = ["all_gather", "all_reduce", "reduce_scatter", "all_to_all"]
+    else:
+        raise RuntimeError(f"model_name {model_name} not implemented.")
+    for prim in prim_list:
+        collective_time[prim] = {}
+        for num_gpus in comm_num_gpus_list:
+            collective_time[prim][num_gpus] = {}
+            src_data_file = (
+                local_comm_path
+                + f"prim_{model_name}_{model_size}_{prim}_{num_gpus}gpus.csv"
+            )
+            with open(src_data_file) as f:
+                src_data = csv.reader(f)
+                line_index = 0
+                for row in src_data:
+                    line_index += 1
+                    if line_index > 1:
+                        data_size = row[0]
+                        collective_time[prim][num_gpus][data_size] = float(row[1])
 
-                            reserved_fwd[op_name][mbs_index][tp_index] = float(row[7])
-                            reserved_bwd[op_name][mbs_index][tp_index] = float(row[8])
-            except:
-                print(
-                    f"file ({src_data_file}) not exist, or the file is not formatted as expected."
-                )
-
-    inter_band = 0
-    intra_band = 0
+    global inter_band, intra_band
     inter_band_file = dist_p2p_path + "p2p_inter_node.csv"
     intra_band_file = local_p2p_path + "p2p_intra_node.csv"
     try:
@@ -103,19 +154,18 @@ def read_profiled_results(
             src_data = csv.reader(f)
             for idx, row in enumerate(src_data):
                 if idx == 1:
-                    intra_band = [float(row[i]) * 0.001 for i in range(len(row))]
+                    intra_band = [float(row[i]) for i in range(len(row))]
     except:
         print(f"intra-node bandwidth file is not found.")
-
     try:
         with open(inter_band_file) as f:
             src_data = csv.reader(f)
             for idx, row in enumerate(src_data):
                 if idx == 1:
-                    inter_band = [float(row[i]) * 0.001 for i in range(len(row))]
+                    inter_band = [float(row[i]) for i in range(len(row))]
     except:
         print(
-            f"inter-node bandwidth file is not found, using intra-node bandwidth instead.\n"
+            f"inter-node bandwidth file is not found, using intra-node bandwidth instead."
         )
         inter_band = intra_band
 
@@ -149,21 +199,24 @@ def customize_inter_band(src_band, band_type):
 class HetacesoPerfModel:
     def __init__(
         self,
+        config,
+        node_rank,
+        cur_mbs,
+        cur_seqlen,
         gpt_path,
         local_p2p_path,
+        local_comm_path,
         dist_p2p_path,
         model_name,
         model_size,
-        max_tp_size,
-        mbs_list,
         num_gpus_per_node,
         dist_optimizer,
         inter_node_band: str=None,
     ):
-        self.mbs_index = {}
-        for i in range(len(mbs_list)):
-            self.mbs_index[mbs_list[i]] = i
-
+        self.node_rank = node_rank
+        self.cur_mbs = cur_mbs
+        self.cur_seqlen = cur_seqlen
+        
         ## read profiled results
         (
             self.compute_fwd_time,
@@ -177,7 +230,7 @@ class HetacesoPerfModel:
             self.inter_node_band,
             self.intra_node_band,
         ) = read_profiled_results(
-            gpt_path, local_p2p_path, dist_p2p_path, model_name, model_size, max_tp_size, self.mbs_index
+            model_name, model_size, config, gpt_path, dist_p2p_path, local_p2p_path, local_comm_path
         )
         if inter_node_band is not None:
             self.inter_node_band = customize_inter_band(
@@ -221,41 +274,33 @@ class HetacesoPerfModel:
             return 1
 
     ## TODO: check if mbs is needed
-    def get_weight_size(self, ops, mbs, tp):
+    def get_weight_size(self, ops, tp):
 
         weight_size = 0
         for i in range(len(ops)):
-            mbs_index = self.mbs_index[mbs[i]]
-            tp_index = int(math.log(tp, 2))
-            weight_size += self.weights[ops[i]][mbs_index][tp_index]
+            weight_size += self.weights[ops[i]][self.cur_mbs][self.cur_seqlen][tp]
 
         return weight_size
 
-    def get_weight_size_no_embed(self, ops, mbs, tp):
+    def get_weight_size_no_embed(self, ops, tp):
 
         weight_size = 0
         ignored_ops = ["encoder-embedding", "gpt-post-process"]
         for i in range(len(ops)):
             if ops[i] not in ignored_ops:
-                mbs_index = self.mbs_index[mbs[i]]
-                tp_index = int(math.log(tp, 2))
-                weight_size += self.weights[ops[i]][mbs_index][tp_index]
+                weight_size += self.weights[ops[i]][self.cur_mbs][self.cur_seqlen][tp]
 
         return weight_size
 
-    def get_activation_size(self, ops, mbs, tp, num_stages_behind):
-        in_mbs_index = self.mbs_index[mbs[0]]
-        in_tp_index = int(math.log(tp, 2))
-        inputs = self.input_size[ops[0]][in_mbs_index][in_tp_index]
+    def get_activation_size(self, ops, tp, num_stages_behind):
+        inputs = self.input_size[ops[0]][self.cur_mbs][self.cur_seqlen][tp]
 
         sum_activation_size = 0
         saved_size = 0
         saved_size_list = [0]
         for i in range(len(ops)):
-            mbs_index = self.mbs_index[mbs[i]]
-            tp_index = int(math.log(tp, 2))
             # TODO: Check Calculation
-            current_activation_size = self.activations[ops[i]][mbs_index][tp_index]
+            current_activation_size = self.activations[ops[i]][self.cur_mbs][self.cur_seqlen][tp]
             saved_size += current_activation_size
             sum_activation_size += current_activation_size
 
@@ -270,17 +315,15 @@ class HetacesoPerfModel:
 
         return activation_size
 
-    def get_reserved_size(self, ops, mbs, tp, weight_size):
+    def get_reserved_size(self, ops, tp, weight_size):
 
         reserved_fwd_size = 0
         reserved_bwd_size = 0
         for i in range(len(ops) - 1):
-            mbs_index = self.mbs_index[mbs[i]]
-            tp_index = int(math.log(tp, 2))
-            if self.reserved_fwd[ops[i]][mbs_index][tp_index] > reserved_fwd_size:
-                reserved_fwd_size = self.reserved_fwd[ops[i]][mbs_index][tp_index]
-            if self.reserved_bwd[ops[i]][mbs_index][tp_index] > reserved_bwd_size:
-                reserved_bwd_size = self.reserved_bwd[ops[i]][mbs_index][tp_index]
+            if self.reserved_fwd[ops[i]][self.cur_mbs][self.cur_seqlen][tp] > reserved_fwd_size:
+                reserved_fwd_size = self.reserved_fwd[ops[i]][self.cur_mbs][self.cur_seqlen][tp]
+            if self.reserved_bwd[ops[i]][self.cur_mbs][self.cur_seqlen][tp] > reserved_bwd_size:
+                reserved_bwd_size = self.reserved_bwd[ops[i]][self.cur_mbs][self.cur_seqlen][tp]
 
         if self.memory_predict_type == "MAX":
             return max(reserved_fwd_size + reserved_bwd_size, weight_size)
@@ -291,27 +334,21 @@ class HetacesoPerfModel:
                 f"unknown memory_predict_type {self.memory_predict_type}"
             )
 
-    def get_op_time(self, ops, mbs, tp):
+    def get_op_time(self, ops, tp):
 
         fwd_comp_time, bwd_comp_time = 0, 0
         for i in range(len(ops)):
             op_name = ops[i]
-            mbs_index = self.mbs_index[mbs[i]]
-            tp_index = int(math.log(tp, 2))
-            fwd_comp_time += self.compute_fwd_time[op_name][mbs_index][tp_index]
-            bwd_comp_time += self.compute_bwd_time[op_name][mbs_index][tp_index]
+            fwd_comp_time += self.compute_fwd_time[op_name][self.cur_mbs][self.cur_seqlen][tp]
+            bwd_comp_time += self.compute_bwd_time[op_name][self.cur_mbs][self.cur_seqlen][tp]
 
         return fwd_comp_time, bwd_comp_time
 
-    def get_p2p_comm_time(self, ops, mbs, tp, in_cross_node, out_cross_node):
-        in_mbs_index = self.mbs_index[mbs[0]]
-        in_tp_index = int(math.log(tp, 2))
-        input_comm_size = self.input_size[ops[0]][in_mbs_index][in_tp_index]
+    def get_p2p_comm_time(self, ops, tp, in_cross_node, out_cross_node):
+        input_comm_size = self.input_size[ops[0]][self.cur_mbs][self.cur_seqlen][tp]
         in_comm_time = input_comm_size / self.bandwidth(input_comm_size, in_cross_node)
 
-        out_mbs_index = self.mbs_index[mbs[-1]]
-        out_tp_index = int(math.log(tp, 2))
-        output_comm_size = self.output_size[ops[-1]][out_mbs_index][out_tp_index]
+        output_comm_size = self.output_size[ops[-1]][self.cur_mbs][self.cur_seqlen][tp]
         if output_comm_size < 0:
             output_comm_size = 0
         out_comm_time = output_comm_size / self.bandwidth(
@@ -332,22 +369,26 @@ class HetacesoPerfModel:
             return 0
         micro_batch_size = config.micro_bs
         tp_size = stage_info.tp_size
+        cp_size = stage_info.cp_size
+        usp_size = stage_info.usp_size
+        rsp_size = stage_info.rsp_size
         dp_size = stage_info.dp_size
-        mbs_list = [micro_batch_size // dp_size for j in range(len(ops))]
+        rsp_split = stage_info.rsp_split
+        dp_split = stage_info.dp_split
         num_stages_behind = stage_info.num_stages_behind
 
-        weight_size = self.get_weight_size(ops, mbs_list, tp_size)
-        weight_size_no_embedding = self.get_weight_size_no_embed(ops, mbs_list, tp_size)
+        weight_size = self.get_weight_size(ops, tp_size)
+        weight_size_no_embedding = self.get_weight_size_no_embed(ops, tp_size)
         main_param_size = weight_size * self.memory_ratio_main_param
         gradient_size = weight_size * self.memory_ratio_gradient
         optimizer_size = weight_size * self.memory_ratio_optimizer
         if self.dist_optimizer:
             optimizer_size /= dp_size
         reserved_memory_size = self.get_reserved_size(
-            ops, mbs_list, tp_size, weight_size
+            ops, tp_size, weight_size
         )
         activation_size = self.get_activation_size(
-            ops, mbs_list, tp_size, num_stages_behind
+            ops, tp_size, num_stages_behind
         )
 
         memory_sum = (
@@ -371,7 +412,6 @@ class HetacesoPerfModel:
     def predict_stage_time(
         self,
         stage_info,
-        micro_batch_size,
         num_micro_batches,
         in_cross_node,
         out_cross_node,
@@ -380,14 +420,18 @@ class HetacesoPerfModel:
         ops = stage_info.ops
         if len(ops) == 0:
             return 0
-        dp_size = stage_info.dp_size
         tp_size = stage_info.tp_size
-        mbs_list = [micro_batch_size // dp_size for j in range(len(ops))]
+        cp_size = stage_info.cp_size
+        usp_size = stage_info.usp_size
+        rsp_size = stage_info.rsp_size
+        dp_size = stage_info.dp_size
+        rsp_split = stage_info.rsp_split
+        dp_split = stage_info.dp_split
 
         ## all the time is in [us].
-        fwd_comp_time, bwd_comp_time = self.get_op_time(ops, mbs_list, tp_size)
+        fwd_comp_time, bwd_comp_time = self.get_op_time(ops, tp_size)
         in_comm_time, out_comm_time = self.get_p2p_comm_time(
-            ops, mbs_list, tp_size, in_cross_node, out_cross_node
+            ops, tp_size, in_cross_node, out_cross_node
         )
         sum_time = fwd_comp_time + bwd_comp_time + in_comm_time + out_comm_time
 
@@ -409,7 +453,7 @@ class HetacesoPerfModel:
 
         time_list = []
         fwd_time_list = []
-        # bwd_time_list = []
+        bwd_time_list = []
         memory_list = []
         weight_size_list = []
         weight_size_no_embed_list = []
@@ -424,9 +468,8 @@ class HetacesoPerfModel:
             num_gpus_till_now += stage_info.num_gpus
             out_cross_node = (num_gpus_till_now % self.num_gpus_per_node) == 0
 
-            total_time, fwd_time, _ = self.predict_stage_time(
+            total_time, fwd_time, bwd_time = self.predict_stage_time(
                 stage_info,
-                micro_batch_size,
                 num_micro_batches,
                 in_cross_node,
                 out_cross_node,
@@ -434,6 +477,7 @@ class HetacesoPerfModel:
             )
             time_list.append(total_time)
             fwd_time_list.append(fwd_time)
+            bwd_time_list.append(bwd_time)
             memory_sum, memory_weight, memory_weight_no_embed = (
                 self.predict_stage_memory(
                     config, i, print_detail=print_detail, breakdown=True
@@ -455,3 +499,4 @@ class HetacesoPerfModel:
         config.weight_size_no_embed_list = weight_size_no_embed_list
 
         config.fwd_time_list = fwd_time_list
+        config.bwd_time_list = bwd_time_list

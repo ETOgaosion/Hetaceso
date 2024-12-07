@@ -23,16 +23,18 @@ global compute_fwd_time, compute_bwd_time, input_size, output_size, weights, act
 global reserved_fwd, reserved_bwd
 global inter_band, intra_band
 
-global num_ops_stage, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
+global num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
+
+global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
 
 def read_profiled(
     model_name, model_size, config, gpt_path, dist_p2p_path, local_p2p_path, local_comm_path
 ):
     global compute_fwd_time, compute_bwd_time, input_size, output_size, weights, activations, reserved_fwd, reserved_bwd
     
-    global num_ops_stage, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
+    global num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
     
-    num_ops_stage, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list = config_details(config)
+    num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list = config_details(config)
 
     unique_config_list = []
     unique_config_map = {}
@@ -187,6 +189,25 @@ def read_profiled(
 
     return len(op_list)
 
+def calculate_node_rank():
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    
+    global num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
+    
+    node_rank = args.node_rank
+    sum_nodes = 0
+    for i in range(len(num_gpu_list)):
+        if sum_nodes + num_gpu_list[i] > node_rank:
+            pp_rank = i
+            break
+        sum_nodes += num_gpu_list[i]
+    node_inner_rank = node_rank - sum_nodes
+    tp_rank = node_inner_rank % tp_size_list[pp_rank]
+    cp_rank = node_inner_rank // tp_size_list[pp_rank] % cp_size_list[pp_rank]
+    usp_rank = node_inner_rank // tp_size_list[pp_rank] % usp_size_list[pp_rank]
+    rsp_rank = node_inner_rank // tp_size_list[pp_rank] // usp_size_list[pp_rank] % rsp_size_list[pp_rank]
+    dp_rank = node_inner_rank // tp_size_list[pp_rank] // usp_size_list[pp_rank] // rsp_size_list[pp_rank] % dp_size_list[pp_rank]
+
 
 def identical_spec(input_spec, required_spec):
     identical = True
@@ -313,11 +334,16 @@ def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_no
         return 0, 0, 0, 0, 0
     global compute_fwd_time, compute_bwd_time, input_size, output_size
     fwd_comp, bwd_comp, in_comm, out_comm, tp_comm = 0, 0, 0, 0, 0
+    
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    
+    cur_mbs = dp_split[dp_rank]
+    cur_seqlen = rsp_split[rsp_rank] // usp
 
     for i in range(len(ops)):
         op_name = ops[i]
-        fwd_comp += compute_fwd_time[op_name][mbs][seqlen][tp]
-        bwd_comp += compute_bwd_time[op_name][mbs][seqlen][tp]
+        fwd_comp += compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]
+        bwd_comp += compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]
         if args.support_comm_predict:
             # TODO: Check correctness, QKV/dense/GEMM ops need reshard time
             for op_name_suffix in ["attention", "mlp"]:
@@ -327,17 +353,13 @@ def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_no
                         * get_reshard_time(
                             "all_reduce",
                             tp,
-                            output_size[op_name][mbs][seqlen][tp],
+                            output_size[op_name][cur_mbs][cur_seqlen][tp],
                         )
                         * 1000
                     )
 
-    in_mbs_index = get_mbs_index(mbs[0])
-    in_tp_index = int(math.log(tp, 2))
-    out_mbs_index = get_mbs_index(mbs[-1])
-    out_tp_index = int(math.log(tp, 2))
-    input_comm_size = input_size[ops[0]][in_mbs_index][in_tp_index]
-    output_comm_size = output_size[ops[-1]][out_mbs_index][out_tp_index]
+    input_comm_size = input_size[ops[0]][cur_mbs][cur_seqlen]
+    output_comm_size = output_size[ops[-1]][cur_mbs][cur_seqlen]
 
     if in_cross_node:
         in_comm = input_comm_size / inter_node_band(input_comm_size)
@@ -358,15 +380,13 @@ def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_no
             fwd_prim, bwd_prim, num_devices = get_reshard_primitives(
                 prev_spec, current_spec
             )
-            mbs_index = get_mbs_index(mbs[i])
-            tp_index = int(math.log(tp, 2))
             if fwd_prim is not None:
                 fwd_reshard += get_reshard_time(
-                    fwd_prim, num_devices, input_size[ops[i]][mbs][seqlen][tp]
+                    fwd_prim, num_devices, input_size[ops[i]][cur_mbs][cur_seqlen][tp]
                 )
             if bwd_prim is not None:
                 bwd_reshard += get_reshard_time(
-                    bwd_prim, num_devices, input_size[ops[i]][mbs][seqlen][tp]
+                    bwd_prim, num_devices, input_size[ops[i]][cur_mbs][cur_seqlen][tp]
                 )
 
     in_comm += fwd_reshard * 1000
@@ -376,63 +396,64 @@ def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_no
     return fwd_comp, bwd_comp, in_comm, out_comm, tp_comm
 
 
-def get_memory_v3(ops, mbs, tp):
+def get_memory_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split):
     global input_size, output_size, weights
-    in_mbs_index = get_mbs_index(mbs[0])
-    in_tp_index = int(math.log(tp, 2))
-    inputs = input_size[ops[0]][in_mbs_index][in_tp_index]
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    cur_mbs = dp_split[dp_rank]
+    cur_seqlen = rsp_split[rsp_rank] // usp
+    inputs = input_size[ops[0]][cur_mbs][cur_seqlen][tp]
     _activations = 0
     _weights = 0
     for i in range(len(ops)):
-        mbs_index = get_mbs_index(mbs[i])
-        tp_index = int(math.log(tp, 2))
         # TODO: Be more precisely
         if args.consider_shared_space and ops[i] == "dec-self-attention":
-            _activations += activations[ops[i]][mbs][seqlen][tp] * 1.5
+            _activations += activations[ops[i]][cur_mbs][cur_seqlen][tp] * 1.5
         else:
-            _activations += activations[ops[i]][mbs][seqlen][tp]
-        _weights += weights[ops[i]][mbs][seqlen][tp]
+            _activations += activations[ops[i]][cur_mbs][cur_seqlen][tp]
+        _weights += weights[ops[i]][cur_mbs][cur_seqlen][tp]
 
     return _weights, inputs, _activations
 
 
-def get_activations_v3(ops, mbs, tp):
-
+def get_activations_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split):
     if len(ops) <= 1:
         return 0
+    
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    cur_mbs = dp_split[dp_rank]
+    cur_seqlen = rsp_split[rsp_rank] // usp
 
     global activations
     saved_activations = 0
     for i in range(len(ops) - 1):
-        mbs_index = get_mbs_index(mbs[i])
-        tp_index = int(math.log(tp, 2))
         # TODO: Be more precisely
         if args.consider_shared_space and ops[i] == "dec-self-attention":
             saved_activations += (
-                activations[ops[i]][mbs][seqlen][tp] * 1.5
+                activations[ops[i]][cur_mbs][cur_seqlen][tp] * 1.5
             )
         else:
-            saved_activations += activations[ops[i]][mbs][seqlen][tp]
+            saved_activations += activations[ops[i]][cur_mbs][cur_seqlen][tp]
 
     return saved_activations
 
 
-def get_peak_activations(ops, mbs, tp):
-
+def get_peak_activations(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split):
     if len(ops) <= 1:
         return 0
+    
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    cur_mbs = dp_split[dp_rank]
+    cur_seqlen = rsp_split[rsp_rank] // usp
 
     global activations
     saved_activations = 0
     saved_activations_list = [0]
 
     for i in range(len(ops) - 1):
-        mbs_index = get_mbs_index(mbs[i])
-        tp_index = int(math.log(tp, 2))
         # TODO: Be more precisely
         if args.consider_shared_space and ops[i] == "dec-self-attention":
             saved_activations += (
-                activations[ops[i]][mbs][seqlen][tp] * 1.5
+                activations[ops[i]][cur_mbs][cur_seqlen][tp] * 1.5
             )
             saved_activations_list.append(saved_activations)
             saved_activations = 0
@@ -444,49 +465,21 @@ def get_peak_activations(ops, mbs, tp):
     return max(saved_activations_list)
 
 
-def get_reserved_memory(ops, mbs, tp, dp, memory_weights):
+def get_reserved_memory(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, memory_weights):
     global reserved_fwd, reserved_bwd
     current_reserved_fwd = 0
     current_reserved_bwd = 0
+    
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    cur_mbs = dp_split[dp_rank]
+    cur_seqlen = rsp_split[rsp_rank] // usp
     for i in range(len(ops) - 1):
-        mbs_index = get_mbs_index(mbs[i])
-        tp_index = int(math.log(tp, 2))
-        if reserved_fwd[ops[i]][mbs][seqlen][tp] > current_reserved_fwd:
-            current_reserved_fwd = reserved_fwd[ops[i]][mbs][seqlen][tp]
-        if reserved_bwd[ops[i]][mbs][seqlen][tp] > current_reserved_bwd:
-            current_reserved_bwd = reserved_bwd[ops[i]][mbs][seqlen][tp]
+        if reserved_fwd[ops[i]][cur_mbs][cur_seqlen][tp] > current_reserved_fwd:
+            current_reserved_fwd = reserved_fwd[ops[i]][cur_mbs][cur_seqlen][tp]
+        if reserved_bwd[ops[i]][cur_mbs][cur_seqlen][tp] > current_reserved_bwd:
+            current_reserved_bwd = reserved_bwd[ops[i]][cur_mbs][cur_seqlen][tp]
 
     max_collective = 0
-    if args.consider_collective_memory:
-        if args.resharding:
-            for i in range(1, len(ops)):
-                prev_spec = get_op_spec(
-                    ops[i - 1], tp, dp, input_spec=False
-                )
-                current_spec = get_op_spec(
-                    ops[i], tp, dp, input_spec=True
-                )
-                fwd_prim, bwd_prim, num_devices = get_reshard_primitives(
-                    prev_spec, current_spec
-                )
-                mbs_index = get_mbs_index(mbs[i])
-                tp_index = int(math.log(tp, 2))
-                if fwd_prim is not None:
-                    fwd_collective = get_reshard_memory(
-                        fwd_prim,
-                        num_devices,
-                        input_size[ops[i]][mbs][seqlen][tp],
-                    )
-                    if fwd_collective > max_collective:
-                        max_collective = fwd_collective
-                if bwd_prim is not None:
-                    bwd_collective = get_reshard_memory(
-                        bwd_prim,
-                        num_devices,
-                        input_size[ops[i]][mbs][seqlen][tp],
-                    )
-                    if bwd_collective > max_collective:
-                        max_collective = bwd_collective
 
     if args.memory_pred_type == "MAX":
         return (
@@ -501,28 +494,34 @@ def get_reserved_memory(ops, mbs, tp, dp, memory_weights):
         raise RuntimeError(f"unknown args.memory_pred_type {args.memory_pred_type}")
 
 
-def get_activation_size(op_name, mbs, tp):
+def get_activation_size(op_name, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split):
     global activations
-    mbs_index = get_mbs_index(mbs)
-    tp_index = math_log_2[tp]
-    return activations[op_name][mbs][seqlen][tp]
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    cur_mbs = dp_split[dp_rank]
+    cur_seqlen = rsp_split[rsp_rank] // usp
+    return activations[op_name][cur_mbs][cur_seqlen][tp]
 
 
 def predict_stage_time(
     ops,
     tp_size,
+    cp_size,
+    usp_size,
+    rsp_size,
     dp_size,
-    base_batch_size,
+    rsp_split,
+    dp_split,
     delta=False,
     on_the_right=False,
     decrease=True,
 ):
     in_cross_node = False
     out_cross_node = False
-    mbs_list = [base_batch_size // dp_size for j in range(len(ops))]
+    
+    global total_mbs
 
     fwd_comp, bwd_comp, in_comm, out_comm, _ = get_time_v3(
-        ops, mbs_list, tp_size, dp_size, in_cross_node, out_cross_node
+        ops, total_mbs, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split, in_cross_node, out_cross_node
     )
     if not delta:
         sum_time = fwd_comp + bwd_comp + in_comm + out_comm
@@ -542,30 +541,34 @@ def predict_stage_time(
 def predict_stage_memory(
     ops,
     tp_size,
+    cp_size,
+    usp_size,
+    rsp_size,
     dp_size,
-    base_batch_size,
+    rsp_split,
+    dp_split,
     num_stages_behind,
     breakdown=False,
 ):
-    mbs_list = [base_batch_size // dp_size for j in range(len(ops))]
+    global total_mbs
 
     memory_weights, inputs, activations = get_memory_v3(
-        ops, mbs_list, tp_size
+        ops, total_mbs, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split
     )
     memory_gradients = memory_weights
     memory_main_params = memory_weights * args.memory_main_params
     memory_optimizer = memory_weights * args.memory_optimizer
 
     saved_activations = get_activations_v3(
-        ops, mbs_list, tp_size
+        ops, total_mbs, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split
     )
     peak_activations = get_peak_activations(
-        ops, mbs_list, tp_size
+        ops, total_mbs, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split
     )
 
     if args.consider_reserved_space:
         memory_reserved = get_reserved_memory(
-            ops, mbs_list, tp_size, dp_size, memory_weights
+        ops, total_mbs, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split
         )
     else:
         memory_reserved = 0
@@ -599,6 +602,8 @@ def predict_stage_memory(
 
 
 def predict_time_breakdown(config, print_time=False, print_memory=False):
+    global total_mbs
+    
     base_batch_size = config.micro_bs
     global_batch_size = config.global_bs
     num_batches = global_batch_size // base_batch_size
@@ -622,9 +627,13 @@ def predict_time_breakdown(config, print_time=False, print_memory=False):
         ops = stage.ops
         num_gpus = stage.num_gpus
         tp_size = stage.tp_size
+        cp_size = stage.cp_size
+        usp_size = stage.usp_size
+        rsp_size = stage.rsp_size
         dp_size = stage.dp_size
+        rsp_split = stage.rsp_split
+        dp_split = stage.dp_split
         num_stages_behind = stage.num_stages_behind
-        mbs_list = [base_batch_size // dp_size for j in range(len(ops))]
 
         in_cross_node = (
             num_gpus_till_now % args.num_gpus_per_node
@@ -634,7 +643,7 @@ def predict_time_breakdown(config, print_time=False, print_memory=False):
 
         ## compute actual time of each stage
         fwd_comp, bwd_comp, in_comm, out_comm, tp_comm = get_time_v3(
-            ops, mbs_list, tp_size, dp_size, in_cross_node, out_cross_node
+            ops, total_mbs, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split, in_cross_node, out_cross_node
         )
         sum_time = (fwd_comp + bwd_comp + in_comm + out_comm) / 1000
         _time_list.append(sum_time)
@@ -654,11 +663,15 @@ def predict_time_breakdown(config, print_time=False, print_memory=False):
             )
 
         ## compute ideal time of each stage
-        _mbs_list = [base_batch_size for _ in range(len(ops))]
         _tp_size = 1
+        _cp_size = 1
+        _usp_size = 1
+        _rsp_size = 1
         _dp_size = 1
+        _rsp_split = [config.total_seqlen]
+        _dp_split = [config.micro_bs]
         _fwd_comp, _bwd_comp, _in_comm, _out_comm, _tp_comm = get_time_v3(
-            ops, _mbs_list, _tp_size, _dp_size, in_cross_node, out_cross_node
+            ops, total_mbs, _tp_size, _cp_size, _usp_size, rsp_size, _dp_size, _rsp_split, _dp_split, in_cross_node, out_cross_node
         )
         ideal_time = (_fwd_comp + _bwd_comp + _in_comm + _out_comm) / 1000
 
@@ -682,8 +695,12 @@ def predict_time_breakdown(config, print_time=False, print_memory=False):
         ) = predict_stage_memory(
             ops,
             tp_size,
+            cp_size,
+            usp_size,
+            rsp_size,
             dp_size,
-            base_batch_size,
+            rsp_split,
+            dp_split,
             num_stages_behind,
             breakdown=True,
         )
@@ -770,73 +787,28 @@ def get_reserved_memory_list(config):
             stage = config.stages[i]
             ops = stage.ops
             tp_size = stage.tp_size
+            cp_size = stage.cp_size
+            usp_size = stage.usp_size
+            rsp_size = stage.rsp_size
             dp_size = stage.dp_size
+            rsp_split = stage.rsp_split
+            dp_split = stage.dp_split
             num_stages_behind = stage.num_stages_behind
 
             _, _, _, _, _, reserved_mem = predict_stage_memory(
                 ops,
                 tp_size,
+                cp_size,
+                usp_size,
+                rsp_size,
                 dp_size,
-                base_batch_size,
+                rsp_split,
+                dp_split,
                 num_stages_behind,
                 breakdown=True,
             )
             reserved_mem_list.append(reserved_mem)
     return reserved_mem_list
-
-
-def predict_value_after_move(
-    config,
-    bottleneck,
-    partner,
-    num_ops_moved,
-    metric,
-    inc_gpus=False,
-    dec_gpus=False,
-    dim=None,
-):
-    base_batch_size = config.micro_bs
-    ops = list(config.stages[bottleneck].ops)
-    tp_size = list(config.stages[bottleneck].tp_size)
-    dp_size = list(config.stages[bottleneck].dp_size)
-    num_stages_behind = config.stages[bottleneck].num_stages_behind
-
-    if num_ops_moved > 0:
-        if bottleneck < partner:
-            ops = ops[:-num_ops_moved]
-            tp_size = tp_size
-            dp_size = dp_size
-        else:
-            ops = ops[num_ops_moved:]
-            tp_size = tp_size
-            dp_size = dp_size
-
-    if inc_gpus:
-        if dim == "tp":
-            tp_size *= 2
-        elif dim == "dp":
-            dp_size *= 2
-    if dec_gpus:
-        if dim == "tp":
-            tp_size //= 2
-        elif dim == "dp":
-            dp_size //= 2
-
-    if metric in ["time", "time_with_efficiency"]:
-        pred_value = predict_stage_time(
-            ops, tp_size, dp_size, base_batch_size
-        )
-    elif metric == "memory":
-        pred_value = predict_stage_memory(
-            ops,
-            tp_size,
-            dp_size,
-            base_batch_size,
-            num_stages_behind,
-        )
-    else:
-        raise RuntimeError(f"metric {metric} not implemented.")
-    return pred_value
 
 
 ######## recomputation-related functions #########
@@ -851,19 +823,32 @@ def predict_stage_memory_helper(
     stage_index,
     ops=None,
     tp_size=None,
+    cp_size=None,
+    usp_size=None,
+    rsp_size=None,
     dp_size=None,
-    base_batch_size=None,
+    rsp_split=None,
+    dp_split=None,
     num_stages_behind=None,
 ):
     global stage_memory_visit, stage_memory_hit, stage_memory_set
     if ops is None:
         ops = config.stages[stage_index].ops
         tp_size = config.stages[stage_index].tp_size
+        cp_size = config.stages[stage_index].cp_size
+        usp_size = config.stages[stage_index].usp_size
+        rsp_size = config.stages[stage_index].rsp_size
         dp_size = config.stages[stage_index].dp_size
-        base_batch_size = config.stages[stage_index].base_bs
+        rsp_split = config.stages[stage_index].rsp_split
+        dp_split = config.stages[stage_index].dp_split
         num_stages_behind = config.stages[stage_index].num_stages_behind
 
-    config_str = f"ops{ops[0]}{len(ops)}tp{tp_size}dp{dp_size}bs{base_batch_size}stage{num_stages_behind}"
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    
+    cur_mbs = dp_split[dp_rank]
+    cur_seqlen = rsp_split[rsp_rank] // usp_size
+
+    config_str = f"ops{ops[0]}{len(ops)}tp{tp_size}cp{cp_size}usp{usp_size}rsp{rsp_size}dp{dp_size}seqlen{cur_seqlen}bs{cur_mbs}stage{num_stages_behind}"
     stage_memory_visit += 1
     if stage_memory_set.get(config_str) is not None:
         stage_memory_hit += 1
@@ -872,8 +857,12 @@ def predict_stage_memory_helper(
     pred_memory = predict_stage_memory(
         ops,
         tp_size,
+        cp_size,
+        usp_size,
+        rsp_size,
         dp_size,
-        base_batch_size,
+        rsp_split,
+        dp_split,
         num_stages_behind,
     )
     stage_memory_set[config_str] = pred_memory
@@ -890,63 +879,38 @@ def predict_stage_time_helper(config, stage_index):
     global stage_time_visit, stage_time_hit, stage_time_set
     ops = config.stages[stage_index].ops
     tp_size = config.stages[stage_index].tp_size
+    cp_size = config.stages[stage_index].cp_size
+    usp_size = config.stages[stage_index].usp_size
+    rsp_size = config.stages[stage_index].rsp_size
     dp_size = config.stages[stage_index].dp_size
-    base_batch_size = config.micro_bs
+    rsp_split = config.stages[stage_index].rsp_split
+    dp_split = config.stages[stage_index].dp_split
+    
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    
+    cur_mbs = dp_split[dp_rank]
+    cur_seqlen = rsp_split[rsp_rank] // usp_size
 
-    config_str = f"ops{ops[0]}{len(ops)}tp{tp_size}dp{dp_size}bs{base_batch_size}"
+    config_str = f"ops{ops[0]}{len(ops)}tp{tp_size}cp{cp_size}usp{usp_size}rsp{rsp_size}dp{dp_size}seqlen{cur_seqlen}bs{cur_mbs}"
     stage_time_visit += 1
     if stage_time_set.get(config_str) is not None:
         stage_time_hit += 1
         return stage_time_set[config_str]
 
     pred_time = predict_stage_time(
-        ops, tp_size, dp_size, base_batch_size
+        ops, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split
     )
     stage_time_set[config_str] = pred_time
 
     return pred_time
 
-def wrap_predict_delta_time(
-    config, longest_stage, shortest_stage, num_ops_moved, decrease=True
-):
-    base_batch_size = config.micro_bs
-    ops = config.stages[longest_stage].ops
-    tp_size = config.stages[longest_stage].tp_size
-    dp_size = config.stages[longest_stage].dp_size
-
-    num_ops = len(ops)
-    if longest_stage < shortest_stage and decrease:
-        ops = ops[num_ops - num_ops_moved :]
-        tp_size = tp_size
-        dp_size = dp_size
-    elif longest_stage > shortest_stage and decrease:
-        ops = ops[0:num_ops_moved]
-        tp_size = tp_size
-        dp_size = dp_size
-    elif longest_stage < shortest_stage and not decrease:
-        ops = ops[num_ops - num_ops_moved :]
-        tp_size = config.stages[longest_stage + 1].tp_size
-        dp_size = config.stages[longest_stage + 1].dp_size
-    elif longest_stage > shortest_stage and not decrease:
-        ops = ops[0:num_ops_moved]
-        tp_size = config.stages[longest_stage - 1].tp_size
-        dp_size = config.stages[longest_stage - 1].dp_size
-    else:
-        raise RuntimeError("")
-
-    pred_delta_time = predict_stage_time(
-        ops,
-        tp_size,
-        dp_size,
-        base_batch_size,
-        delta=True,
-        on_the_right=longest_stage < shortest_stage,
-        decrease=decrease,
-    )
-    return pred_delta_time
-
-
-################################
+def get_mbs_seqlen():
+    global usp_size_list, dp_split_list, rsp_split_list
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    
+    cur_mbs = dp_split_list[pp_rank][dp_rank]
+    cur_seqlen = dp_split_list[pp_rank][rsp_rank] // usp_size_list[pp_rank]
+    return cur_mbs, cur_seqlen
 
 if __name__ == "__main__":
 
@@ -954,6 +918,7 @@ if __name__ == "__main__":
     read_profiled(
         config_dict["model_name"], config_dict["model_size"], config_dict, args.profiled_gpt_path, args.profiled_dist_p2p_path, args.profiled_local_p2p_path, args.profiled_local_comm_path
     )
+    calculate_node_rank()
     predict_time_breakdown(config, print_time=True, print_memory=True)
     if args.save_to_csv is not None:
         save_config_info_to_csv(
@@ -962,15 +927,20 @@ if __name__ == "__main__":
 
     print(f"---- testing model ----")
     from hetaceso_cost_model import HetacesoPerfModel
+    
+    cur_mbs, cur_seqlen = get_mbs_seqlen()
 
     test_perf_model = HetacesoPerfModel(
+        config,
+        args.node_rank,
+        cur_mbs,
+        cur_seqlen,
         args.profiled_gpt_path,
         args.profiled_local_p2p_path,
+        args.profiled_local_comm_path,
         args.profiled_dist_p2p_path,
         config_dict["model_name"],
         config_dict["model_size"],
-        max_tp_size,
-        args.micro_batch_size,
         args.num_gpus_per_node,
         args.dist_optimizer,
         "1000Mbps"

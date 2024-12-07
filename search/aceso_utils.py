@@ -53,6 +53,7 @@ class AcesoStageInfo:
 class AcesoConfig:
     global_bs: int
     micro_bs: int
+    total_seqlen: int
     stages: List[AcesoStageInfo]
     num_stages: int
     history: str = ""
@@ -124,6 +125,7 @@ def get_config(
     current_config = AcesoConfig(
         global_bs=global_batch_size,
         micro_bs=aggregate_mbs,
+        total_seqlen=total_seqlen,
         stages=stages_info_list,
         num_stages=num_stages,
     )
@@ -134,6 +136,7 @@ def config_details(config, get_string=False):
     if config is None:
         return ""
     num_ops_stage = []
+    num_gpu_list = []
     tp_size_list = []
     cp_size_list = []
     usp_size_list = []
@@ -144,6 +147,7 @@ def config_details(config, get_string=False):
     total_mbs = config.micro_bs
     for i in range(config.num_stages):
         num_ops_stage.append(len(config.stages[i].ops))
+        num_gpu_list.append(config.stages[i].num_gpus)
         tp_size_list.append(config.stages[i].tp_size)
         cp_size_list.append(config.stages[i].cp_size)
         usp_size_list.append(config.stages[i].usp_size)
@@ -152,9 +156,9 @@ def config_details(config, get_string=False):
         rsp_split_list.append(config.stages[i].rsp_split)
         dp_split_list.append(config.stages[i].dp_split)
     if get_string:
-        return f"{num_ops_stage} , {total_mbs}, {tp_size_list}, {cp_size_list}, {usp_size_list}, {rsp_size_list}, {dp_size_list}, {rsp_split_list}, {dp_split_list}"
+        return f"{num_ops_stage}, {num_gpu_list}, {total_mbs}, {tp_size_list}, {cp_size_list}, {usp_size_list}, {rsp_size_list}, {dp_size_list}, {rsp_split_list}, {dp_split_list}"
     else:
-        return num_ops_stage, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
+        return num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
 
 
 def dump_config_to_json(config, file_name, args):
@@ -437,6 +441,7 @@ def add_model_args(parser):
 def add_hardware_args(parser):
     group = parser.add_argument_group(title="hardware information")
     group.add_argument("--num-nodes", type=int, default=None, help="")
+    group.add_argument("--node-rank", type=int, default=None, help="rank of this node to estimate")
     group.add_argument("--num-gpus-per-node", type=int, default=None, help="")
     group.add_argument("--memory-limit", type=int, default=28000, help="")
 

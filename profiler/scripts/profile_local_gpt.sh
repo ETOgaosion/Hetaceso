@@ -2,13 +2,14 @@
 MASTER_ADDR=localhost
 MASTER_PORT=7000
 NNODES=1
-NODE_RANK=0
+NODE_RANK=${1:-0}
 GPUS_PER_NODE=1
 
-MACHINE=${1:-0}
-REPROFILE=${2:-0}
+MACHINE=${2:-0}
+REPROFILE=${3:-0}
 
-RUNTIME_PATH=$(pwd)/../results/
+RUNTIME_PATH=$(pwd)/../results/rank$NODE_RANK/
+mkdir -p $RUNTIME_PATH
 PROFILING_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
 
 VOCAB_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-vocab.json

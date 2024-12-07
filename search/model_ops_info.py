@@ -47,9 +47,9 @@ def get_tunable_op_list(args):
             raise RuntimeError(f"model {args.model_name} not supported yet.")
     return tunable_op_list
 
-def get_op_spec(op_name, tp_size, dp_size):
+def get_op_spec(op_name, tp_size, cp_size, rsp_size, usp_size, dp_size):
     if op_name in ["dec-embedding", "dec-self-attention", "dec-mlp", "dec-post-process"]:
-        return {"dims": [1, dp_size, tp_size]}
+        return {"dims": [tp_size, cp_size, rsp_size, usp_size, dp_size]}
     else:
         raise RuntimeError(f"op_name {op_name} not supported yet.")
 

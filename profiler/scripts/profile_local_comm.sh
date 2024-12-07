@@ -2,12 +2,13 @@
 MASTER_ADDR=localhost
 MASTER_PORT=7000
 NNODES=2
-NODE_RANK=$1
+NODE_RANK=${1:-0}
 
-MACHINE=${1:-0}
-REPROFILE=${2:-0}
+MACHINE=${2:-0}
+REPROFILE=${3:-0}
 
-RUNTIME_PATH=$(pwd)/../results/
+RUNTIME_PATH=$(pwd)/../results/rank$NODE_RANK/
+mkdir -p $RUNTIME_PATH
 PROFILING_PATH=${RUNTIME_PATH}profiled-local-comm-hetaceso/
 PROFILING_OP_TIME_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
 
