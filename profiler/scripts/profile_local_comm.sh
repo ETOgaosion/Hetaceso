@@ -5,13 +5,16 @@ NNODES=2
 NODE_RANK=${1:-0}
 
 MACHINE=${2:-0}
-REPROFILE=${3:-0}
+REPROFILE=${3:-1}
 
 RUNTIME_PATH=$(pwd)/../results/rank$NODE_RANK/
 mkdir -p $RUNTIME_PATH
 PROFILING_PATH=${RUNTIME_PATH}profiled-local-comm-hetaceso/
 PROFILING_OP_TIME_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
 
+if [ $REPROFILE -eq 1 ]; then
+    rm -rf ${PROFILING_PATH}
+fi
 mkdir -p ${PROFILING_PATH}
 MAX_NUM_GPUS=4
 MODEL_NAME=gpt

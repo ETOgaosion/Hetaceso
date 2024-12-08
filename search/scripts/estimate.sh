@@ -1,7 +1,7 @@
 num_gpus_per_node=4
 num_nodes=1
 NODE_RANK=${1:-0}
-MBS=${2:-4}
+MBS=${2:-8}
 TP=${3:-1}
 USP=${4:-1}
 RSP=${5:-1}
@@ -31,5 +31,4 @@ python3 aceso_cost_model.py \
     --num-nodes $num_nodes \
     --node-rank $NODE_RANK \
     --save-to-csv $SAVE_TO_CSV \
-    --dist-optimizer \
-    --support-comm-predict
+    --dist-optimizer

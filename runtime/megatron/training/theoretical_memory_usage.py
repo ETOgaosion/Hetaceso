@@ -2,11 +2,9 @@
 
 """Computes theoretical memory footprint for model training."""
 
-
 import math
 
 NUM_BYTES_IN_MEGABYTE = 1024 * 1024
-
 
 def compute_weight_and_optimizer_memory(args, verbose=False):
     # Group Query Attention.

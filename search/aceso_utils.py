@@ -516,7 +516,6 @@ def add_test_args(parser):
         "--no-multi-process", action="store_false", help="", dest="multi_process"
     )
     group.add_argument("--random-order-actions", action="store_true", help="")
-    group.add_argument("--support-comm-predict", action="store_true", help="")
     group.add_argument("--forbid-turn-back", action="store_true", help="")
     group.add_argument("--sort-metric", type=str, default="max_stage_time", help="")
     group.add_argument("--print-gpu-mig-details", action="store_true", help="")

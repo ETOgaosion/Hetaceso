@@ -25,26 +25,55 @@ global inter_band, intra_band
 
 global num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
 
-global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+node_rank = args.node_rank
+global tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+global cur_tp, cur_cp, cur_usp, cur_rsp, cur_dp
+global cur_mbs, cur_seqlen
+
+def calculate_node_rank():
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    global cur_mbs, cur_seqlen
+    
+    global num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
+    global cur_tp, cur_cp, cur_usp, cur_rsp, cur_dp
+    
+    num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list = config_details(config)
+    
+    sum_nodes = 0
+    for i in range(len(num_gpu_list)):
+        if sum_nodes + num_gpu_list[i] > node_rank:
+            pp_rank = i
+            break
+        sum_nodes += num_gpu_list[i]
+    node_inner_rank = node_rank - sum_nodes
+    tp_rank = node_inner_rank % tp_size_list[pp_rank]
+    cp_rank = node_inner_rank // tp_size_list[pp_rank] % cp_size_list[pp_rank]
+    usp_rank = node_inner_rank // tp_size_list[pp_rank] % usp_size_list[pp_rank]
+    rsp_rank = node_inner_rank // tp_size_list[pp_rank] // usp_size_list[pp_rank] % rsp_size_list[pp_rank]
+    dp_rank = node_inner_rank // tp_size_list[pp_rank] // usp_size_list[pp_rank] // rsp_size_list[pp_rank] % dp_size_list[pp_rank]
+    cur_mbs = dp_split_list[pp_rank][dp_rank]
+    cur_seqlen = rsp_split_list[pp_rank][rsp_rank] // usp_size_list[pp_rank]
+    
+    cur_tp, cur_cp, cur_usp, cur_rsp, cur_dp = tp_size_list[pp_rank], cp_size_list[pp_rank], usp_size_list[pp_rank], rsp_size_list[pp_rank], dp_size_list[pp_rank]
 
 def read_profiled(
-    model_name, model_size, config, gpt_path, dist_p2p_path, local_p2p_path, local_comm_path
-):
+    model_name, model_size, gpt_path, dist_p2p_path, local_p2p_path, local_comm_path
+):    
     global compute_fwd_time, compute_bwd_time, input_size, output_size, weights, activations, reserved_fwd, reserved_bwd
     
     global num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
     
-    num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list = config_details(config)
+    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    global cur_tp, cur_cp, cur_usp, cur_rsp, cur_dp
+    global cur_mbs, cur_seqlen
 
     unique_config_list = []
     unique_config_map = {}
-    comm_num_gpus_list = []
-    comm_num_gpus_map = {}
+    comm_num_gpus_list_map = {"tp": [], "usp": [], "rsp": [], "dp": []}
+    comm_num_gpus_map_map = {"tp": {}, "usp": {}, "rsp": {}, "dp": {}}
     
-    for stage in len(num_ops_stage):
-        if (dp_split_list[stage], rsp_split_list[stage] // usp_size_list[stage], tp_size_list[stage]) not in unique_config_map:
-            unique_config_map[(dp_split_list[stage], rsp_split_list[stage] // usp_size_list[stage], tp_size_list[stage])] = stage
-            unique_config_list.append((dp_split_list[stage], rsp_split_list[stage] // usp_size_list[stage], tp_size_list[stage]))
+    unique_config_map[(cur_mbs, cur_seqlen, cur_tp, cur_usp, cur_rsp, cur_dp)] = node_rank
+    unique_config_list.append((cur_mbs, cur_seqlen, cur_tp, cur_usp, cur_rsp, cur_dp))
 
     compute_fwd_time = {}
     compute_bwd_time = {}
@@ -72,7 +101,7 @@ def read_profiled(
         reserved_fwd[op_name] = {}
         reserved_bwd[op_name] = {}
         
-        for mbs, seqlen, tp in unique_config_list:
+        for mbs, seqlen, tp, usp, rsp, dp in unique_config_list:
             if mbs not in compute_fwd_time[op_name]:
                 compute_fwd_time[op_name][mbs] = {}
                 compute_bwd_time[op_name][mbs] = {}
@@ -103,9 +132,18 @@ def read_profiled(
 
                 reserved_fwd[op_name][mbs][seqlen][tp] = 1000000
                 reserved_bwd[op_name][mbs][seqlen][tp] = 1000000
-            if tp not in comm_num_gpus_map:
-                comm_num_gpus_list.append(tp)
-                comm_num_gpus_map[tp] = 1
+            if tp not in comm_num_gpus_map_map["tp"]:
+                comm_num_gpus_list_map["tp"].append(tp)
+                comm_num_gpus_map_map["tp"][tp] = 1
+            if usp not in comm_num_gpus_map_map["usp"]:
+                comm_num_gpus_list_map["usp"].append(usp)
+                comm_num_gpus_map_map["usp"][usp] = 1
+            if rsp not in comm_num_gpus_map_map["rsp"]:
+                comm_num_gpus_list_map["rsp"].append(rsp)
+                comm_num_gpus_map_map["rsp"][rsp] = 1
+            if dp not in comm_num_gpus_map_map["dp"]:
+                comm_num_gpus_list_map["dp"].append(dp)
+                comm_num_gpus_map_map["dp"][dp] = 1
 
     for mbs, seqlen, tp in unique_config_list:
         src_data_file = (
@@ -141,28 +179,39 @@ def read_profiled(
             print(
                 f"file ({src_data_file}) not exist, or the file is not formatted as expected."
             )
+    
+    '''
+    Communications in Megatron:
+    
+    - tensor parallel: 4 all-reduce (self-attention 2, mlp 2)
+    - ulysses context parallel: an inevitable all-to-all communication
+    - ring context parallel: all ring rank need p2p communication, like all-reduce but can possibly overlap with computation
+    - data parallel: all ranks need all-reduce gradients
+    '''
     global collective_time
-    collective_time = {}
-    if model_name in ["gpt", "scale-layer"]:
-        prim_list = ["all_gather", "all_reduce", "reduce_scatter", "all_to_all"]
-    else:
-        raise RuntimeError(f"model_name {model_name} not implemented.")
-    for prim in prim_list:
-        collective_time[prim] = {}
-        for num_gpus in comm_num_gpus_list:
-            collective_time[prim][num_gpus] = {}
-            src_data_file = (
-                local_comm_path
-                + f"prim_{model_name}_{model_size}_{prim}_{num_gpus}gpus.csv"
-            )
-            with open(src_data_file) as f:
-                src_data = csv.reader(f)
-                line_index = 0
-                for row in src_data:
-                    line_index += 1
-                    if line_index > 1:
-                        data_size = row[0]
-                        collective_time[prim][num_gpus][data_size] = float(row[1])
+    collective_time = {"all_reduce": {}, "all_gather": {}, "reduce_scatter": {}, "all_to_all": {}}
+    comm_prim_map = {"tp": ["all_reduce"], "usp": ["all_to_all"], "rsp": ["all_reduce"], "dp": ["all_reduce"]}
+    for parallel in comm_prim_map.keys():
+        for prim in comm_prim_map[parallel]:
+            for num_gpus in comm_num_gpus_list_map[parallel]:
+                if num_gpus < 2:
+                    continue
+                if num_gpus not in collective_time[prim]:
+                    collective_time[prim][num_gpus] = {}
+                else:
+                    continue
+                src_data_file = (
+                    local_comm_path
+                    + f"prim_{model_name}_{model_size}_{prim}_{num_gpus}gpus.csv"
+                )
+                with open(src_data_file) as f:
+                    src_data = csv.reader(f)
+                    line_index = 0
+                    for row in src_data:
+                        line_index += 1
+                        if line_index > 1:
+                            data_size = row[0]
+                            collective_time[prim][num_gpus][data_size] = float(row[1])
 
     global inter_band, intra_band
     inter_band_file = dist_p2p_path + "p2p_inter_node.csv"
@@ -189,25 +238,6 @@ def read_profiled(
 
     return len(op_list)
 
-def calculate_node_rank():
-    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
-    
-    global num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
-    
-    node_rank = args.node_rank
-    sum_nodes = 0
-    for i in range(len(num_gpu_list)):
-        if sum_nodes + num_gpu_list[i] > node_rank:
-            pp_rank = i
-            break
-        sum_nodes += num_gpu_list[i]
-    node_inner_rank = node_rank - sum_nodes
-    tp_rank = node_inner_rank % tp_size_list[pp_rank]
-    cp_rank = node_inner_rank // tp_size_list[pp_rank] % cp_size_list[pp_rank]
-    usp_rank = node_inner_rank // tp_size_list[pp_rank] % usp_size_list[pp_rank]
-    rsp_rank = node_inner_rank // tp_size_list[pp_rank] // usp_size_list[pp_rank] % rsp_size_list[pp_rank]
-    dp_rank = node_inner_rank // tp_size_list[pp_rank] // usp_size_list[pp_rank] // rsp_size_list[pp_rank] % dp_size_list[pp_rank]
-
 
 def identical_spec(input_spec, required_spec):
     identical = True
@@ -219,82 +249,6 @@ def identical_spec(input_spec, required_spec):
             identical = False
 
     return identical
-
-
-def get_reshard_primitives(input_spec, required_spec):
-    if identical_spec(input_spec, required_spec):
-        return None, None, 0
-
-    for src_dim_index in range(len(input_spec["dims"])):
-        if input_spec["dims"][src_dim_index] > required_spec["dims"][src_dim_index]:
-            ## D -> R, all-gather
-            if input_spec["R"] < required_spec["R"]:
-                assert (
-                    input_spec["dims"][src_dim_index]
-                    % required_spec["dims"][src_dim_index]
-                    == 0
-                )
-                num_devices = (
-                    input_spec["dims"][src_dim_index]
-                    // required_spec["dims"][src_dim_index]
-                )
-
-                return "all_gather", "split", num_devices
-
-            for dst_dim_index in range(len(input_spec["dims"])):
-                ## D -> D, all-to-all
-                if (
-                    dst_dim_index != src_dim_index
-                    and input_spec["dims"][dst_dim_index]
-                    < required_spec["dims"][dst_dim_index]
-                ):
-                    assert (
-                        input_spec["dims"][src_dim_index]
-                        % required_spec["dims"][src_dim_index]
-                        == 0
-                    )
-                    num_devices = (
-                        input_spec["dims"][src_dim_index]
-                        // required_spec["dims"][src_dim_index]
-                    )
-
-                    return "all_to_all", "all_to_all", num_devices
-
-
-def get_reshard_time(prim, num_devices, data_size):
-    if num_devices <= 1:
-        return 0
-    if prim in ["all_reduce", "all_gather", "reduce_scatter", "all_to_all"]:
-        _data_size = "{:.0f}".format(float(data_size))
-        if _data_size in collective_time[prim][num_devices]:
-            return collective_time[prim][num_devices][_data_size]
-        elif (
-            "{:.0f}".format(float(data_size) - 1) in collective_time[prim][num_devices]
-        ):
-            return collective_time[prim][num_devices][
-                "{:.0f}".format(float(data_size) - 1)
-            ]
-        else:
-            return 100000
-    elif prim in ["split"]:
-        return 0
-    else:
-        return 100000
-
-
-def get_reshard_memory(prim, num_devices, data_size):
-    assert num_devices > 1
-    if prim == "all_reduce":
-        return data_size
-    elif prim == "all_gather":
-        return data_size * num_devices
-    elif prim == "reduce_scatter":
-        return data_size
-    elif prim == "split":
-        return data_size
-    elif prim == "all_to_all":
-        return data_size * num_devices
-
 
 def intra_node_band(data_size):
     global intra_band
@@ -333,30 +287,68 @@ def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_no
     if len(ops) == 0:
         return 0, 0, 0, 0, 0
     global compute_fwd_time, compute_bwd_time, input_size, output_size
-    fwd_comp, bwd_comp, in_comm, out_comm, tp_comm = 0, 0, 0, 0, 0
+    fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm = 0, 0, 0, 0, 0, 0, 0, 0
     
     global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    global cur_mbs, cur_seqlen
+    global cur_tp, cur_cp, cur_usp, cur_rsp, cur_dp
     
-    cur_mbs = dp_split[dp_rank]
-    cur_seqlen = rsp_split[rsp_rank] // usp
+    '''
+    TP communication refer to https://www.cnblogs.com/rossiXYZ/p/15871062.html
+    DP communication refer to https://www.cnblogs.com/rossiXYZ/p/15868988.html
+    CP according https://docs.nvidia.com/megatron-core/developer-guide/latest/api-guide/context_parallel.html
+    '''
 
     for i in range(len(ops)):
         op_name = ops[i]
         fwd_comp += compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]
         bwd_comp += compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]
-        if args.support_comm_predict:
-            # TODO: Check correctness, QKV/dense/GEMM ops need reshard time
-            for op_name_suffix in ["attention", "mlp"]:
-                if op_name_suffix in op_name:
-                    tp_comm += (
-                        2
-                        * get_reshard_time(
-                            "all_reduce",
-                            tp,
-                            output_size[op_name][cur_mbs][cur_seqlen][tp],
-                        )
-                        * 1000
-                    )
+        if op_name == "dec-embedding":
+            assert str(output_size[op_name][cur_mbs][cur_seqlen][tp]) in collective_time["all_reduce"][tp], f'{op_name} {output_size[op_name][cur_mbs][cur_seqlen][tp]}'
+            '''
+            Embedding layer need all-reduce output 
+            runtime/megatron/core/tensor_parallel/layers.py: 228, VocabParallelEmbedding::forward
+            '''
+            if tp > 1:
+                tp_comm += collective_time["all_reduce"][tp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])]
+        elif op_name == "dec-post-process":
+            '''
+            TP: In theory like above
+            '''
+            if tp > 1:
+                tp_comm += collective_time["all_reduce"][tp][str(input_size[op_name][cur_mbs][cur_seqlen][tp])]
+            '''
+            DP: Need to allreduce gradients
+            - Grad Buffer Async and Overlappable: runtime/megatron/core/distributed/param_and_grad_buffer.py: 140, Bucket::start_gradient_sync
+            - Model Grad not overlappable: runtime/megatron/core/distributed/finalize_model_grads.py
+            '''
+            if dp > 1:
+                dp_comm += collective_time["all_reduce"][dp][str(input_size[op_name][cur_mbs][cur_seqlen][tp])]
+        elif op_name == "dec-self-attention":
+            '''
+            Self attention
+            - QKV need 3 ColumnParallelLinear layers, thus forward: 1 all-gather, backward: 1 all-reduce
+            runtime/megatron/core/tensor_parallel/layers.py: 826, ColumnParallelLinear::forward
+            - Dropout need 1 RowParallelLinear layer, thus forward: 1 all-reduce, backward: 1 all-gather
+            '''
+            if tp > 1:
+                tp_comm += (collective_time["all_gather"][tp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])] + collective_time["all_reduce"][tp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])]) * 4
+            '''
+            CP:
+            - USP: In TE's implementation, USP QKV communication can overlap with each other, thus only need to consider 1 all-to-all
+            - RSP: In most case rsp can overlap with calculation
+            '''
+            if usp > 1:
+                cp_comm += collective_time["all_to_all"][usp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])]
+        elif op_name == "dec-mlp":
+            '''
+            MLP
+            MLP need 1 ColumnParallelLinear, 1 RowParallelLinear
+            '''
+            if tp > 1:
+                tp_comm += (collective_time["all_gather"][tp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])] + collective_time["all_reduce"][tp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])]) * 2
+        else:
+            raise RuntimeError(f"unknown op_name {op_name}")
 
     input_comm_size = input_size[ops[0]][cur_mbs][cur_seqlen]
     output_comm_size = output_size[ops[-1]][cur_mbs][cur_seqlen]
@@ -371,36 +363,15 @@ def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_no
     else:
         out_comm = output_comm_size / intra_node_band(output_comm_size)
 
-    fwd_reshard = 0
-    bwd_reshard = 0
-    if args.resharding:
-        for i in range(1, len(ops)):
-            prev_spec = get_op_spec(ops[i - 1], tp, dp)
-            current_spec = get_op_spec(ops[i], tp, dp)
-            fwd_prim, bwd_prim, num_devices = get_reshard_primitives(
-                prev_spec, current_spec
-            )
-            if fwd_prim is not None:
-                fwd_reshard += get_reshard_time(
-                    fwd_prim, num_devices, input_size[ops[i]][cur_mbs][cur_seqlen][tp]
-                )
-            if bwd_prim is not None:
-                bwd_reshard += get_reshard_time(
-                    bwd_prim, num_devices, input_size[ops[i]][cur_mbs][cur_seqlen][tp]
-                )
-
-    in_comm += fwd_reshard * 1000
-    out_comm += bwd_reshard * 1000
-
-    tp_comm += fwd_reshard * 1000 + bwd_reshard * 1000
-    return fwd_comp, bwd_comp, in_comm, out_comm, tp_comm
+    global collective_time
+    return fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm
 
 
 def get_memory_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split):
     global input_size, output_size, weights
     global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
-    cur_mbs = dp_split[dp_rank]
-    cur_seqlen = rsp_split[rsp_rank] // usp
+    global cur_mbs, cur_seqlen
+    
     inputs = input_size[ops[0]][cur_mbs][cur_seqlen][tp]
     _activations = 0
     _weights = 0
@@ -442,8 +413,7 @@ def get_peak_activations(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split):
         return 0
     
     global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
-    cur_mbs = dp_split[dp_rank]
-    cur_seqlen = rsp_split[rsp_rank] // usp
+    global cur_mbs, cur_seqlen
 
     global activations
     saved_activations = 0
@@ -497,8 +467,8 @@ def get_reserved_memory(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, mem
 def get_activation_size(op_name, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split):
     global activations
     global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
-    cur_mbs = dp_split[dp_rank]
-    cur_seqlen = rsp_split[rsp_rank] // usp
+    global cur_mbs, cur_seqlen
+    
     return activations[op_name][cur_mbs][cur_seqlen][tp]
 
 
@@ -512,28 +482,16 @@ def predict_stage_time(
     rsp_split,
     dp_split,
     delta=False,
-    on_the_right=False,
-    decrease=True,
 ):
     in_cross_node = False
     out_cross_node = False
     
     global total_mbs
 
-    fwd_comp, bwd_comp, in_comm, out_comm, _ = get_time_v3(
+    fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm = get_time_v3(
         ops, total_mbs, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split, in_cross_node, out_cross_node
     )
-    if not delta:
-        sum_time = fwd_comp + bwd_comp + in_comm + out_comm
-    else:
-        if on_the_right and decrease:
-            sum_time = fwd_comp + bwd_comp - in_comm + out_comm
-        elif not on_the_right and decrease:
-            sum_time = fwd_comp + bwd_comp + in_comm - out_comm
-        elif on_the_right and not decrease:
-            sum_time = fwd_comp + bwd_comp + in_comm - out_comm
-        elif not on_the_right and not decrease:
-            sum_time = fwd_comp + bwd_comp - in_comm + out_comm
+    sum_time = fwd_comp + bwd_comp + in_comm + out_comm + tp_comm + usp_comm + rsp_comm + dp_comm
 
     return sum_time / 1000
 
@@ -844,9 +802,7 @@ def predict_stage_memory_helper(
         num_stages_behind = config.stages[stage_index].num_stages_behind
 
     global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
-    
-    cur_mbs = dp_split[dp_rank]
-    cur_seqlen = rsp_split[rsp_rank] // usp_size
+    global cur_mbs, cur_seqlen
 
     config_str = f"ops{ops[0]}{len(ops)}tp{tp_size}cp{cp_size}usp{usp_size}rsp{rsp_size}dp{dp_size}seqlen{cur_seqlen}bs{cur_mbs}stage{num_stages_behind}"
     stage_memory_visit += 1
@@ -887,9 +843,7 @@ def predict_stage_time_helper(config, stage_index):
     dp_split = config.stages[stage_index].dp_split
     
     global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
-    
-    cur_mbs = dp_split[dp_rank]
-    cur_seqlen = rsp_split[rsp_rank] // usp_size
+    global cur_mbs, cur_seqlen
 
     config_str = f"ops{ops[0]}{len(ops)}tp{tp_size}cp{cp_size}usp{usp_size}rsp{rsp_size}dp{dp_size}seqlen{cur_seqlen}bs{cur_mbs}"
     stage_time_visit += 1
@@ -907,45 +861,42 @@ def predict_stage_time_helper(config, stage_index):
 def get_mbs_seqlen():
     global usp_size_list, dp_split_list, rsp_split_list
     global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
+    global cur_mbs, cur_seqlen
     
-    cur_mbs = dp_split_list[pp_rank][dp_rank]
-    cur_seqlen = dp_split_list[pp_rank][rsp_rank] // usp_size_list[pp_rank]
     return cur_mbs, cur_seqlen
 
 if __name__ == "__main__":
 
     config, config_dict = read_config_from_json(args, return_config_dict=True)
-    read_profiled(
-        config_dict["model_name"], config_dict["model_size"], config_dict, args.profiled_gpt_path, args.profiled_dist_p2p_path, args.profiled_local_p2p_path, args.profiled_local_comm_path
-    )
     calculate_node_rank()
+    read_profiled(
+        config_dict["model_name"], config_dict["model_size"], args.profiled_gpt_path, args.profiled_dist_p2p_path, args.profiled_local_p2p_path, args.profiled_local_comm_path
+    )
     predict_time_breakdown(config, print_time=True, print_memory=True)
     if args.save_to_csv is not None:
         save_config_info_to_csv(
             config, get_reserved_memory_list(config), args.save_to_csv
         )
 
-    print(f"---- testing model ----")
-    from hetaceso_cost_model import HetacesoPerfModel
-    
-    cur_mbs, cur_seqlen = get_mbs_seqlen()
+    # print(f"---- testing model ----")
+    # from hetaceso_cost_model import HetacesoPerfModel
 
-    test_perf_model = HetacesoPerfModel(
-        config,
-        args.node_rank,
-        cur_mbs,
-        cur_seqlen,
-        args.profiled_gpt_path,
-        args.profiled_local_p2p_path,
-        args.profiled_local_comm_path,
-        args.profiled_dist_p2p_path,
-        config_dict["model_name"],
-        config_dict["model_size"],
-        args.num_gpus_per_node,
-        args.dist_optimizer,
-        "1000Mbps"
-    )
-    test_perf_model.predict_config_performance(config, print_detail=True)
-    print(
-        f"time list = {list(map(int, config.time_list))}\nmemory list = {list(map(int, config.memory_list))}"
-    )
+    # test_perf_model = HetacesoPerfModel(
+    #     config,
+    #     args.node_rank,
+    #     cur_mbs,
+    #     cur_seqlen,
+    #     args.profiled_gpt_path,
+    #     args.profiled_local_p2p_path,
+    #     args.profiled_local_comm_path,
+    #     args.profiled_dist_p2p_path,
+    #     config_dict["model_name"],
+    #     config_dict["model_size"],
+    #     args.num_gpus_per_node,
+    #     args.dist_optimizer,
+    #     "1000Mbps"
+    # )
+    # test_perf_model.predict_config_performance(config, print_detail=True)
+    # print(
+    #     f"time list = {list(map(int, config.time_list))}\nmemory list = {list(map(int, config.memory_list))}"
+    # )
