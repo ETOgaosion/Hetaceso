@@ -417,7 +417,28 @@ def profile_op(
     sum_fwd_time = start.elapsed_time(end)
     avg_fwd_time = sum_fwd_time / args.prof_repeat_times[0]
     
-    if op_info.op_name not in ["dec-embedding"]:        
+    if op_info.op_name not in ["dec-embedding"]:
+        for index in range(args.prof_warmup_times):
+            output_data = op(
+                input_data, input_extra_tensors, output_extra_tensors, profiling=True
+            )
+            outputs, output_grads = get_outputs_and_grads(
+                output_data, output_extra_tensors, grad_type
+            )
+
+        start = torch.cuda.Event(enable_timing=True)
+        end = torch.cuda.Event(enable_timing=True)
+        start.record()
+        for index in range(args.prof_repeat_times[0]):
+            output_data = op(
+                input_data, input_extra_tensors, output_extra_tensors, profiling=True
+            )
+            outputs, output_grads = get_outputs_and_grads(
+                output_data, output_extra_tensors, grad_type
+            )
+        end.record() 
+        torch.cuda.synchronize()
+        sum_mid_time = start.elapsed_time(end)
         for index in range(args.prof_warmup_times):
             output_data = op(
                 input_data, input_extra_tensors, output_extra_tensors, profiling=True
@@ -440,7 +461,7 @@ def profile_op(
             torch.autograd.backward(outputs, grad_tensors=output_grads, retain_graph=True)
         end.record() 
         torch.cuda.synchronize()
-        sum_bwd_time = start.elapsed_time(end) - sum_fwd_time
+        sum_bwd_time = start.elapsed_time(end) - sum_mid_time
         avg_bwd_time = sum_bwd_time / args.prof_repeat_times[0]
     else:        
         outputs, output_grads = get_outputs_and_grads(

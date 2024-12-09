@@ -145,10 +145,11 @@ def read_profiled(
                 comm_num_gpus_list_map["dp"].append(dp)
                 comm_num_gpus_map_map["dp"][dp] = 1
 
-    for mbs, seqlen, tp in unique_config_list:
+    for mbs, seqlen, tp, usp, rsp, dp in unique_config_list:
         src_data_file = (
             gpt_path + model_name + f"_{model_size}_mbs{mbs}_seqlen{seqlen}_tp{tp}.csv"
         )
+        print(src_data_file)
         try:
             with open(src_data_file) as f:
                 src_data = csv.reader(f)
@@ -303,27 +304,31 @@ def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_no
         op_name = ops[i]
         fwd_comp += compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]
         bwd_comp += compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]
+        cur_op_input_size = str(int(input_size[op_name][cur_mbs][cur_seqlen][tp]))
+        cur_op_output_size = str(int(output_size[op_name][cur_mbs][cur_seqlen][tp]))
         if op_name == "dec-embedding":
-            assert str(output_size[op_name][cur_mbs][cur_seqlen][tp]) in collective_time["all_reduce"][tp], f'{op_name} {output_size[op_name][cur_mbs][cur_seqlen][tp]}'
             '''
             Embedding layer need all-reduce output 
             runtime/megatron/core/tensor_parallel/layers.py: 228, VocabParallelEmbedding::forward
             '''
             if tp > 1:
-                tp_comm += collective_time["all_reduce"][tp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])]
+                assert cur_op_output_size in collective_time["all_reduce"][tp], f'{op_name} {cur_op_output_size}'
+                tp_comm += collective_time["all_reduce"][tp][cur_op_output_size]
         elif op_name == "dec-post-process":
             '''
             TP: In theory like above
             '''
             if tp > 1:
-                tp_comm += collective_time["all_reduce"][tp][str(input_size[op_name][cur_mbs][cur_seqlen][tp])]
+                assert cur_op_input_size in collective_time["all_reduce"][tp], f'{op_name} {cur_op_input_size}'
+                tp_comm += collective_time["all_reduce"][tp][cur_op_input_size]
             '''
             DP: Need to allreduce gradients
             - Grad Buffer Async and Overlappable: runtime/megatron/core/distributed/param_and_grad_buffer.py: 140, Bucket::start_gradient_sync
             - Model Grad not overlappable: runtime/megatron/core/distributed/finalize_model_grads.py
             '''
             if dp > 1:
-                dp_comm += collective_time["all_reduce"][dp][str(input_size[op_name][cur_mbs][cur_seqlen][tp])]
+                assert cur_op_input_size in collective_time["all_reduce"][dp], f'{op_name} {cur_op_input_size}'
+                dp_comm += collective_time["all_reduce"][dp][cur_op_input_size]
         elif op_name == "dec-self-attention":
             '''
             Self attention
@@ -332,13 +337,16 @@ def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_no
             - Dropout need 1 RowParallelLinear layer, thus forward: 1 all-reduce, backward: 1 all-gather
             '''
             if tp > 1:
-                tp_comm += (collective_time["all_gather"][tp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])] + collective_time["all_reduce"][tp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])]) * 4
+                assert cur_op_output_size in collective_time["all_gather"][tp], f'{op_name} {cur_op_output_size}'
+                assert cur_op_output_size in collective_time["all_reduce"][tp], f'{op_name} {cur_op_output_size}'
+                tp_comm += (collective_time["all_gather"][tp][cur_op_output_size] + collective_time["all_reduce"][tp][cur_op_output_size]) * 4
             '''
             CP:
             - USP: In TE's implementation, USP QKV communication can overlap with each other, thus only need to consider 1 all-to-all
             - RSP: In most case rsp can overlap with calculation
             '''
             if usp > 1:
+                assert cur_op_output_size in collective_time["all_to_all"][usp], f'{op_name} {cur_op_output_size}'
                 cp_comm += collective_time["all_to_all"][usp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])]
         elif op_name == "dec-mlp":
             '''
@@ -346,12 +354,14 @@ def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_no
             MLP need 1 ColumnParallelLinear, 1 RowParallelLinear
             '''
             if tp > 1:
-                tp_comm += (collective_time["all_gather"][tp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])] + collective_time["all_reduce"][tp][str(output_size[op_name][cur_mbs][cur_seqlen][tp])]) * 2
+                assert cur_op_output_size in collective_time["all_gather"][tp], f'{op_name} {cur_op_output_size}'
+                assert cur_op_output_size in collective_time["all_reduce"][tp], f'{op_name} {cur_op_output_size}'
+                tp_comm += (collective_time["all_gather"][tp][cur_op_output_size] + collective_time["all_reduce"][tp][cur_op_output_size]) * 2
         else:
             raise RuntimeError(f"unknown op_name {op_name}")
 
-    input_comm_size = input_size[ops[0]][cur_mbs][cur_seqlen]
-    output_comm_size = output_size[ops[-1]][cur_mbs][cur_seqlen]
+    input_comm_size = input_size[ops[0]][cur_mbs][cur_seqlen][tp]
+    output_comm_size = output_size[ops[-1]][cur_mbs][cur_seqlen][tp]
 
     if in_cross_node:
         in_comm = input_comm_size / inter_node_band(input_comm_size)
@@ -363,7 +373,6 @@ def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_no
     else:
         out_comm = output_comm_size / intra_node_band(output_comm_size)
 
-    global collective_time
     return fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm
 
 
@@ -526,7 +535,7 @@ def predict_stage_memory(
 
     if args.consider_reserved_space:
         memory_reserved = get_reserved_memory(
-        ops, total_mbs, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split
+        ops, total_mbs, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split, memory_weights
         )
     else:
         memory_reserved = 0
@@ -600,23 +609,26 @@ def predict_time_breakdown(config, print_time=False, print_memory=False):
         out_cross_node = (num_gpus_till_now % args.num_gpus_per_node) == 0
 
         ## compute actual time of each stage
-        fwd_comp, bwd_comp, in_comm, out_comm, tp_comm = get_time_v3(
+        fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm = get_time_v3(
             ops, total_mbs, tp_size, cp_size, usp_size, rsp_size, dp_size, rsp_split, dp_split, in_cross_node, out_cross_node
         )
-        sum_time = (fwd_comp + bwd_comp + in_comm + out_comm) / 1000
+        sum_time = (fwd_comp + bwd_comp + in_comm + out_comm + tp_comm + usp_comm + rsp_comm + dp_comm) / 1000
         _time_list.append(sum_time)
         compute_time_list.append((fwd_comp + bwd_comp) / 1000)
         gpu_time_list.append(sum_time * num_gpus)
 
         if print_time:
             time_result_strings.append(
-                "[stage {}], {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, ".format(
+                "[stage {}], {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, ".format(
                     i,
                     fwd_comp / 1000 * num_batches,
                     (bwd_comp) / 1000 * num_batches,
                     in_comm / 1000 * num_batches,
                     out_comm / 1000 * num_batches,
                     tp_comm / 1000 * num_batches,
+                    usp_comm / 1000 * num_batches,
+                    rsp_comm / 1000 * num_batches,
+                    dp_comm / 1000 * num_batches,
                 )
             )
 
@@ -628,10 +640,10 @@ def predict_time_breakdown(config, print_time=False, print_memory=False):
         _dp_size = 1
         _rsp_split = [config.total_seqlen]
         _dp_split = [config.micro_bs]
-        _fwd_comp, _bwd_comp, _in_comm, _out_comm, _tp_comm = get_time_v3(
+        _fwd_comp, _bwd_comp, _in_comm, _out_comm, _tp_comm, _usp_comm, _rsp_comm, _dp_comm = get_time_v3(
             ops, total_mbs, _tp_size, _cp_size, _usp_size, rsp_size, _dp_size, _rsp_split, _dp_split, in_cross_node, out_cross_node
         )
-        ideal_time = (_fwd_comp + _bwd_comp + _in_comm + _out_comm) / 1000
+        ideal_time = (_fwd_comp + _bwd_comp + _in_comm + _out_comm + _tp_comm + _usp_comm + _rsp_comm + _dp_comm) / 1000
 
         ## calculate time breakdown at sum of GPUs
         eff_loss_time = (fwd_comp + bwd_comp) - (_fwd_comp + _bwd_comp) / num_gpus
@@ -695,7 +707,7 @@ def predict_time_breakdown(config, print_time=False, print_memory=False):
         time_result_strings[bottleneck] = " * " + time_result_strings[bottleneck]
         print("overall time = {:.2f} ms".format(max_time))
         print(
-            "stage, fwd_comp, bwd_comp, in_comm(+reshard), out_comm(+reshard), reshard, sum(us)"
+            "stage, fwd_comp, bwd_comp, in_comm(+reshard), out_comm(+reshard), tp_comm, usp_comm, rsp_comm, dp_comm, reshard, sum(us)"
         )
         for i in range(config.num_stages):
             print(time_result_strings[i])

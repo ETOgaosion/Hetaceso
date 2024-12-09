@@ -692,6 +692,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'forward-compute',
         'forward-compute-outside',
         'backward-compute',
+        'backward-compute-outside',
         'batch-generator',
         'forward-recv',
         'forward-send',
