@@ -82,30 +82,55 @@ def compute_activation_memory(args, num_microbatches, verbose=False):
     # are for the first pipeline stage.
 
     # Memory footprint from transformer layer (self-attention and MLP).
-    activation_memory = (args.seq_length * args.micro_batch_size * args.hidden_size) * (
-        18 + (4 * (args.ffn_hidden_size / args.hidden_size))
-    )
+
+    if args.sequence_parallel and (args.recompute_granularity == 'selective' or (args.transformer_impl == 'transformer_engine' and use_mcore_models)): # TP + selective recompute + sequence parallel
+        activation_memory = (args.seq_length * args.micro_batch_size * args.hidden_size) * (
+            18 + (4 * (args.ffn_hidden_size / args.hidden_size))
+        ) / args.tensor_model_parallel_size
+    elif not args.sequence_parallel and (args.recompute_granularity == 'selective' or  (args.transformer_impl == 'transformer_engine' and args.use_mcore_models)) : # TP + selective recompute
+        activation_memory = (args.seq_length * args.micro_batch_size * args.hidden_size) * (
+            10 + (8 + (4 * (args.ffn_hidden_size / args.hidden_size))) / args.tensor_model_parallel_size
+        )
+    elif not args.sequence_parallel and args.recompute_granularity == None: # TP
+        activation_memory = (args.seq_length * args.micro_batch_size * args.hidden_size) * (
+            10 + (8 + (4 * (args.ffn_hidden_size / args.hidden_size))) / args.tensor_model_parallel_size
+        ) + 5 * args.num_attention_heads * args.seq_length * args.seq_length * args.micro_batch_size / args.tensor_model_parallel_size
+    elif args.sequence_parallel and args.recompute_granularity == None: # TP + sequence parallel
+        activation_memory = (args.seq_length * args.micro_batch_size * args.hidden_size) * (
+            (18 + (4 * (args.ffn_hidden_size / args.hidden_size))) / args.tensor_model_parallel_size
+        ) + 5 * args.num_attention_heads * args.seq_length * args.seq_length * args.micro_batch_size / args.tensor_model_parallel_size        
+    else:
+        raise RuntimeError("Not support this config")
     if verbose:
         print(
             f"Activation memory footprint per transformer layer: "
-            f"{activation_memory / NUM_BYTES_IN_MEGABYTE / args.tensor_model_parallel_size:.1f} MB"
+            f"{activation_memory / NUM_BYTES_IN_MEGABYTE:.1f} MB"
         )
-    activation_memory *= args.num_layers
+    activation_memory *= args.num_layers # the number of layers of the first stage is (args.num_layers / args.pipeline_model_parallel_size)
 
     # Now add activation memory required for input embeddings, last LayerNorm and output layer.
 
     # Input to embedding (pp_size microbatches in flight).
     activation_memory += (
         8 * args.seq_length * args.micro_batch_size * args.pipeline_model_parallel_size
-    )
+    ) # I think that the activation of embedding should not be splited by TP size.
+     
+    
     # Dropout in embedding layer (pp_size microbatches in flight).
-    activation_memory += (
-        args.seq_length
-        * args.micro_batch_size
-        * args.hidden_size
-        * args.pipeline_model_parallel_size
-    )
-
+    if args.sequence_parallel: 
+        activation_memory += (
+            args.seq_length
+            * args.micro_batch_size
+            * args.hidden_size
+            * args.pipeline_model_parallel_size
+        ) / args.tensor_model_parallel_size
+    else:
+        activation_memory += (
+            args.seq_length
+            * args.micro_batch_size
+            * args.hidden_size
+            * args.pipeline_model_parallel_size
+        )      
     # Multiply by interleaved PP memory factor.
     if args.virtual_pipeline_model_parallel_size is not None:
         interleaved_schedule_memory_penalty = 1 + (
@@ -135,22 +160,37 @@ def compute_activation_memory(args, num_microbatches, verbose=False):
 
     if args.pipeline_model_parallel_size == 1:
         # Inputs to output layer and CE loss.
-        activation_memory += (
-            args.seq_length
-            * args.micro_batch_size
-            * args.hidden_size
-            * 4
-            * (1 + (args.padded_vocab_size / args.hidden_size))
-        )
-
+        if args.sequence_parallel:
+            activation_memory += (
+                args.seq_length
+                * args.micro_batch_size
+                * args.hidden_size
+                * 4
+                * (1 + (args.padded_vocab_size / args.hidden_size))
+            ) / args.tensor_model_parallel_size
+        else:
+            activation_memory += (
+                args.seq_length
+                * args.micro_batch_size
+                * args.hidden_size
+                * 4
+                * (args.padded_vocab_size / args.hidden_size)
+            ) / args.tensor_model_parallel_size # cross entropy
+            + ( args.seq_length # layernorm + output layer projection
+                * args.micro_batch_size
+                * args.hidden_size
+                * 4)
+            
+            
     # Activation memory is partitioned by TP size due to tensor and sequence model parallelism.
-    return activation_memory / args.tensor_model_parallel_size
+    return activation_memory 
 
 
 def report_theoretical_memory(args, num_microbatches=None, verbose=False):
     # Formulae here assume sequence parallelism and selective activation recomputation.
-    if not args.sequence_parallel or args.recompute_granularity != 'selective':
-        return
+    # if not args.sequence_parallel or args.recompute_granularity != 'selective':
+    #     print(f"sequence_parallel: {args.sequence_parallel}. recompute_granularity: {args.recompute_granularity}")
+    #     return
 
     weight_and_optimizer_memory = (
         compute_weight_and_optimizer_memory(args, verbose=verbose) / NUM_BYTES_IN_MEGABYTE
