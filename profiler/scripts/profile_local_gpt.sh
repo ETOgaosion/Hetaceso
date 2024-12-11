@@ -8,9 +8,9 @@ GPUS_PER_NODE=1
 MACHINE=${2:-0}
 REPROFILE=${3:-0}
 
-RUNTIME_PATH=$(pwd)/../results/rank$NODE_RANK/
+RUNTIME_PATH=$(pwd)/../results/
 mkdir -p $RUNTIME_PATH
-PROFILING_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
+PROFILING_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/rank$NODE_RANK/
 
 VOCAB_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-vocab.json
 MERGE_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-merges.txt
@@ -61,7 +61,7 @@ fi
 mkdir -p ${PROFILING_PATH}
 mkdir -p logs
 mkdir -p logs/csv
-MAX_NUM_GPUS=1
+MAX_NUM_GPUS=2
 MODEL_NAME=gpt
 MODEL_SIZE=350M
 
@@ -74,7 +74,7 @@ else
     export NCCL_SOCKET_IFNAME=eno1
 fi
 
-for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
+for ((tp_size=2; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
 do
     GPUS_PER_NODE=${tp_size}
     DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"

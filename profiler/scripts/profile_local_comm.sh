@@ -7,10 +7,10 @@ NODE_RANK=${1:-0}
 MACHINE=${2:-0}
 REPROFILE=${3:-1}
 
-RUNTIME_PATH=$(pwd)/../results/rank$NODE_RANK/
+RUNTIME_PATH=$(pwd)/../results/
 mkdir -p $RUNTIME_PATH
-PROFILING_PATH=${RUNTIME_PATH}profiled-local-comm-hetaceso/
-PROFILING_OP_TIME_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
+PROFILING_PATH=${RUNTIME_PATH}profiled-local-comm-hetaceso/rank$NODE_RANK/
+PROFILING_OP_TIME_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/rank$NODE_RANK/
 
 if [ $REPROFILE -eq 1 ]; then
     rm -rf ${PROFILING_PATH}

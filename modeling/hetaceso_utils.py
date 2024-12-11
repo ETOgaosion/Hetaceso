@@ -13,6 +13,7 @@ from typing import List
 from model_ops_info import get_full_op_list
 
 import sys
+
 sys.path.append("../runtime")
 from megatron.training.tokenizer import build_tokenizer
 
@@ -37,6 +38,13 @@ MAX_VALUE = 2**30
 MIN_VALUE = -(2**30)
 GLOBAL_TIMER = None
 
+@dataclass
+class MachineTopo:
+    num_machines: int
+    num_gpus: int
+    machine_gpus: List[int]
+    machine_gpus_fp32_flops: List[float]
+    machine_gpus_memory: List[int]
 
 @dataclass
 class AcesoStageInfo:
@@ -55,18 +63,29 @@ class AcesoStageInfo:
 
 @dataclass
 class AcesoConfig:
+    model_name: str
+    model_size: str
+    
     global_bs: int
     micro_bs: int
     total_seqlen: int
     stages: List[AcesoStageInfo]
+    num_op_list: List[int]
     num_stages: int
     num_layers: int
     history: str = ""
 
     time_list: List[float] = field(default_factory=list)
+    fwd_time_list: List[float] = field(default_factory=list)
+    bwd_time_list: List[float] = field(default_factory=list)
+    
     memory_list: List[float] = field(default_factory=list)
-    compute_time_list: List[float] = field(default_factory=list)
-    total_gpu_time: float = 0
+    weight_size_list: List[float] = field(default_factory=list)
+    weight_size_no_embed_list: List[float] = field(default_factory=list)
+    
+    ref_memory_list: List[float] = field(default_factory=list)
+    ref_weight_and_optimizer_memory: List[float] = field(default_factory=list)
+    ref_activation_memory: List[float] = field(default_factory=list)
 
     breakdown_ideal_time_per_gpu: List[float] = field(default_factory=list)
     breakdown_eff_loss_time_per_gpu: List[float] = field(default_factory=list)
@@ -82,16 +101,30 @@ def debug_info(info, print_debug_info):
         print(info)
 
 
+def read_topo(args):
+    with open(args.topo_file, "r") as f:
+        topo_dict = json.load(f)
+    machine_topo = MachineTopo(
+        num_machines=topo_dict["num_machines"],
+        num_gpus=topo_dict["num_gpus"],
+        machine_gpus=topo_dict["machine_gpus"],
+        machine_gpus_fp32_flops=topo_dict["machine_gpus_fp32_flops"],
+        machine_gpus_memory=topo_dict["machine_gpus_memory"],
+    )
+    args.num_gpus = machine_topo.num_gpus
+    return args, machine_topo
+
+
 def get_config(
+    model_name,
+    model_size,
     num_layers,
     total_seqlen,
     global_batch_size,
     aggregate_mbs,
-    
     num_stages,
     num_gpu_list,
     num_ops_list,
-    
     tp_size_list,
     cp_size_list,
     usp_size_list,
@@ -99,18 +132,40 @@ def get_config(
     dp_size_list,
     rsp_split_list,
     dp_split_list,
-    full_op_list,
+    full_op_list
 ):
     op_start_index = 0
     stages_info_list = []
-    assert num_layers * 2 + 2 == sum(num_ops_list), f"num_layers: {num_layers} not match num_ops_list: {num_ops_list}"
-    assert num_stages == len(num_gpu_list) == len(num_ops_list) == len(tp_size_list) == len(cp_size_list) == len(usp_size_list) == len(rsp_size_list) == len(dp_size_list) == len(rsp_split_list), f"num_stages: {num_stages} not match num_gpu_list: {num_gpu_list}, num_ops_list: {num_ops_list}, tp_size_list: {tp_size_list}, cp_size_list: {cp_size_list}, usp_size_list: {usp_size_list}, rsp_size_list: {rsp_size_list}, dp_size_list: {dp_size_list}, rsp_split_list: {rsp_split_list}"
+    assert num_layers * 2 + 2 == sum(
+        num_ops_list
+    ), f"num_layers: {num_layers} not match num_ops_list: {num_ops_list}"
+    assert (
+        num_stages
+        == len(num_gpu_list)
+        == len(num_ops_list)
+        == len(tp_size_list)
+        == len(cp_size_list)
+        == len(usp_size_list)
+        == len(rsp_size_list)
+        == len(dp_size_list)
+        == len(rsp_split_list)
+    ), f"num_stages: {num_stages} not match num_gpu_list: {num_gpu_list}, num_ops_list: {num_ops_list}, tp_size_list: {tp_size_list}, cp_size_list: {cp_size_list}, usp_size_list: {usp_size_list}, rsp_size_list: {rsp_size_list}, dp_size_list: {dp_size_list}, rsp_split_list: {rsp_split_list}"
     for i in range(num_stages):
-        assert num_gpu_list[i] == tp_size_list[i] * cp_size_list[i] * dp_size_list[i], f'3d parallelism mul is not equal to num gpus: {num_gpu_list[i]} != {tp_size_list[i]} * {cp_size_list[i]} * {dp_size_list[i]}'
-        assert cp_size_list[i] == usp_size_list[i] * rsp_size_list[i], f'context parallelism mul is not equal to num gpus: {cp_size_list[i]} != {usp_size_list[i]} * {rsp_size_list[i]}'
-        assert len(rsp_split_list[i]) == rsp_size_list[i], f'rsp split list format error, {len(rsp_split_list)}, {rsp_size_list[i]}'
-        assert total_seqlen == sum(rsp_split_list[i]), f'sum of rsp split is not equal to total seqlen'
-        assert aggregate_mbs == sum(dp_split_list[i]), f'sum of dp split is not equal to total mbs'
+        assert (
+            num_gpu_list[i] == tp_size_list[i] * cp_size_list[i] * dp_size_list[i]
+        ), f"3d parallelism mul is not equal to num gpus: {num_gpu_list[i]} != {tp_size_list[i]} * {cp_size_list[i]} * {dp_size_list[i]}"
+        assert (
+            cp_size_list[i] == usp_size_list[i] * rsp_size_list[i]
+        ), f"context parallelism mul is not equal to num gpus: {cp_size_list[i]} != {usp_size_list[i]} * {rsp_size_list[i]}"
+        assert (
+            len(rsp_split_list[i]) == rsp_size_list[i]
+        ), f"rsp split list format error, {len(rsp_split_list)}, {rsp_size_list[i]}"
+        assert total_seqlen == sum(
+            rsp_split_list[i]
+        ), f"sum of rsp split is not equal to total seqlen"
+        assert aggregate_mbs == sum(
+            dp_split_list[i]
+        ), f"sum of dp split is not equal to total mbs"
         stage_info = AcesoStageInfo(
             index=i,
             num_stages_behind=(num_stages - 1 - i),
@@ -122,29 +177,36 @@ def get_config(
             rsp_size=rsp_size_list[i],
             dp_size=dp_size_list[i],
             rsp_split=rsp_split_list[i],
-            dp_split=dp_split_list[i]
+            dp_split=dp_split_list[i],
         )
         stages_info_list.append(stage_info)
         op_start_index += num_ops_list[i]
 
     current_config = AcesoConfig(
+        model_name=model_name,
+        model_size=model_size,
         global_bs=global_batch_size,
         micro_bs=aggregate_mbs,
         total_seqlen=total_seqlen,
         stages=stages_info_list,
         num_stages=num_stages,
         num_layers=num_layers,
+        num_op_list=num_ops_list
     )
     return current_config
 
 
-def config_to_args(config, config_dict, args):
+def config_to_args(config, config_dict, args, node_rank):
     if args.num_layers is None:
         args.num_layers = config.num_layers
     args.tensor_model_parallel_size = config.stages[0].tp_size
     args.num_stages = config.num_stages
-    
-    args.tensor_parallel_size_of_each_stage = config_dict['tensor_parallel_size_of_each_stage']
+    args.node_rank = node_rank
+    args.rank = node_rank
+
+    args.tensor_parallel_size_of_each_stage = config_dict[
+        "tensor_parallel_size_of_each_stage"
+    ]
     # vocab size
     build_tokenizer(args)
     return args
@@ -176,7 +238,18 @@ def config_details(config, get_string=False):
     if get_string:
         return f"{num_ops_stage}, {num_gpu_list}, {total_mbs}, {tp_size_list}, {cp_size_list}, {usp_size_list}, {rsp_size_list}, {dp_size_list}, {rsp_split_list}, {dp_split_list}"
     else:
-        return num_ops_stage, num_gpu_list, total_mbs, tp_size_list, cp_size_list, usp_size_list, rsp_size_list, dp_size_list, rsp_split_list, dp_split_list
+        return (
+            num_ops_stage,
+            num_gpu_list,
+            total_mbs,
+            tp_size_list,
+            cp_size_list,
+            usp_size_list,
+            rsp_size_list,
+            dp_size_list,
+            rsp_split_list,
+            dp_split_list,
+        )
 
 
 def dump_config_to_json(config, file_name, args):
@@ -210,9 +283,9 @@ def dump_config_to_json(config, file_name, args):
     config_dict["micro_batch_size"] = config.micro_bs
     config_dict["num_stages"] = config.num_stages
     config_dict["num_gpus"] = []
-    
+
     num_ops_in_each_stage = []
-    
+
     tp_size_of_each_stage = []
     cp_size_of_each_stage = []
     usp_size_of_each_stage = []
@@ -220,7 +293,7 @@ def dump_config_to_json(config, file_name, args):
     dp_size_of_each_stage = []
     rsp_split_list_of_each_stage = []
     dp_split_list_of_each_stage = []
-    
+
     for i in range(config.num_stages):
         tp_size_of_each_stage.append(config.stages[i].tp_size)
         cp_size_of_each_stage.append(config.stages[i].cp_size)
@@ -235,11 +308,15 @@ def dump_config_to_json(config, file_name, args):
 
     config_dict["num_ops_in_each_stage"] = num_ops_in_each_stage
     config_dict["tensor_parallel_size_of_each_stage"] = tp_size_of_each_stage
-    config_dict["context_parallel_size_of_each_stage"] = cp_size_of_each_stage["ulysses_context_parallel_size_of_each_stage"] = usp_size_of_each_stage
+    config_dict["context_parallel_size_of_each_stage"] = cp_size_of_each_stage[
+        "ulysses_context_parallel_size_of_each_stage"
+    ] = usp_size_of_each_stage
     config_dict["ring_context_parallel_size_of_each_stage"] = rsp_size_of_each_stage
     config_dict
     config_dict["data_parallel_size_of_each_stage"] = dp_size_of_each_stage
-    config_dict["ring_context_parallel_split_of_each_stage"] = rsp_split_list_of_each_stage
+    config_dict["ring_context_parallel_split_of_each_stage"] = (
+        rsp_split_list_of_each_stage
+    )
     config_dict["data_parallel_split_of_each_stage"] = dp_split_list_of_each_stage
 
     json.dump(config_dict, open(file_name, "w"), indent=4)
@@ -253,16 +330,16 @@ def read_config_from_json(args, return_config_dict=False):
 
     model_name = config_dict["model_name"]
     model_size = config_dict["model_size"]
-    
+
     num_layers = gpt_configs[model_size][0]
     total_seqlen = gpt_configs[model_size][1]
     aggregate_mbs = config_dict["micro_batch_size"]
     global_batch_size = config_dict["global_batch_size"]
-    
+
     num_stages = config_dict["num_stages"]
     num_gpus = config_dict["num_gpus"]
     num_ops_list = config_dict["num_ops_in_each_stage"]
-    
+
     tp_size_list = config_dict["tensor_parallel_size_of_each_stage"]
     cp_size_list = config_dict["context_parallel_size_of_each_stage"]
     usp_size_list = config_dict["ulysses_context_parallel_size_of_each_stage"]
@@ -270,12 +347,14 @@ def read_config_from_json(args, return_config_dict=False):
     rsp_split_list = config_dict["ring_context_parallel_split_of_each_stage"]
     dp_size_list = config_dict["data_parallel_size_of_each_stage"]
     dp_split_list = config_dict["data_parallel_split_of_each_stage"]
-    
+
     full_op_list = get_full_op_list(args)
 
     if return_config_dict:
         return (
             get_config(
+                model_name,
+                model_size,
                 num_layers,
                 total_seqlen,
                 global_batch_size,
@@ -296,6 +375,8 @@ def read_config_from_json(args, return_config_dict=False):
         )
     else:
         return get_config(
+            model_name,
+            model_size,
             num_layers,
             total_seqlen,
             global_batch_size,
@@ -329,7 +410,7 @@ def save_config_info_to_csv(config, reserved_mem_list, dir_name):
             ]
         )
 
-    with open(dir_name + 'res.csv', mode="w", newline="") as file:
+    with open(dir_name + "res.csv", mode="w", newline="") as file:
         writer = csv.writer(file)
         for row in info_to_csv:
             writer.writerow(row)
@@ -448,29 +529,32 @@ def add_model_args(parser):
     group.add_argument("--num-layers", type=int, default=None, help="")
     group.add_argument("--num-stages", type=int, default=1, help="")
     group.add_argument("--global-batch-size", type=int, default=None, help="")
-    group.add_argument("--micro-batch-size", nargs=int, type=int, default=None, help="")
+    group.add_argument("--micro-batch-size", type=int, default=None, help="")
     group.add_argument("--seq-length", type=int, default=2048, help="")
     group.add_argument("--decoder-seq-len", type=int, default=512, help="")
     group.add_argument("--tensor-model-parallel-size", type=int, default=1, help="")
     group.add_argument("--pipeline-model-parallel-size", type=int, default=1, help="")
-    group.add_argument('--dist-optimizer', action='store_true', help='')
-    group.add_argument('--group-query-attention', type=bool, default=False, help='')
-    group.add_argument('--num-attention-heads', type=int, default=None, help='')
-    group.add_argument('--num-query-group', type=int, default=1, help='')
-    group.add_argument('--num-experts', type=int, default=None, help='')
-    group.add_argument('--hidden-size', type=int, default=None, help='')
-    group.add_argument('--ffn-hidden-size', type=int, default=None, help='')
+    group.add_argument("--dist-optimizer", action="store_true", help="")
+    group.add_argument("--group-query-attention", type=bool, default=False, help="")
+    group.add_argument("--num-attention-heads", type=int, default=None, help="")
+    group.add_argument("--num-query-group", type=int, default=1, help="")
+    group.add_argument("--num-experts", type=int, default=None, help="")
+    group.add_argument("--hidden-size", type=int, default=None, help="")
+    group.add_argument("--ffn-hidden-size", type=int, default=None, help="")
 
     return parser
 
 
 def add_hardware_args(parser):
     group = parser.add_argument_group(title="hardware information")
-    group.add_argument("--num-nodes", type=int, default=None, help="")
-    group.add_argument("--node-rank", type=int, default=None, help="rank of this node to estimate")
-    group.add_argument("--rank", type=int, default=0, help="rank of this node to estimate")
-    group.add_argument("--num-gpus-per-node", type=int, default=None, help="")
-    group.add_argument("--memory-limit", type=int, default=28000, help="")
+    group.add_argument("--topo-file", type=str, default=None, help="")
+    group.add_argument("--num-gpus", type=str, default=None, help="")
+    group.add_argument(
+        "--node-rank", type=int, default=None, help="rank of this node to estimate"
+    )
+    group.add_argument(
+        "--rank", type=int, default=None, help="rank of this node to estimate"
+    )
 
     return parser
 
@@ -565,55 +649,101 @@ def add_test_args(parser):
 
     return parser
 
+
 def add_megatron_args(parser):
     group = parser.add_argument_group(title="megatron arguments")
-    group.add_argument('--swiglu', action='store_true', help='')
-    group.add_argument('--untie-embeddings-and-output-weights', action='store_true', help='')
-    group.add_argument('--padded-vocab-size', type=int, default=None)
+    group.add_argument("--swiglu", action="store_true", help="")
+    group.add_argument(
+        "--untie-embeddings-and-output-weights", action="store_true", help=""
+    )
+    group.add_argument("--padded-vocab-size", type=int, default=None)
 
     # tokenizer
-    group.add_argument('--vocab-file', type=str, default='../runtime/vocabs/gpt2-vocab.json',
-                       help='Path to the vocab file.')
-    group.add_argument('--merge-file', type=str, default='../runtime/vocabs/gpt2-merges.txt',
-                       help='Path to the BPE merge file.')
-    group.add_argument('--tokenizer-type', type=str,
-                       default='GPT2BPETokenizer',
-                       choices=['BertWordPieceLowerCase',
-                                'BertWordPieceCase',
-                                'GPT2BPETokenizer',
-                                'SentencePieceTokenizer',
-                                'GPTSentencePieceTokenizer',
-                                'Llama2Tokenizer',
-                                'NullTokenizer'],
-                       help='What type of tokenizer to use.')
-    group.add_argument('--vocab-extra-ids', type=int, default=0,
-                       help='Number of additional vocabulary tokens. '
-                            'They are used for span masking in the T5 model')
-    group.add_argument('--make-vocab-size-divisible-by', type=int, default=128,
-                       help='Pad the vocab size to be divisible by this value.'
-                       'This is added for computational efficieny reasons.')
-    group.add_argument('--use-distributed-optimizer', action='store_true',
-                       help='Use distributed optimizer.')
-    group.add_argument('--data-parallel-size', type=int, default=1, help='')
-    group.add_argument('--sequence-parallel', action='store_true',
-                       help='Enable sequence parallel optimization.')
-    group.add_argument('--recompute-granularity', type=str, default=None,
-                       choices=['full', 'selective'],
-                       help='Checkpoint activations to allow for training '
-                       'with larger models, sequences, and batch sizes. '
-                       'It is supported at two granularities 1) full: '
-                       'whole transformer layer is recomputed, '
-                       '2) selective: core attention part of the transformer '
-                       'layer is recomputed.')
-    group.add_argument('--transformer-impl', default='transformer_engine',
-                       choices=['local', 'transformer_engine'],
-                       help='Which Transformer implementation to use.')
-    group.add_argument('--use-mcore-models', type=bool, default=True,
-                       help='Use the implementation from megatron core')
-    group.add_argument('--tensor-parallel-size-of-each-stage', nargs='+', type=int, default=[], help='')
-    group.add_argument('--virtual-pipeline-model-parallel-size', type=int, default=1, help='')
-    
+    group.add_argument(
+        "--vocab-file",
+        type=str,
+        default="../runtime/vocabs/gpt2-vocab.json",
+        help="Path to the vocab file.",
+    )
+    group.add_argument(
+        "--merge-file",
+        type=str,
+        default="../runtime/vocabs/gpt2-merges.txt",
+        help="Path to the BPE merge file.",
+    )
+    group.add_argument(
+        "--tokenizer-type",
+        type=str,
+        default="GPT2BPETokenizer",
+        choices=[
+            "BertWordPieceLowerCase",
+            "BertWordPieceCase",
+            "GPT2BPETokenizer",
+            "SentencePieceTokenizer",
+            "GPTSentencePieceTokenizer",
+            "Llama2Tokenizer",
+            "NullTokenizer",
+        ],
+        help="What type of tokenizer to use.",
+    )
+    group.add_argument(
+        "--vocab-extra-ids",
+        type=int,
+        default=0,
+        help="Number of additional vocabulary tokens. "
+        "They are used for span masking in the T5 model",
+    )
+    group.add_argument(
+        "--make-vocab-size-divisible-by",
+        type=int,
+        default=128,
+        help="Pad the vocab size to be divisible by this value."
+        "This is added for computational efficieny reasons.",
+    )
+    group.add_argument(
+        "--use-distributed-optimizer",
+        action="store_true",
+        help="Use distributed optimizer.",
+    )
+    group.add_argument("--data-parallel-size", type=int, default=1, help="")
+    group.add_argument(
+        "--sequence-parallel",
+        action="store_true",
+        help="Enable sequence parallel optimization.",
+    )
+    group.add_argument(
+        "--recompute-granularity",
+        type=str,
+        default=None,
+        choices=["full", "selective"],
+        help="Checkpoint activations to allow for training "
+        "with larger models, sequences, and batch sizes. "
+        "It is supported at two granularities 1) full: "
+        "whole transformer layer is recomputed, "
+        "2) selective: core attention part of the transformer "
+        "layer is recomputed.",
+    )
+    group.add_argument(
+        "--transformer-impl",
+        default="transformer_engine",
+        choices=["local", "transformer_engine"],
+        help="Which Transformer implementation to use.",
+    )
+    group.add_argument(
+        "--use-mcore-models",
+        type=bool,
+        default=True,
+        help="Use the implementation from megatron core",
+    )
+    group.add_argument(
+        "--tensor-parallel-size-of-each-stage", nargs="+", type=int, default=[], help=""
+    )
+    group.add_argument(
+        "--virtual-pipeline-model-parallel-size", type=int, default=1, help=""
+    )
+
     return parser
+
 
 global_args = None
 
@@ -635,8 +765,6 @@ def parse_args():
 
     args = parser.parse_args()
 
-    args.num_gpus = args.num_gpus_per_node * args.num_nodes
-
     if os.path.exists(args.initial_point):
         with open(args.initial_point, "r") as f:
             config_dict = json.load(f)
@@ -651,14 +779,10 @@ def parse_args():
             args.num_layers = gpt_configs[args.model_size][0]
         elif args.model_name == "scale-layer":
             raise RuntimeError(f"should provide --num-layers for scale-layer exp")
-    
+
     args.num_attention_heads = gpt_configs[args.model_size][4]
     args.hidden_size = gpt_configs[args.model_size][2]
     args.ffn_hidden_size = gpt_configs[args.model_size][3]
-
-    if args.start_num_stages is None or args.end_num_stages is None:
-        args.start_num_stages = 1
-        args.end_num_stages = min(args.num_gpus, 16)
 
     if args.time_budget_per_trial is None:
         assert (
@@ -728,21 +852,6 @@ def sort_configs(config_list, sort_metric):
 
 
 def check_legality(config, args):
-    num_gpus_from_start = []
-    num_gpus = 0
-    for i in range(config.num_stages):
-        if config.stages[i].num_gpus not in [1, 2, 4, 8]:
-            return False
-        num_gpus += config.stages[i].num_gpus
-        num_gpus_from_start.append(num_gpus)
-    if num_gpus != args.num_gpus:
-        return False
-    num_gpus_at_boundary_list = [
-        args.num_gpus_per_node * i for i in range(1, args.num_nodes + 1)
-    ]
-    for num_gpus_at_boundary in num_gpus_at_boundary_list:
-        if num_gpus_at_boundary not in num_gpus_from_start:
-            return False
     return True
 
 
@@ -847,68 +956,6 @@ def save_search_trend_in_csv(search_time_list, exec_time_list, file_name):
         writer.writerows(result_list)
 
 
-def save_and_print_top_configs(result_dict, args):
-
-    sorted_time_list = [MAX_VALUE]
-    sorted_config_stage_list = [MAX_VALUE]
-    for i in range(args.start_num_stages, args.end_num_stages + 1):
-        if i in result_dict and result_dict[i] is not None:
-            config_time, config_mem, explored_cases, search_time, case_distribution = (
-                result_dict[i]
-            )
-            if config_time > 0:
-                for j in range(len(sorted_time_list)):
-                    current_config_time = sorted_time_list[j]
-                    if config_time < current_config_time:
-                        sorted_time_list.insert(j, config_time)
-                        sorted_config_stage_list.insert(j, i)
-                        break
-    sorted_config_stage_list.pop()
-    sorted_time_list.pop()
-
-    ##### save configs:
-    data = []
-    for i in range(
-        min(
-            (args.end_num_stages - args.start_num_stages + 1),
-            args.num_of_saved_configs,
-            len(sorted_time_list),
-        )
-    ):
-        stage_num = sorted_config_stage_list[i]
-        src_file = f"{args.config_save_path}{args.model_name}_{args.model_size}_{stage_num}stages_{args.config_suffix}.json"
-        dst_file = f"{args.config_save_path}top_configs/{args.model_name}_{args.model_size}_{stage_num}stages_{args.config_suffix}.json"
-        if os.path.exists(src_file):
-            shutil.copy(src_file, dst_file)
-
-        config_time, config_mem, explored_cases, search_time, case_distribution = (
-            result_dict[stage_num]
-        )
-        config_thpt = args.global_batch_size / (config_time / 1000)
-        data.append(
-            [
-                stage_num,
-                f"{config_time/1000:.2f}",
-                f"{config_thpt:.2f}",
-                f"{config_mem:.0f}",
-                f"{explored_cases}",
-            ]
-        )
-
-    header = [
-        "# of stages",
-        "est_iteration_time(s)",
-        "est_thpt(samples/s)",
-        "est_mem(MB)",
-        "# of explored cases",
-    ]
-    column_widths = [len(str(header[i])) for i in range(len(header))]
-    print("\t".join(f"{header[i]:<{column_widths[i]}}" for i in range(len(header))))
-
-    for row in data:
-        print("\t".join(f"{row[i]:<{column_widths[i]}}" for i in range(len(row))))
-
-
 def print_search_details(
     config,
     args,
@@ -922,9 +969,7 @@ def print_search_details(
 ):
     print(f"\n========== Best Result (num_stages = {num_stages}) ==========")
     if config is not None:
-        print_simple_config_info(
-            config, print_debug_info=True
-        )
+        print_simple_config_info(config, print_debug_info=True)
         print(config.history)
         print(f"num_targets: {num_targets_list}")
         print(f"num_hops: {num_hops_list}")

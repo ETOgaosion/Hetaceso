@@ -4,20 +4,17 @@
 import csv
 import math
 import os
+
+import sys
+sys.path.append("../runtime")
+from megatron.training.theoretical_memory_usage import report_theoretical_memory
+
 from model_ops_info import get_op_spec, get_op_list
 from aceso_utils import *
 
 args = parse_args()
 
 op_list = get_op_list(args)
-
-math_log_2 = {
-    1: int(math.log(1, 2)),
-    2: int(math.log(2, 2)),
-    4: int(math.log(4, 2)),
-    8: int(math.log(8, 2)),
-    16: int(math.log(16, 2)),
-}
 
 global compute_fwd_time, compute_bwd_time, input_size, output_size, weights, activations, collective_time
 global reserved_fwd, reserved_bwd
@@ -278,12 +275,6 @@ def inter_node_band(data_size):
     else:
         return 1
 
-def get_stage_of_op(op_index):
-    if op_index == 0:
-        return 0
-    else:
-        return (op_index - 1) / 2
-
 def get_time_v3(ops, mbs, tp, cp, usp, rsp, dp, rsp_split, dp_split, in_cross_node, out_cross_node):
     if len(ops) == 0:
         return 0, 0, 0, 0, 0
@@ -543,6 +534,7 @@ def predict_stage_memory(
     memory_activations = (inputs + activations - saved_activations) * (
         num_stages_behind
     )
+    print(f'inputs: {inputs}, activations: {activations}, saved_activations: {saved_activations}')
     memory_peak = inputs + activations - saved_activations + peak_activations
 
     memory_weights += memory_main_params
@@ -569,7 +561,7 @@ def predict_stage_memory(
 
 
 def predict_time_breakdown(config, print_time=False, print_memory=False):
-    global total_mbs
+    global total_mbs, cur_mbs
     
     base_batch_size = config.micro_bs
     global_batch_size = config.global_bs
@@ -586,7 +578,10 @@ def predict_time_breakdown(config, print_time=False, print_memory=False):
     breakdown_pure_eff_loss_time_list = []
 
     memory_result_strings = []
+    megatron_memory_result_strings = []
     time_result_strings = []
+    
+    theoretical_memory_lists = []
 
     num_gpus_till_now = 0
     for i in range(config.num_stages):
@@ -683,10 +678,18 @@ def predict_time_breakdown(config, print_time=False, print_memory=False):
             + memory_reserved
         )
         memory_list.append(memory_sum)
+        
+        args.data_parallel_size = dp_size
+        args.micro_batch_size = cur_mbs
+        weight_and_optimizer_memory, activation_memory, total_memory = report_theoretical_memory(args, cur_mbs)
+        theoretical_memory_lists.append([weight_and_optimizer_memory, activation_memory, total_memory])
 
         if print_memory:
             memory_result_strings.append(
                 f"[stage {i}] memory = {memory_sum:.2f} MB. weights = {memory_weights:.0f}, gradients = {memory_gradients:.0f}, optimizer = {memory_optimizer:.0f}, activations = {memory_activations:.0f}, peak += {memory_peak:.0f}, memory_reserved = {memory_reserved:.0f}"
+            )
+            megatron_memory_result_strings.append(
+                f'[stage {i} reference] total_memory = {total_memory}, weight_and_optimizer_memory = {weight_and_optimizer_memory}, activation_memory = {activation_memory}'
             )
 
         efficiency_list.append(ideal_time / (sum_time * num_gpus))
@@ -741,9 +744,11 @@ def predict_time_breakdown(config, print_time=False, print_memory=False):
                 max_memory = memory_list[i]
                 bottleneck = i
         memory_result_strings[bottleneck] = " * " + memory_result_strings[bottleneck]
+        megatron_memory_result_strings[bottleneck] = " * " + megatron_memory_result_strings[bottleneck]
         print("\nmax allocated memory = {:.2f} MB".format(max_memory))
         for i in range(config.num_stages):
             print(memory_result_strings[i])
+            print(megatron_memory_result_strings[i])
         print(" ")
 
     return
@@ -777,6 +782,7 @@ def get_reserved_memory_list(config):
                 num_stages_behind,
                 breakdown=True,
             )
+            
             reserved_mem_list.append(reserved_mem)
     return reserved_mem_list
 
@@ -870,16 +876,9 @@ def predict_stage_time_helper(config, stage_index):
 
     return pred_time
 
-def get_mbs_seqlen():
-    global usp_size_list, dp_split_list, rsp_split_list
-    global node_rank, tp_rank, cp_rank, usp_rank, rsp_rank, dp_rank, pp_rank
-    global cur_mbs, cur_seqlen
-    
-    return cur_mbs, cur_seqlen
-
 if __name__ == "__main__":
-
     config, config_dict = read_config_from_json(args, return_config_dict=True)
+    args = config_to_args(config, config_dict, args)
     calculate_node_rank()
     read_profiled(
         config_dict["model_name"], config_dict["model_size"], args.profiled_gpt_path, args.profiled_dist_p2p_path, args.profiled_local_p2p_path, args.profiled_local_comm_path

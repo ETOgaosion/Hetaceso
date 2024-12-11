@@ -1,9 +1,9 @@
 #! /bin/bash
 NODE_RANK=${1:-0}
 
-RUNTIME_PATH=$(pwd)/../results/rank$NODE_RANK/
+RUNTIME_PATH=$(pwd)/../results/
 mkdir -p $RUNTIME_PATH
-PROFILING_PATH=${RUNTIME_PATH}profiled-local-p2p-hetaceso/
+PROFILING_PATH=${RUNTIME_PATH}profiled-local-p2p-hetaceso/rank$NODE_RANK/
 mkdir -p ${PROFILING_PATH}
 FILE_NAME=${PROFILING_PATH}p2p_intra_node.csv
 

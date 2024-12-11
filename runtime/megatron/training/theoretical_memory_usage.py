@@ -199,8 +199,10 @@ def report_theoretical_memory(args, num_microbatches=None, verbose=False):
     )
     total_memory = weight_and_optimizer_memory + activation_memory
 
-    print(
-        f"Theoretical memory footprints: weight and optimizer={weight_and_optimizer_memory:.2f} MB, "
-        f"activation={activation_memory:.2f} MB, "
-        f"total={total_memory:.2f} MB\n"
-    )
+    if verbose:
+        print(
+            f"Theoretical memory footprints: weight and optimizer={weight_and_optimizer_memory:.2f} MB, "
+            f"activation={activation_memory:.2f} MB, "
+            f"total={total_memory:.2f} MB\n"
+        )
+    return weight_and_optimizer_memory, activation_memory, total_memory
