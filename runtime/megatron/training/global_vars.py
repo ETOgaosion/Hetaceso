@@ -5,7 +5,9 @@
 import os
 import sys
 import torch
-from megatron.core import Timers
+# from megatron.core import Timers
+from transformer_engine.pytorch import Timers, set_timers
+from transformer_engine.pytorch import get_timers as te_get_timers
 
 from megatron.training import dist_signal_handler
 
@@ -19,7 +21,7 @@ _GLOBAL_TENSORBOARD_WRITER = None
 _GLOBAL_WANDB_WRITER = None
 _GLOBAL_ONE_LOGGER = None
 _GLOBAL_ADLR_AUTORESUME = None
-_GLOBAL_TIMERS = None
+# _GLOBAL_TIMERS = None
 _GLOBAL_SIGNAL_HANDLER = None
 
 PROFILING = os.environ.get("PROFILING", '1') == '1'
@@ -72,11 +74,13 @@ def get_adlr_autoresume():
     return _GLOBAL_ADLR_AUTORESUME
 
 
-def get_timers():
-    """Return timers."""
-    _ensure_var_is_initialized(_GLOBAL_TIMERS, 'timers')
-    return _GLOBAL_TIMERS
+# def get_timers():
+#     """Return timers."""
+#     _ensure_var_is_initialized(_GLOBAL_TIMERS, 'timers')
+#     return _GLOBAL_TIMERS
 
+def get_timers():
+    return te_get_timers()
 
 def get_signal_handler():
     _ensure_var_is_initialized(_GLOBAL_SIGNAL_HANDLER, 'signal handler')
@@ -104,7 +108,8 @@ def set_global_variables(args, build_tokenizer=True):
     _set_wandb_writer(args)
     _set_one_logger(args)
     _set_adlr_autoresume(args)
-    _set_timers(args)
+    # _set_timers(args)
+    set_timers()
 
     if args.exit_signal_handler:
         _set_signal_handler()
@@ -221,11 +226,11 @@ def _set_adlr_autoresume(args):
         _GLOBAL_ADLR_AUTORESUME = AutoResume
 
 
-def _set_timers(args):
-    """Initialize timers."""
-    global _GLOBAL_TIMERS
-    _ensure_var_is_not_initialized(_GLOBAL_TIMERS, 'timers')
-    _GLOBAL_TIMERS = Timers(args.timing_log_level, args.timing_log_option)
+# def _set_timers(args):
+#     """Initialize timers."""
+#     global _GLOBAL_TIMERS
+#     _ensure_var_is_not_initialized(_GLOBAL_TIMERS, 'timers')
+#     _GLOBAL_TIMERS = Timers(args.timing_log_level, args.timing_log_option)
 
 
 def _ensure_var_is_initialized(var, name):

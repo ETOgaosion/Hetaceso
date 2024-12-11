@@ -1,0 +1,1512 @@
+1,6d0
+< # Copyright (c) Microsoft Corporation.
+< # Licensed under the MIT License.
+< 
+< import argparse
+< import csv
+< import datetime
+8,10c2,3
+< import os 
+< import shutil
+< import time
+---
+> import jsbeautifier
+> from aceso_utils import gpt_configs
+13c6,7
+< from model_ops_info import get_full_op_list
+---
+> import copy
+> import os
+15,56c9,11
+< # model_size: (num_layers, in_channels, width_factor, params_dtype)
+< resnet_configs = {
+<     "250M": ([3, 4, 6, 3], 160, 2, "fp32"),
+<     "500M": ([3, 4, 6, 3], 224, 2, "fp32"),
+<     "1B": ([3, 4, 6, 3], 320, 2, "fp32"), 
+<     "2B": ([3, 4, 6, 3], 448, 2, "fp32"),
+<     "4B": ([3, 4, 6, 3], 640, 2, "fp32"),
+<     "6_8B": ([3, 4, 6, 3], 320, 16, "fp32"),
+<     "13B": ([3, 4, 23, 3], 320, 16, "fp32"),
+< }
+< 
+< # model_size: (num_layers, seq_len, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype)
+< gpt_configs = {
+<     "350M": (24, 1024, 1024, 1024*4, 16, 1024//16, 51200, "fp16"),
+<     "1_3B": (24, 1024, 2048, 2048*4, 32, 2048//32, 51200, "fp16"),
+<     "2_6B": (32, 1024, 2560, 2560*4, 32, 2560//32, 51200, "fp16"),
+<     "6_7B": (32, 1024, 4096, 4096*4, 32, 4096//32, 51200, "fp16"),
+<     "13B": (40, 1024, 5120, 5120*4, 40, 5120//40, 51200, "fp16"),
+<     "scale-layer": (1, 1024, 512, 512*4, 8, 512//8, 51200, "fp16")
+< }
+< 
+< 
+< # model_size: (num_layers, encoder_seq_length, decoder_seq_length, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype)
+< t5_configs = {
+<     # "220M": (12, SEQ_LEN, DECODER_SEQ_LEN, 768, 3072, 12, 64, 30592, "fp16"),
+<     "770M": (24, 2048, 512, 1024, 4096, 16, 64, 30592, "fp16"),
+<     "3B": (24, 2048, 512, 1024, 16384, 32, 128, 30592, "fp16"),
+<     "6B": (24, 2048, 512, 1024, 32768, 64, 128, 30592, "fp16"),
+<     "11B": (24, 2048, 512, 1024, 65536, 128, 128, 30592, "fp16"),    
+<     "22B": (48, 2048, 512, 1024, 65536, 128, 128, 30592, "fp16"),
+< }
+< 
+< ## NOTE: For GPT and T5 models, we use fp16, which will introduce a "main_param" in Megatron
+< memory_ratio = {
+<     "resnet": {"main_params": 0, "optimizer": 2},
+<     "gpt": {"main_params": 2, "optimizer": 4},
+<     "t5": {"main_params": 2, "optimizer": 4},
+< }
+< 
+< MAX_VALUE = 2**30
+< MIN_VALUE = -2**30
+< GLOBAL_TIMER = None 
+---
+> LOG_LEVEL = int(os.environ.get("LOG_LEVEL", '0'))
+> num_ops_per_layer = 13
+> num_gpus_per_physical_node = 4
+72a28
+>     num_micro_batches: int
+89a46,119
+> 
+>     ## for elaceso
+>     transfer_size: int = -1
+>     transfer_time: int = -1
+>     est_useful_iters: int = 0
+>     device_mapping: List[List[int]] = field(default_factory=list)
+>     gpu_index_mapping: List[int] = field(default_factory=list)
+>     redundant_policy: List[List[int]] = field(default_factory=list)
+> 
+>     num_layers_in_each_stage: List[int] = field(default_factory=list)
+>     weight_size_list: List[float] = field(default_factory=list)
+>     weight_size_no_embed_list: List[float] = field(default_factory=list)
+>     estimated_freq: List[List[int]] = field(default_factory=list)
+>     estimated_freq_no_embed: List[List[int]] = field(default_factory=list)
+> 
+>     redundant_send_time: List[float] = field(default_factory=list)
+>     redundant_no_embed_send_time: List[float] = field(default_factory=list)
+>     fwd_time_list: List[float] = field(default_factory=list)
+> 
+> def add_base_arguments(parser):
+>     parser.add_argument('--model-name', type=str, default=None, help='')
+>     parser.add_argument('--model-size', type=str, default=None, help='')
+>     parser.add_argument('--profiled-time-path', type=str, default=None, help='')
+>     parser.add_argument('--config-save-path', type=str, default=None, help='')
+>     parser.add_argument('--micro-batch-size', nargs='+', type=int, default=None, help='')
+> 
+>     parser.add_argument('--num-gpus-per-node', type=int, default=None, help='')
+>     parser.add_argument('--memory-limit', type=int, default=28000, help='')
+>     parser.add_argument('--recompute-mode', type=str, default='selective', help='')
+> 
+>     parser.add_argument('--inter-node-band', type=str, default=None, help='')
+>     parser.add_argument('--dist-optimizer', action='store_true', help='')
+>     parser.add_argument('--redundant-policy', type=str, default='vanilla', help='')
+> 
+>     # parser.add_argument('--no-embedding-replication', action='store_true', help='')
+> 
+>     return parser
+> 
+> def print_args(args):
+>     """Print arguments."""
+>     print('------------------------ arguments ------------------------',
+>             flush=True)
+>     str_list = []
+>     for arg in vars(args):
+>         dots = '.' * (48 - len(arg))
+>         str_list.append('  {} {} {}'.format(arg, dots, getattr(args, arg)))
+>     for arg in sorted(str_list, key=lambda x: x.lower()):
+>         print(arg, flush=True)
+>     print('-------------------- end of arguments ---------------------',
+>             flush=True)
+> 
+> def print_simple_config_info(config, info=""):
+>     if config is None:
+>         return ""
+>     
+>     num_ops_stage = []
+>     num_layers_stage = []
+>     tp_size_list = []
+>     dp_size_list = []
+>     recompute_ops = []
+>     gpu_list = []
+> 
+>     for i in range(config.num_stages):
+>         num_ops_stage.append(len(config.stages[i].ops))
+>         num_layers_stage.append(len(config.stages[i].ops)//num_ops_per_layer)
+>         tp_size_list.append(config.stages[i].tp_size[0])
+>         dp_size_list.append(config.stages[i].dp_size[0])
+>         recompute_ops.append(sum(config.stages[i].recompute_ops))
+>         gpu_list.append(config.stages[i].num_gpus)
+> 
+>     # print("{}|{:.2f}|{:.2f}| layer# = {} | op# = {} | tp = {} | dp = {} | rc# = {} | gpus = {} | dev = {} | redundant = {} | micro_bs = {} | time = {} | memory = {}".format(
+>     #     info, max(config.time_list), max(config.memory_list), num_layers_stage, num_ops_stage, tp_size_list, dp_size_list, recompute_ops, gpu_list, config.device_mapping, config.redundant_policy, config.micro_bs, list(map(int, config.time_list)), list(map(int, config.memory_list))))
+>     print("{}|{:.2f}|{:.2f}| layer# = {} | op# = {} | tp = {} | dp = {} | rc# = {} | gpus = {} | micro_bs = {} | time = {} | memory = {}| weight = {} | weight (no-embed) = {} | dev = {} | redundant = {} | freq = {} | freq (no-embed) = {}\n".format(
+>         info, max(config.time_list), max(config.memory_list), num_layers_stage, num_ops_stage, tp_size_list, dp_size_list, recompute_ops, gpu_list, config.micro_bs, list(map(int, config.time_list)), list(map(int, config.memory_list)), list(map(int, config.weight_size_list)), list(map(int, config.weight_size_no_embed_list)), config.device_mapping, config.redundant_policy, config.estimated_freq, config.estimated_freq_no_embed))
+90a121,200
+>     return 
+> 
+> def get_op_list():
+>     return ["encoder-embedding", "enc-1st-layernorm", "enc-attention-qkv", "enc-attention-score", "enc-attention-softmax", "enc-attention-dropout", "enc-attention-context", "enc-attention-dense", "enc-post-attention-dropout", "enc-2nd-layernorm", "enc-MLP-GEMM-1", "enc-MLP-gelu", "enc-MLP-GEMM-2", "enc-post-MLP-dropout", "final-layernorm", "gpt-post-process"]
+> 
+> def get_full_op_list(num_layers):
+>     op_list = get_op_list()
+>     head_ops = [op_list[0]]
+>     decoder_layer = op_list[1:14]
+>     tail_ops = op_list[14:]
+>     full_op_list = head_ops + decoder_layer * num_layers + tail_ops
+>     return full_op_list
+> 
+> def _redundant_policy(device_mapping, num_prev_stages, num_next_stages):
+>     """
+>     Input:
+>     num_prev_stages: the number of prev stages contained by each stage
+>     num_next_stages: the number of next stages contained by each stage
+>     Output:
+>     redundant_policy: stage_index-> the devices where current stage's replication is located.
+>     [
+>         [[0,1,2,3], [7,8]]
+>         ...
+>     ]
+>     num_prev = 1
+>     num_next = 1
+>     stage 4 -> [3, 5]
+>     """
+>     num_stages = len(device_mapping)
+>     redundant_policy = [[] for _ in range(num_stages)]
+>     for i in range(len(device_mapping)):
+>         redundant_stage_start = (i - num_next_stages) % num_stages
+>         redundant_stage_end = (i + num_prev_stages) % num_stages
+> 
+>         if redundant_stage_start <= redundant_stage_end:
+>             for stage_index in range(redundant_stage_start, redundant_stage_end + 1): 
+>                 if stage_index != i:
+>                     redundant_policy[i].append(copy.deepcopy(device_mapping[stage_index]))
+>         else:
+>             for stage_index in range(redundant_stage_start, num_stages):
+>                 if stage_index != i:
+>                     redundant_policy[i].append(copy.deepcopy(device_mapping[stage_index]))
+>             for stage_index in range(0, redundant_stage_end + 1):
+>                 if stage_index != i:
+>                     redundant_policy[i].append(copy.deepcopy(device_mapping[stage_index]))  
+>     
+>     return redundant_policy
+> 
+> def get_redundant_policy(device_mapping, type):
+>     if type == "vanilla":
+>         return _redundant_policy(device_mapping, num_prev_stages=0, num_next_stages=1)
+>     elif type == "double":
+>         return _redundant_policy(device_mapping, num_prev_stages=1, num_next_stages=1)
+>     elif type == "next-two":
+>         return _redundant_policy(device_mapping, num_prev_stages=0, num_next_stages=2)
+>     else:
+>         raise RuntimeError(f"redundant type {type} is not supported.")
+>     
+> 
+> def vanilla_redundant_policy(device_mapping):
+>     redundant_policy = copy.deepcopy(device_mapping)
+>     for i in range(len(redundant_policy)):
+>         redundant_policy[i] = [redundant_policy[i]]
+> 
+>     initial_stage = redundant_policy.pop()
+>     redundant_policy.insert(0, initial_stage)
+>     return redundant_policy
+> 
+> def double_redundant_policy(device_mapping):
+>     redundant_policy = []
+>     for i in range(len(device_mapping)):
+>         next_index = (i + 1) % len(device_mapping)
+>         prev_index = (i - 1) % len(device_mapping)
+>         tmp_mapping = [copy.deepcopy(device_mapping[next_index]), copy.deepcopy(device_mapping[prev_index])]
+>         redundant_policy.append(tmp_mapping)
+> 
+>     return redundant_policy
+> 
+> def locality_redundant_policy(device_mapping, left_value, right_value):
+>     redundant_policy = []
+92,94c202
+< def debug_info(info, print_debug_info):
+<     if print_debug_info:
+<         print(info)
+---
+>     return redundant_policy
+96c204,210
+< def get_config(num_ops_list, tp_size_list, dp_size_list, recompute_ops, aggregate_mbs, global_batch_size, full_op_list, algo_list):
+---
+> def node_level_redundant_policy(device_mapping):
+>     redundant_policy = []
+>     
+>     return redundant_policy
+>     
+> 
+> def get_config(num_ops_list, tp_size_list, dp_size_list, recompute_ops, aggregate_mbs, global_batch_size, full_op_list, algo_list, device_mapping, redundant_policy, num_layers_in_each_stage):
+114c228,229
+<     current_config = AcesoConfig(global_bs=global_batch_size, micro_bs=aggregate_mbs, stages=stages_info_list, num_stages=num_stages)
+---
+>     current_config = AcesoConfig(global_bs=global_batch_size, micro_bs=aggregate_mbs, num_micro_batches=global_batch_size//aggregate_mbs, stages=stages_info_list, num_stages=num_stages, device_mapping=device_mapping, redundant_policy=redundant_policy, num_layers_in_each_stage=num_layers_in_each_stage)
+> 
+117,120c232,244
+< def config_details(config, get_string=False):
+<     if config is None:
+<         return ""
+<     num_ops_stage = []
+---
+> def read_config_from_json(config_file_name, return_config_dict=False):
+> 
+>     with open(config_file_name, "r") as f:
+>         config_dict = json.load(f)
+> 
+>     num_layers = config_dict["num_layers"]
+>     aggregate_mbs = config_dict["micro_batch_size"]
+>     global_batch_size = config_dict["global_batch_size"]
+>     num_ops_list = config_dict["num_ops_in_each_stage"]
+>     device_mapping = config_dict["device_mapping"]
+>     redundant_policy = config_dict["redundant_policy"]
+>     num_layers_in_each_stage = config_dict["num_layers_in_each_stage"]
+> 
+121a246,248
+>     for _tp_size_list in config_dict["model_parallel_size_of_each_op"]:
+>         tp_size_list += _tp_size_list
+> 
+122a250,252
+>     for _dp_size_list in config_dict["data_parallel_size_of_each_op"]:
+>         dp_size_list += _dp_size_list
+> 
+123a254,256
+>     for _recompute_ops in config_dict["recompute_ops"]:
+>         recompute_ops += _recompute_ops
+> 
+125,135c258,259
+<     base_batch_size = config.micro_bs
+<     for i in range(config.num_stages):
+<         num_ops_stage.append(len(config.stages[i].ops))
+<         tp_size_list.append(config.stages[i].tp_size)
+<         dp_size_list.append(config.stages[i].dp_size)
+<         recompute_ops.append(config.stages[i].recompute_ops)
+<         algo_list.append(config.stages[i].algo)
+<     if get_string:
+<         return f"{num_ops_stage}, {tp_size_list}, {dp_size_list}, {recompute_ops}, {base_batch_size}, {algo_list}"
+<     else:
+<         return num_ops_stage, tp_size_list, dp_size_list, recompute_ops, base_batch_size, algo_list
+---
+>     for _algo_list in config_dict["algo_of_each_op"]:
+>         algo_list += _algo_list
+137,140c261,268
+< def dump_config_to_json(config, file_name, args):
+<     if args.model_name == "scale-layer":
+<         model_name = "gpt"
+<         model_size = "scale-layer"
+---
+>     full_op_list = get_full_op_list(num_layers)
+>     config = get_config(num_ops_list, tp_size_list, dp_size_list, recompute_ops, aggregate_mbs, global_batch_size, full_op_list, algo_list, device_mapping, redundant_policy, num_layers_in_each_stage)
+>     
+>     if "gpu_index_mapping" in config_dict:
+>         config.gpu_index_mapping = config_dict["gpu_index_mapping"]
+> 
+>     if return_config_dict:
+>         return config, config_dict
+142,144c270,273
+<         model_name = args.model_name
+<         model_size = args.model_size
+<     num_layers = args.num_layers
+---
+>         return config
+> 
+> def dump_config_to_json(config, file_name, model_name, model_size, num_layers, global_rank_mapping=None):
+> 
+145a275
+>     config_dict["config_version"] = "v2" 
+148,153c278,279
+<     if model_name == "resnet":
+<         num_layers, in_channels, width_factor, _ = resnet_configs[model_size]
+<         config_dict["num_layers"] = num_layers
+<         config_dict["in_channels"] = in_channels
+<         config_dict["width_factor"] = width_factor
+<     elif model_name == "gpt":
+---
+> 
+>     if model_name == "gpt":
+160,169d285
+<     elif model_name == "t5":
+<         _, encoder_seq_length, decoder_seq_length, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, _ = t5_configs[model_size]
+<         config_dict["num_layers"] = num_layers
+<         config_dict["encoder_seq_length"] = encoder_seq_length
+<         config_dict["decoder_seq_length"] = decoder_seq_length
+<         config_dict["max_position_embeddings"] = encoder_seq_length
+<         config_dict["num_attention_heads"] = num_attention_heads
+<         config_dict["kv_channels"] = kv_channels
+<         config_dict["hidden_size"] = hidden_size
+<         config_dict["ffn_hidden_size"] = ffn_hidden_size        
+175a292,298
+>     config_dict["device_mapping"] = config.device_mapping
+>     config_dict["redundant_policy"] = config.redundant_policy
+> 
+>     # if gpu_index_mapping is not None:
+>     config_dict["gpu_index_mapping"] = config.gpu_index_mapping
+>     if global_rank_mapping is not None:
+>         config_dict["global_rank_to_actual_rank"] = global_rank_mapping
+181a305
+>     num_layers_in_each_stage = []
+190a315
+>         num_layers_in_each_stage.append(len(config.stages[i].ops) // num_ops_per_layer)
+204a330
+>     config_dict["num_layers_in_each_stage"] = num_layers_in_each_stage
+210,211c336,337
+<     json.dump(config_dict, open(file_name, 'w'), indent=4)
+<     print(f"config has been saved to {file_name}")    
+---
+>     # print(f"[WARNING] should use jsbeautifier")
+>     # json.dump(config_dict, open(file_name, 'w'), separators=(',', ':'), indent=4)
+213,220c339,347
+< def read_config_from_json(args, return_config_dict=False):
+<     config_file_name = args.initial_point
+<     with open(config_file_name, "r") as f:
+<         config_dict = json.load(f)
+< 
+<     model_name = config_dict["model_name"]
+<     num_layers = config_dict["num_layers"]
+<     model_size = config_dict["model_size"]
+---
+>     config_dict["memory_list"] = [f"{t:.0f}" for t in config.memory_list] 
+>     config_dict["time_list"] = [f"{t:.0f}" for t in config.time_list] 
+>     config_dict["transfer_size"] = config.transfer_size
+>     config_dict["send_frequency"] = config.estimated_freq
+>     config_dict["send_frequency_no_embed"] = config.estimated_freq_no_embed
+> 
+>     config_dict["fwd_time_list"] = [f"{t:.0f}" for t in config.fwd_time_list] 
+>     config_dict["redundant_send_time"] = config.redundant_send_time
+>     config_dict["redundant_no_embed_send_time"] = config.redundant_no_embed_send_time
+222,247d348
+<     aggregate_mbs = config_dict["micro_batch_size"]
+<     global_batch_size = config_dict["global_batch_size"]
+<     num_ops_list = config_dict["num_ops_in_each_stage"]
+<     tp_size_list = []
+<     for _tp_size_list in config_dict["model_parallel_size_of_each_op"]:
+<         tp_size_list += _tp_size_list
+<     dp_size_list = []
+<     for _dp_size_list in config_dict["data_parallel_size_of_each_op"]:
+<         dp_size_list += _dp_size_list        
+<     recompute_ops = []
+<     for _recompute_ops in config_dict["recompute_ops"]:
+<         recompute_ops += _recompute_ops
+<     algo_list = []
+<     for _algo_list in config_dict["algo_of_each_op"]:
+<         algo_list += _algo_list        
+<     full_op_list = get_full_op_list(args)
+< 
+<     if return_config_dict:
+<         return get_config(num_ops_list, tp_size_list, dp_size_list, recompute_ops, aggregate_mbs, global_batch_size, full_op_list, algo_list), config_dict
+<     else:
+<         return get_config(num_ops_list, tp_size_list, dp_size_list, recompute_ops, aggregate_mbs, global_batch_size, full_op_list, algo_list)
+< 
+< def save_config_info_to_csv(config, reserved_mem_list, file_name):
+<     info_to_csv = [["stage-index", "time", "memory(total)", "memory(normal)", "memory(reserved)"]]
+<     for i in range(config.num_stages):
+<         info_to_csv.append([f"stage-{i}", f"{config.time_list[i]:.2f}", f"{config.memory_list[i]:.2f}", f"{(config.memory_list[i]-reserved_mem_list[i]):.2f}", f"{reserved_mem_list[i]:.2f}"])
+249,575c350,372
+<     with open(file_name, mode="w", newline="") as file:
+<         writer = csv.writer(file)
+<         for row in info_to_csv:
+<             writer.writerow(row)
+< 
+< def save_distribution_to_csv(num_targets_list, num_hops_list, file_name):
+<     info_to_csv = [["num_targets"] + num_targets_list, ["num_hops"] + num_hops_list]
+< 
+<     with open(file_name, mode="w", newline="") as file:
+<         writer = csv.writer(file)
+<         for row in info_to_csv:
+<             writer.writerow(row)
+< 
+< class _Timer:
+<     """Timer."""
+< 
+<     def __init__(self, name):
+<         self.name_ = name
+<         self.elapsed_ = 0.0
+<         self.started_ = False
+<         self.count = 0
+<         self.start_time = time.time()
+<         self.elapsed_history = 0.0
+<         self.elapsed_list = []
+< 
+<     def start(self):
+<         """Start the timer."""
+<         assert not self.started_, f"{self.name_} timer has already been started"
+<         self.start_time = time.time()
+<         self.started_ = True
+< 
+<     def stop(self):
+<         """Stop the timer."""
+<         assert self.started_, 'timer is not started'
+<         elapsed_time = time.time() - self.start_time
+<         self.elapsed_ += (elapsed_time)
+<         self.elapsed_list.append(elapsed_time)
+<         self.started_ = False     
+<         self.count += 1
+< 
+<     def reset(self):
+<         """Reset timer."""
+<         self.elapsed_ = 0.0
+<         self.started_ = False
+<         self.count = 0
+<         self.elapsed_history = (time.time() - self.start_time)
+< 
+<     def elapsed(self, reset=True):
+<         """Calculate the elapsed time."""
+<         started_ = self.started_
+<         # If the timing in progress, end it first.
+<         if self.started_:
+<             self.stop()
+<         # Get the elapsed time.
+<         elapsed_ = self.elapsed_
+<         # Reset the elapsed time
+<         if reset:
+<             self.reset()
+<             self.count = 0
+<         # If timing was in progress, set it back.
+<         if started_:
+<             self.start()
+<         return elapsed_
+< 
+<     def elapsed_since_first_invoke(self, reset=True):
+<         """Calculate the elapsed time."""
+<         return time.time() - self.start_time
+< 
+< 
+< class Timers:
+<     """Group of timers."""
+< 
+<     def __init__(self):
+<         self.timers = {}
+< 
+<     def __call__(self, name):
+<         if name not in self.timers:
+<             self.timers[name] = _Timer(name)
+<         return self.timers[name]
+< 
+<     def write(self, names, writer, iteration, normalizer=1.0, reset=False):
+<         """Write timers to a tensorboard writer"""
+<         assert normalizer > 0.0
+<         for name in names:
+<             value = self.timers[name].elapsed(reset=reset) / normalizer
+<             writer.add_scalar(name + '-time', value, iteration)
+< 
+<     def log(self, reset=True):
+<         print(f"===== timers ====")
+<         for name in sorted(self.timers):
+<             count = self.timers[name].count
+<             if count == 0:
+<                 elapsed_time = self.timers[name].elapsed_history
+<             else:
+<                 elapsed_time = self.timers[name].elapsed(reset=reset)
+<             print('{}: {:.2f} s [count = {}]'.format(name, elapsed_time, count))
+< 
+< def print_args(args):
+<     """Print arguments."""
+<     print('------------------------ arguments ------------------------',
+<             flush=True)
+<     str_list = []
+<     for arg in vars(args):
+<         dots = '.' * (48 - len(arg))
+<         str_list.append('  {} {} {}'.format(arg, dots, getattr(args, arg)))
+<     for arg in sorted(str_list, key=lambda x: x.lower()):
+<         print(arg, flush=True)
+<     print('-------------------- end of arguments ---------------------',
+<             flush=True)
+< 
+< def add_model_args(parser):
+<     group = parser.add_argument_group(title='model information')
+<     group.add_argument('--model-name', type=str, default=None, help='')
+<     group.add_argument('--model-size', type=str, default=None, help='')
+<     group.add_argument('--num-layers', type=int, default=None, help='')
+<     group.add_argument('--global-batch-size', type=int, default=None, help='')
+<     group.add_argument('--micro-batch-size', nargs='+', type=int, default=None, help='')
+<     group.add_argument('--seq-len', type=int, default=2048, help='')
+<     group.add_argument('--decoder-seq-len', type=int, default=512, help='')
+<     group.add_argument('--max-tp', type=int, default=None, help='')
+<     group.add_argument('--num-algos', type=int, default=None, help='')
+< 
+<     return parser
+< 
+< def add_hardware_args(parser):
+<     group = parser.add_argument_group(title='hardware information')
+<     group.add_argument('--num-nodes', type=int, default=None, help='')
+<     group.add_argument('--num-gpus-per-node', type=int, default=None, help='')
+<     group.add_argument('--memory-limit', type=int, default=28000, help='')
+< 
+<     return parser
+< 
+< def add_path_args(parser):
+<     group = parser.add_argument_group(title='path information')
+<     group.add_argument('--log-path', type=str, default=None, help='')
+<     group.add_argument('--profiled-time-path', type=str, default=None, help='')
+<     group.add_argument('--config-save-path', type=str, default=None, help='')
+<     group.add_argument('--config-suffix', type=str, default=None, help='')
+< 
+<     return parser
+< 
+< def add_budget_args(parser):
+<     group = parser.add_argument_group(title='budgets for the search algorithm')
+<     group.add_argument('--max-num-hops', type=int, default=None, help='')
+<     group.add_argument('--max-num-trials', type=int, default=100, help='') 
+<     group.add_argument('--time-budget-per-trial', type=int, default=None, help='')
+<     group.add_argument('--time-budget-total', type=int, default=10, help='')
+<     group.add_argument('--start-num-stages', type=int, default=None, help='')
+<     group.add_argument('--end-num-stages', type=int, default=None, help='')
+< 
+<     return parser
+< 
+< def add_heuristic_args(parser):
+<     group = parser.add_argument_group(title='heuristics in the search algorithm')
+<     group.add_argument('--op-group-size', type=int, default=1, help='')
+<     group.add_argument('--max-op-move-steps', type=int, default=5, help='')
+<     group.add_argument('--memory-pred-type', type=str, default='MAX', help='')
+<     group.add_argument('--check-recompute-with-group', action='store_true', help='')
+<     group.add_argument('--initial-point', type=str, default="balance", help='')
+<     group.add_argument('--high-memory-rate', type=float, default=0.9, help='')
+< 
+<     return parser
+< 
+< def add_debug_args(parser):
+<     group = parser.add_argument_group(title='debug arguments')
+<     group.add_argument('--print-debug-info', action='store_true', help='')
+<     group.add_argument('--print-move-op-details', action='store_true', help='')
+<     group.add_argument('--print-recompute-ops', action='store_true', help='')
+<     group.add_argument('--print-recomp-debug-info', action='store_true', help='')
+< 
+<     return parser
+< 
+< def add_test_args(parser):
+<     group = parser.add_argument_group(title='arguments under development')
+<     group.add_argument('--do-not-consider-shared-tensor-space', action='store_false', help='', dest='consider_shared_space')
+<     group.add_argument('--do-not-consider-reserved-space', action='store_false', help='', dest='consider_reserved_space')
+<     group.add_argument('--predict-delta-time', action='store_true', help='')
+<     group.add_argument('--do-not-use-flex-recompute', action='store_false', help='', dest='flex_recompute')
+<     group.add_argument('--add-action-finetune-dim', action='store_true', help='')
+<     group.add_argument('--add-action-finetune-algo', action='store_true', help='')
+<     group.add_argument('--add-action-tp-dp-exchange', action='store_true', help='')
+<     group.add_argument('--peak-mem-in-backward', type=int, default=0, help='')
+<     group.add_argument('--add-action-tune-tp-dp', action='store_true', help='')
+<     group.add_argument('--finetune-after-trial', type=int, default=0, help='')
+<     group.add_argument('--no-multi-process', action='store_false', help='', dest='multi_process')
+<     group.add_argument('--random-order-actions', action='store_true', help='')
+<     group.add_argument('--support-comm-predict', action='store_true', help='')
+<     group.add_argument('--forbid-turn-back', action='store_true', help='')
+<     group.add_argument('--sort-metric', type=str, default='max_stage_time', help='')
+<     group.add_argument('--print-gpu-mig-details', action='store_true', help='')
+<     group.add_argument('--finetune-tp-dp-after-trial', action='store_true', help='')
+<     group.add_argument('--init-dim', type=str, default="tp", help='')
+<     group.add_argument('--num-partners-in-op-mig', type=int, default=1, help='')
+<     group.add_argument('--do-not-continue-when-fail', action='store_false', help='', dest='continue_when_fail')
+<     group.add_argument('--adaptive-hyper-parameters', type=int, default=5, help='')
+<     group.add_argument('--num-of-saved-configs', type=int, default=1, help='')
+<     group.add_argument('--simple-prim-mbs', action='store_true', help='')
+<     group.add_argument('--simple-prim-mig', action='store_true', help='')
+<     group.add_argument('--only-top-1-target', action='store_true', help='')
+<     group.add_argument('--consider-collective-memory', action='store_true', help='')
+<     group.add_argument('--save-to-csv', type=str, default=None, help='')
+< 
+<     return parser
+< 
+< global_args = None
+< 
+< def parse_args():
+<     global global_args
+<     if global_args is not None:
+<         return global_args
+< 
+<     parser = argparse.ArgumentParser()
+<     parser = add_model_args(parser)
+<     parser = add_hardware_args(parser)
+<     parser = add_path_args(parser)
+<     parser = add_budget_args(parser)
+<     parser = add_heuristic_args(parser)
+<     parser = add_debug_args(parser)
+<     parser = add_test_args(parser)
+< 
+<     args = parser.parse_args()
+< 
+<     args.num_gpus = args.num_gpus_per_node * args.num_nodes
+< 
+<     if os.path.exists(args.initial_point):
+<         with open(args.initial_point, "r") as f:
+<             config_dict = json.load(f)
+<             args.model_name = config_dict["model_name"]
+<             args.model_size = config_dict["model_size"]
+< 
+<     if args.model_name not in ["resnet", "gpt", "t5", "scale-layer"]:
+<         raise RuntimeError(f"model {args.model_name} is not supported yet.")
+< 
+<     if args.num_layers is None:
+<         if args.model_name == "resnet":
+<             args.num_layers = sum(resnet_configs[args.model_size][0])
+<         elif args.model_name == "gpt":
+<             args.num_layers = gpt_configs[args.model_size][0]
+<         elif args.model_name == "t5":
+<             args.num_layers = t5_configs[args.model_size][0]
+<         elif args.model_name == "scale-layer":
+<             raise RuntimeError(f"should provide --num-layers for scale-layer exp")
+<     if args.num_layers <= 24:
+<         args.print_recompute_ops = True
+< 
+<     if args.micro_batch_size is None:
+<         if args.model_name in ["resnet"]:
+<             args.micro_batch_size = [16, 32, 48, 64]
+<         else:
+<             args.micro_batch_size = [1, 2, 4, 8]
+< 
+<     if args.start_num_stages is None or args.end_num_stages is None:
+<         args.start_num_stages = 1 
+<         args.end_num_stages = min(args.num_gpus, 16)
+<     if args.max_tp is None:
+<         args.max_tp = args.num_gpus_per_node
+< 
+<     if args.time_budget_per_trial is None:
+<         assert args.time_budget_total is not None, "a time budget should be given, with --time-budget-total"
+<         args.time_budget_per_trial = args.time_budget_total
+< 
+<     args.min_mbs = min(args.micro_batch_size)
+<     if args.model_name in ["gpt", "scale-layer", "resnet"]:
+<         args.num_algos = 2
+<     elif args.model_name == "t5":
+<         args.num_algos = 1
+< 
+<     if args.model_name == "scale-layer":
+<         args.memory_main_params = memory_ratio["gpt"]["main_params"]
+<         args.memory_optimizer = memory_ratio["gpt"]["optimizer"]
+<     else:
+<         args.memory_main_params = memory_ratio[args.model_name]["main_params"]
+<         args.memory_optimizer = memory_ratio[args.model_name]["optimizer"]
+< 
+<     if args.model_name not in ["t5"]:
+<         args.resharding = True
+<     else:
+<         args.resharding = False 
+< 
+<     cur_time = datetime.datetime.now()
+<     args.config_suffix = f"{cur_time.year}-{cur_time.month}-{cur_time.day}-{cur_time.hour}-{cur_time.minute}-{cur_time.second}"
+<     global_args = args 
+<     return args
+< 
+< def update_args(new_args):
+<     global global_args
+<     global_args = new_args 
+< 
+< def generate_balance_config(full_op_list, num_stages, args):
+<     num_gpus = args.num_gpus
+<     global_bs = args.global_batch_size
+<     micro_bs = args.micro_batch_size[0] 
+<     flex_recompute = args.flex_recompute
+< 
+<     num_gpus_list = [1 for _ in range(num_stages)]
+<     stop_flag = True
+<     while sum(num_gpus_list) < num_gpus and stop_flag:
+<         stop_flag = False
+<         for i in range(num_stages):
+<             if sum(num_gpus_list) < num_gpus and num_gpus_list[i] < args.max_tp and num_gpus_list[i] <= (num_gpus - sum(num_gpus_list)):
+<                 num_gpus_list[i] *= 2
+<                 stop_flag = True
+<     if sum(num_gpus_list) != num_gpus:
+<         return None
+< 
+<     num_ops = len(full_op_list)
+<     num_ops_per_stage = [num_ops // num_stages for _ in range(num_stages)]
+<     num_ops_per_stage[-1] += num_ops - num_stages * (num_ops//num_stages)
+< 
+<     tp_size_list = []
+<     dp_size_list = []
+<     for i in range(num_stages):
+<         if args.init_dim == "tp":
+<             tp_size_list += [num_gpus_list[i] for _ in range(num_ops_per_stage[i])]
+<             dp_size_list += [1 for _ in range(num_ops_per_stage[i])]
+<         elif args.init_dim == "dp":
+<             dp_size_list += [num_gpus_list[i]//2 for _ in range(num_ops_per_stage[i])]
+<             tp_size_list += [2 for _ in range(num_ops_per_stage[i])]            
+<     if not flex_recompute:
+<         recompute_ops = [1 for _ in range(num_ops)]
+<     else:
+<         recompute_ops = [0 for _ in range(num_ops)]
+<     algo_list = [0 for _ in range(num_ops)]
+< 
+<     initial_config = get_config(num_ops_per_stage, tp_size_list, dp_size_list, recompute_ops, micro_bs, global_bs, full_op_list, algo_list)
+< 
+<     return initial_config
+---
+>     if global_rank_mapping is not None:
+>         def get_global_rank(rank):
+>             for i in range(len(global_rank_mapping)):
+>                 if global_rank_mapping[i] == rank:
+>                     return i
+>         send_in_node = [False for _ in range(config.num_stages)]
+>         
+>         prev_stage_rank = 0
+>         prev_node_index = get_global_rank(prev_stage_rank) // num_gpus_per_physical_node
+>         num_gpus = config.stages[0].num_gpus
+>         for i in range(1, config.num_stages):
+>             rank = num_gpus
+>             node_index = get_global_rank(rank) // num_gpus_per_physical_node
+>             if node_index == prev_node_index:
+>                 send_in_node[i] = True
+>             prev_node_index = node_index
+>             num_gpus += config.stages[i].num_gpus
+>             
+>         config_dict["send_in_node"] = send_in_node
+> 
+>     options = jsbeautifier.default_options()
+>     options.indent_size = 2
+>     beautiful_json = jsbeautifier.beautify(json.dumps(config_dict), options)
+577,594c374,375
+< def generate_test_config(full_op_list, num_stages, args):
+<     num_gpus = args.num_gpus
+<     global_bs = args.global_batch_size
+<     micro_bs = args.micro_batch_size[0] 
+< 
+<     num_gpus_list = [1 for _ in range(num_stages)]
+<     num_gpus_left = num_gpus - sum(num_gpus_list)
+<     while num_gpus_left > 0:
+<         initial_num_gpus_left = num_gpus_left
+<         for i in range(num_stages):
+<             if num_gpus_list[num_stages - 1 - i] <= num_gpus_left and num_gpus_list[num_stages - 1 - i] == min(num_gpus_list) and num_gpus_list[num_stages - 1 - i] <= 4:
+<                 num_gpus_left -= num_gpus_list[num_stages - 1 - i]
+<                 num_gpus_list[num_stages - 1 - i] *= 2 
+<                 break 
+<         if num_gpus_left == initial_num_gpus_left:
+<             break
+<     if sum(num_gpus_list) != num_gpus:
+<         return generate_initial_config(full_op_list, num_stages, num_gpus)
+---
+>     with open(file_name, 'w') as f:
+>         f.write(beautiful_json)
+596,600c377
+<     num_ops = len(full_op_list)
+<     num_ops_per_stage = []
+<     for i in range(num_stages):
+<         num_ops_per_stage.append(int(num_ops * (num_gpus_list[i]/num_gpus)))
+<     num_ops_per_stage[-1] += num_ops - sum(num_ops_per_stage)
+---
+>     print(f"config has been saved to {file_name}\n")    
+602,609c379,381
+<     tp_size_list = []
+<     dp_size_list = []
+<     for i in range(num_stages):
+<         tp_size_list += [num_gpus_list[i] for _ in range(num_ops_per_stage[i])]
+<         dp_size_list += [1 for _ in range(num_ops_per_stage[i])]
+< 
+<     recompute_ops = [0 for _ in range(num_ops)]
+<     algo_list = [0 for _ in range(num_ops)]
+---
+> def parse_layer_dev_map(config):
+>     
+>     layer_dev_map = {}
+611c383,395
+<     initial_config = get_config(num_ops_per_stage, tp_size_list, dp_size_list, recompute_ops, micro_bs, global_bs, full_op_list, algo_list)
+---
+>     start_layer_index = 0
+>     if LOG_LEVEL >= 1:
+>         print(f"[DEBUG] \nconfig.device_mapping={config.device_mapping} \nconfig.redundant_policy={config.redundant_policy}")
+>     ## assume redundant-level = 1
+>     for index in range(config.num_stages):
+>         norm_dev_mapping = config.device_mapping[index]
+>         ## This should be a list
+>         replica_dev_mapping = config.redundant_policy[index]
+>         num_layers = len(config.stages[index].ops) // num_ops_per_layer
+>         for layer_index in range(start_layer_index, start_layer_index + num_layers):
+>             # layer_dev_map[layer_index] = [copy.deepcopy(norm_dev_mapping), copy.deepcopy(replica_dev_mapping)]
+>             layer_dev_map[layer_index] = [copy.deepcopy(norm_dev_mapping)] + copy.deepcopy(replica_dev_mapping)
+>         start_layer_index += num_layers
+613,646c397,401
+<     return initial_config
+< 
+< def generate_imbalance_gpu_config(full_op_list, num_stages, args):
+<     num_gpus = args.num_gpus
+<     global_bs = args.global_batch_size
+<     micro_bs = args.micro_batch_size[0] 
+<     num_ops = len(full_op_list)
+<     recompute_ops = [0 for _ in range(num_ops)]
+<     algo_list = [0 for _ in range(num_ops)]    
+<     ## op distribution
+<     num_ops_per_stage = [num_ops // num_stages for _ in range(num_stages)]
+<     num_ops_per_stage[-1] += num_ops - num_stages * (num_ops//num_stages)
+<     ## gpu distribution
+<     num_gpus_list = [1 for _ in range(num_stages)]
+<     num_gpus_remained = num_gpus - sum(num_gpus_list)
+<     print(f"{num_gpus_list}")
+<     micro_bs_index = 0
+<     while num_gpus_remained > 0:
+<         found = False
+<         for i in range(num_stages):
+<             if num_gpus_list[num_stages - 1 - i] <= num_gpus_remained and \
+<                 (num_gpus_list[num_stages - 1 - i] * 2 // args.max_tp == 0 or \
+<                 micro_bs // (num_gpus_list[num_stages - 1 - i] * 2 // args.max_tp) in args.micro_batch_size):
+<                 num_gpus_remained -=  num_gpus_list[num_stages - 1 - i]
+<                 num_gpus_list[num_stages - 1 - i] *= 2
+<                 found = True
+<                 print(f"update: {num_gpus_list} (inc gpus in stage {num_stages - 1 - i})")
+<                 break
+<             else:
+<                 print(f"fail to update on stage {num_stages - 1 - i}")
+<         if not found:
+<             micro_bs_index += 1
+<             assert micro_bs_index < len(args.micro_batch_size)
+<             micro_bs =  args.micro_batch_size[micro_bs_index]
+---
+>     return layer_dev_map
+>     
+> def parse_layer_dev_map_locality(config, left_value=0, right_value=0):
+>     
+>     layer_dev_map = {}
+648,653c403,419
+<     tp_size_list = []
+<     dp_size_list = []
+<     for i in range(num_stages):
+<         if num_gpus_list[i] <= args.max_tp:
+<             tp_size_list += [num_gpus_list[i] for _ in range(num_ops_per_stage[i])]
+<             dp_size_list += [1 for _ in range(num_ops_per_stage[i])]
+---
+>     total_num_layers = 0
+>     for stage_info in config.stages:
+>         total_num_layers += len(stage_info.ops) // num_ops_per_layer
+> 
+>     ## calculate each stage's layer numbers
+>     layer_index_list = []
+>     start_layer_index = 0
+>     for index in range(config.num_stages):
+>         num_layers = len(config.stages[index].ops) // num_ops_per_layer
+>         end_layer_index = start_layer_index + num_layers
+>         left_layer_index = (start_layer_index - left_value) % total_num_layers
+>         right_layer_index = (end_layer_index + right_value) % total_num_layers
+>         tmp_list = []
+>         if left_layer_index <= right_layer_index:
+>             for layer_index in range(left_layer_index, right_layer_index):
+>                 if layer_index not in range(start_layer_index, end_layer_index):
+>                     tmp_list.append(layer_index)
+655,704c421,455
+<             tp_size_list += [args.max_tp for _ in range(num_ops_per_stage[i])]
+<             dp_size_list += [num_gpus_list[i] // args.max_tp for _ in range(num_ops_per_stage[i])]   
+< 
+<     initial_config = get_config(num_ops_per_stage, tp_size_list, dp_size_list, recompute_ops, micro_bs, global_bs, full_op_list, algo_list)
+< 
+<     return initial_config
+< 
+< def generate_imbalance_op_config(full_op_list, num_stages, args):
+<     num_gpus = args.num_gpus
+<     global_bs = args.global_batch_size
+<     micro_bs = args.micro_batch_size[0] 
+<     flex_recompute = args.flex_recompute
+< 
+<     num_gpus_list = [1 for _ in range(num_stages)]
+<     stop_flag = True
+<     while sum(num_gpus_list) < num_gpus and stop_flag:
+<         stop_flag = False
+<         for i in range(num_stages):
+<             if sum(num_gpus_list) < num_gpus and num_gpus_list[i] < args.max_tp and num_gpus_list[i] <= (num_gpus - sum(num_gpus_list)):
+<                 num_gpus_list[i] *= 2
+<                 stop_flag = True
+<     if sum(num_gpus_list) != num_gpus:
+<         return None
+< 
+<     if args.model_name == "resnet":
+<         num_ops = len(full_op_list)
+<         num_layers_list = [1 for _ in range(num_stages)]
+<         num_layers_list[0] += 33 - sum(num_layers_list)
+<         num_ops_per_stage = [num_layers_list[i] * 8 for i in range(num_stages)]
+<         num_ops_per_stage[0] += 4
+<         num_ops_per_stage[-1] += 2
+<     elif args.model_name in ["gpt", "scale-layer"]:
+<         num_ops = len(full_op_list)
+<         num_layers_list = [1 for _ in range(num_stages)]
+<         num_layers_list[-1] += args.num_layers - sum(num_layers_list)
+< 
+<         num_ops_per_stage = [num_layers_list[i] * 13 for i in range(num_stages)]
+<         num_ops_per_stage[0] += 1
+<         num_ops_per_stage[-1] += 2        
+< 
+<     tp_size_list = []
+<     dp_size_list = []
+<     for i in range(num_stages):
+<         tp_size_list += [num_gpus_list[i] for _ in range(num_ops_per_stage[i])]
+<         dp_size_list += [1 for _ in range(num_ops_per_stage[i])]
+<     if flex_recompute:
+<         recompute_ops = [1 for _ in range(num_ops)]
+<     else:
+<         recompute_ops = [0 for _ in range(num_ops)]
+<     algo_list = [0 for _ in range(num_ops)]
+---
+>             for layer_index in range(left_layer_index, total_num_layers):
+>                 if layer_index not in range(start_layer_index, end_layer_index):
+>                     tmp_list.append(layer_index)
+>             for layer_index in range(0, right_layer_index):
+>                 if layer_index not in range(start_layer_index, end_layer_index):
+>                     tmp_list.append(layer_index)
+>         start_layer_index += num_layers
+>         layer_index_list.append(tmp_list)
+> 
+>     # print(f"layer_index_list = {layer_index_list}")
+>     for i in range(len(layer_index_list)):
+>         print(f"layer_index_list[{i}] = {layer_index_list[i]}")
+> 
+>     def get_replica_stages(layer_index):
+>         tmp_list = []
+>         for stage_index in range(config.num_stages):
+>             if layer_index in layer_index_list[stage_index]:
+>                 tmp_list.append(stage_index)
+>         return tmp_list
+> 
+>     start_layer_index = 0
+>     # print(f"[DEBUG] \nconfig.device_mapping={config.device_mapping} \nconfig.redundant_policy={config.redundant_policy}")
+>     ## assume redundant-level = 1
+>     for index in range(config.num_stages):
+>         norm_dev_mapping = config.device_mapping[index]
+>         ## This should be a list
+>         # replica_dev_mapping = config.redundant_policy[index]
+>         num_layers = len(config.stages[index].ops) // num_ops_per_layer
+>         for layer_index in range(start_layer_index, start_layer_index + num_layers):
+>             # layer_dev_map[layer_index] = [copy.deepcopy(norm_dev_mapping), copy.deepcopy(replica_dev_mapping)]
+>             # layer_dev_map[layer_index] = [copy.deepcopy(norm_dev_mapping)] + copy.deepcopy(replica_dev_mapping)
+>             layer_dev_map[layer_index] = [copy.deepcopy(norm_dev_mapping)]
+>             replica_stage_index_list = get_replica_stages(layer_index)
+>             for stage_index in replica_stage_index_list:
+>                 layer_dev_map[layer_index].append(copy.deepcopy(config.device_mapping[stage_index]))
+706c457
+<     initial_config = get_config(num_ops_per_stage, tp_size_list, dp_size_list, recompute_ops, micro_bs, global_bs, full_op_list, algo_list)
+---
+>         start_layer_index += num_layers
+708c459
+<     return initial_config
+---
+>     return layer_dev_map
+710,768c461,462
+< def generate_initial_config(num_stages, args):   
+<     full_op_list = get_full_op_list(args)
+<     if args.initial_point == "balance":
+<         return generate_balance_config(full_op_list, num_stages, args)
+<     elif args.initial_point == "imbalance_gpu":
+<         return generate_imbalance_gpu_config(full_op_list, num_stages, args)
+<     elif args.initial_point == "imbalance_op":
+<         return generate_imbalance_op_config(full_op_list, num_stages, args)    
+<     elif args.initial_point == "test":
+<         return generate_test_config(full_op_list, num_stages, args)    
+<     else:
+<         return read_config_from_json(args)     
+< 
+< def sort_configs(config_list, sort_metric):
+<     new_list = []
+< 
+<     if sort_metric == "max_stage_time":
+<         for i in range(len(config_list)):
+<             max_stage_time = max(config_list[i].time_list)
+<             if len(new_list) == 0:
+<                 new_list.append(config_list[i])
+<             else:
+<                 j = 0
+<                 inserted = False
+<                 for j in range(len(new_list)):
+<                     if max_stage_time < max(new_list[j].time_list):
+<                         new_list.insert(j, config_list[i])
+<                         inserted = True
+<                         break 
+<                 if not inserted:
+<                     new_list.append(config_list[i])   
+<     elif sort_metric == "total_gpu_time":
+<         for i in range(len(config_list)):
+<             gpu_time = config_list[i].total_gpu_time
+<             if len(new_list) == 0:
+<                 new_list.append(config_list[i])
+<             else:
+<                 j = 0
+<                 inserted = False
+<                 for j in range(len(new_list)):
+<                     if gpu_time < new_list[j].total_gpu_time:
+<                         new_list.insert(j, config_list[i])
+<                         inserted = True
+<                         break 
+<                 if not inserted:
+<                     new_list.append(config_list[i])   
+<     else:
+<         raise RuntimeError(f"sort_metric {sort_metric} not supported.")
+<     return new_list
+< 
+< def check_legality(config, args):
+<     num_gpus_from_start = []
+<     num_gpus = 0
+<     for i in range(config.num_stages):
+<         if config.stages[i].num_gpus not in [1, 2, 4, 8]:
+<             return False
+<         num_gpus += config.stages[i].num_gpus
+<         num_gpus_from_start.append(num_gpus)
+<     if num_gpus != args.num_gpus:
+---
+> def group_is_alive(group):
+>     if len(group) == 0:
+770,773c464,466
+<     num_gpus_at_boundary_list = [args.num_gpus_per_node * i for i in range(1, args.num_nodes + 1)]
+<     for num_gpus_at_boundary in num_gpus_at_boundary_list:
+<         if num_gpus_at_boundary not in num_gpus_from_start:
+<             return False 
+---
+>     for rank in group:
+>         if rank < 0:
+>             return False
+776,832c469,470
+< def format_size_list(size_list):
+<     output_string = "["
+<     for i in range(len(size_list)):
+<         max_val = max(size_list[i])
+<         min_val = min(size_list[i])
+<         if min_val == max_val:
+<             output_string += f"{max_val}, "
+<         else:
+<             output_string += f"{min_val}~{max_val}, "
+<     output_string += "]"
+<     return output_string
+< 
+< def print_simple_config_info(config, info="", add_history=False, print_recompute_ops=False, print_debug_info=False):
+<     if config is None:
+<         return
+< 
+<     num_ops_stage, tp_per_stage, dp_per_stage, recompute_ops, base_batch_size, algo_per_stage = config_details(config)
+<     gpu_list = [config.stages[i].num_gpus for i in range(config.num_stages)]
+<     recompute_ops_sum = []
+<     for i in range(config.num_stages):
+<         recompute_ops_sum.append(sum(recompute_ops[i]))
+<     detailed_tp_size = format_size_list(tp_per_stage)
+<     detailed_dp_size = format_size_list(dp_per_stage)
+<     detailed_algos = format_size_list(algo_per_stage)
+< 
+<     history = "{}|{:.2f}|{:.2f}| op = {}| tp = {} | dp = {} | algo = {} | rc = {} | gpus = {} | micro_bs = {} | time = {} | memory = {}".format(
+<         info, max(config.time_list), max(config.memory_list), num_ops_stage, detailed_tp_size, detailed_dp_size, detailed_algos, recompute_ops_sum, gpu_list, base_batch_size, list(map(int, config.time_list)), list(map(int, config.memory_list)))
+<     debug_info(history, print_debug_info)
+<     if add_history:
+<         config.history += history + "\n"
+< 
+<     if print_recompute_ops:
+<         for i in range(config.num_stages):
+<             ops = config.stages[i].ops
+<             recompute_ops = config.stages[i].recompute_ops
+<             stage_recompute_index_string = f"[stage {i} recompute_ops] "
+<             stage_string = f"stage {i}: "
+<             for j in range(len(recompute_ops)):
+<                 if recompute_ops[j] == 1:
+<                     stage_recompute_index_string += f"{j},"
+<                     stage_string += ops[j] + ", "
+<             print(stage_recompute_index_string)
+<             print(stage_string)
+< 
+<         for i in range(config.num_stages):
+<             ops = config.stages[i].ops
+<             algo_list = config.stages[i].algo
+<             stage_algo_string = f"[stage {i} algo1] "
+<             for j in range(len(algo_list)):
+<                 if algo_list[j] == 1:
+<                     stage_algo_string += f"[{j}] {ops[j]} "
+<             print(stage_algo_string)
+< 
+<     return 
+< 
+< def is_visited(visited_set, hash_str, target=""):
+<     if hash_str not in visited_set:
+---
+> def groups_are_alive(groups):
+>     if len(groups) == 0:
+834,837c472,473
+<     else:
+<         if target in visited_set[hash_str]:
+<             return True 
+<         else:
+---
+>     for group in groups:
+>         if not group_is_alive(group):
+838a475
+>     return True  
+840,887c477,501
+< def mark_visited(visited_set, hash_str, target=""):
+<     if hash_str not in visited_set:
+<         visited_set[hash_str] = [target]
+<     else:
+<         visited_set[hash_str].append(target)
+< 
+< def num_visited(visited_set, hash_str):
+<     if hash_str not in visited_set:
+<         return  0
+<     else:
+<         return len(visited_set[hash_str])
+< 
+< def save_search_trend_in_csv(search_time_list, exec_time_list, file_name):
+<     result_list = [["search_time (s)", "config time (ms)"]]
+<     assert len(search_time_list) == len(exec_time_list)
+<     for i in range(len(search_time_list)):
+<         new_line = [search_time_list[i], exec_time_list[i]]
+<         result_list.append(new_line)
+<     
+<     with open(file_name, "w", newline="") as file:
+<         writer = csv.writer(file)
+<         writer.writerows(result_list)
+< 
+< def save_and_print_top_configs(result_dict, args):
+< 
+<     sorted_time_list = [MAX_VALUE]
+<     sorted_config_stage_list = [MAX_VALUE]
+<     for i in range(args.start_num_stages, args.end_num_stages + 1):
+<         if i in result_dict and result_dict[i] is not None:
+<             config_time, config_mem, explored_cases, search_time, case_distribution = result_dict[i]
+<             if config_time > 0:
+<                 for j in range(len(sorted_time_list)):
+<                     current_config_time = sorted_time_list[j]
+<                     if config_time < current_config_time:
+<                         sorted_time_list.insert(j, config_time)
+<                         sorted_config_stage_list.insert(j, i)
+<                         break
+<     sorted_config_stage_list.pop()
+<     sorted_time_list.pop()
+< 
+<     ##### save configs:
+<     data = []
+<     for i in range(min((args.end_num_stages - args.start_num_stages + 1), args.num_of_saved_configs, len(sorted_time_list))):
+<         stage_num = sorted_config_stage_list[i]
+<         src_file = f'{args.config_save_path}{args.model_name}_{args.model_size}_{stage_num}stages_{args.config_suffix}.json'
+<         dst_file = f'{args.config_save_path}top_configs/{args.model_name}_{args.model_size}_{stage_num}stages_{args.config_suffix}.json'
+<         if os.path.exists(src_file):
+<             shutil.copy(src_file, dst_file)
+---
+> def get_src_tp_group(op_rank, layer_dev_map):
+>     ## First: try to copy locally
+>     for replica_index, replica_group in enumerate(layer_dev_map):
+>         for tp_group in replica_group:
+>             if group_is_alive(tp_group) and op_rank in tp_group:
+>                 return tp_group, replica_index
+>     ## If not found, try other tp groups
+>     for replica_index, replica_group in enumerate(layer_dev_map):
+>         for tp_group in replica_group:
+>             if group_is_alive(tp_group):
+>                 return tp_group, replica_index
+>     return None, None
+> 
+> def get_src_dp_groups(dp_index, dp_size, layer_dev_map):
+>     for replica_index, replica_group in enumerate(layer_dev_map):
+>         old_dp_size = len(replica_group)
+> 
+>         if old_dp_size == dp_size:
+>             dp_groups_index = [dp_index]
+>         elif old_dp_size > dp_size:
+>             reduce_size = old_dp_size // dp_size
+>             dp_groups_index = [dp_index * reduce_size + i for i in range(reduce_size)]
+>         elif old_dp_size < dp_size:
+>             reduce_size = dp_size // old_dp_size
+>             dp_groups_index = [dp_index // reduce_size]
+889,910c503,511
+<         config_time, config_mem, explored_cases, search_time, case_distribution = result_dict[stage_num]
+<         config_thpt = args.global_batch_size / (config_time/1000)
+<         data.append([stage_num, f"{config_time/1000:.2f}", f"{config_thpt:.2f}", f"{config_mem:.0f}", f"{explored_cases}"])
+< 
+<     header = ["# of stages", "est_iteration_time(s)", "est_thpt(samples/s)", "est_mem(MB)", "# of explored cases"]
+<     column_widths = [len(str(header[i])) for i in range(len(header))]
+<     print('\t'.join(f"{header[i]:<{column_widths[i]}}" for i in range(len(header))))
+< 
+<     for row in data:
+<         print('\t'.join(f"{row[i]:<{column_widths[i]}}" for i in range(len(row))))
+< 
+< def print_search_details(config, args, num_stages, num_targets_list, num_hops_list, search_time_list, config_time_list, reserved_mem_list, num_explored_cases):
+<     print(f"\n========== Best Result (num_stages = {num_stages}) ==========")
+<     if config is not None:
+<         print_simple_config_info(config, print_recompute_ops=args.print_recompute_ops, print_debug_info=True)
+<         print(config.history)
+<         print(f"num_targets: {num_targets_list}")
+<         print(f"num_hops: {num_hops_list}") 
+<         save_config_info_to_csv(config, reserved_mem_list, f'{args.config_save_path}csv/info_{args.model_name}_{args.model_size}_{config.num_stages}stages_{args.config_suffix}.csv')  
+<         save_distribution_to_csv(num_targets_list, num_hops_list, f'{args.log_path}trends/distribution_{args.model_name}_{args.model_size}_{config.num_stages}stages_{args.config_suffix}.csv')       
+<     else:
+<         print("No feasible solution.")
+---
+>         all_dp_groups = [replica_group[i] for i in dp_groups_index]
+>         if groups_are_alive(all_dp_groups):
+>             if old_dp_size < dp_size:
+>                 divide_factor = dp_size // old_dp_size
+>             else:
+>                 divide_factor = 1
+>             return all_dp_groups, replica_index, divide_factor
+>     
+>     return None, None, None
+912,924c513,690
+<     sum_time = 0
+<     accum_list = []
+<     for i in range(len(search_time_list)):
+<         if i == 0:
+<             accum_list.append(0)
+<         else:
+<             time_one_trial = search_time_list[i]
+<             sum_time += int(time_one_trial+1)
+<             accum_list.append(sum_time)
+< 
+<     print(f"search time = {sum(search_time_list):.2f} s.  {accum_list} \nnum_explored_cases = {num_explored_cases}")
+<     print(f"time trend: {list(map(int, config_time_list))}\n")
+<     save_search_trend_in_csv(accum_list, config_time_list, f"{args.log_path}trends/{args.model_name}_{args.model_size}_{num_stages}stages_init_{args.initial_point}_{args.max_num_hops}hops_{args.config_suffix}.csv")
+---
+> def append_send_info(reconfigure_comm, rank, layer_index, recv_ranks, recv_ranks_no_tp, replica_index, divide_factor):
+>     if rank not in reconfigure_comm:
+>         reconfigure_comm[rank] = {}
+>     if "send_info" not in reconfigure_comm[rank]:
+>         reconfigure_comm[rank]["send_info"] = {}
+>     if layer_index not in reconfigure_comm[rank]["send_info"]:
+>         reconfigure_comm[rank]["send_info"][layer_index] = []
+>     reconfigure_comm[rank]["send_info"][layer_index].append({"divide_factor": divide_factor, "replica_index": replica_index, "recv_ranks": recv_ranks, "recv_ranks_no_tp": recv_ranks_no_tp})
+> 
+> def append_recv_info(reconfigure_comm, rank, layer_index, send_ranks):
+>     if rank not in reconfigure_comm:
+>         reconfigure_comm[rank] = {}
+>     if "recv_info" not in reconfigure_comm[rank]:
+>         reconfigure_comm[rank]["recv_info"] = {}
+>     if layer_index not in reconfigure_comm[rank]["recv_info"]:
+>         reconfigure_comm[rank]["recv_info"][layer_index] = []
+>     reconfigure_comm[rank]["recv_info"][layer_index].append({"send_ranks": send_ranks})
+> 
+> def get_send_recv_info(reconfigure_comm, replica_index, layer_index, recv_rank, src_tp_group, tp_size, tp_index, divide_factor=1):
+> 
+>     old_tp_size = len(src_tp_group)
+>     if old_tp_size == tp_size:
+>         src_ranks = [src_tp_group[tp_index]]
+>         dst_ranks = [recv_rank]
+>         dst_ranks_no_tp = [recv_rank]
+> 
+>     elif old_tp_size > tp_size: ## multiple send ranks, one recv rank
+>         num_chunks = old_tp_size // tp_size
+>         src_ranks = [src_tp_group[tp_index * num_chunks + i] for i in range(num_chunks)]
+>         dst_ranks = [recv_rank]
+>         dst_ranks_no_tp = [-1 for _ in range(num_chunks)]
+>         dst_ranks_no_tp[tp_index % num_chunks] = recv_rank
+> 
+>     elif old_tp_size < tp_size: ## one send rank, multiple recv ranks
+>         num_chunks = tp_size // old_tp_size
+>         src_ranks = [src_tp_group[tp_index // num_chunks]]
+>         dst_ranks = [-1 for _ in range(num_chunks)]
+>         dst_ranks[tp_index % num_chunks] = recv_rank
+>         dst_ranks_no_tp = [recv_rank]
+> 
+>     for dst_rank in dst_ranks:
+>         if dst_rank >= 0:
+>             append_recv_info(reconfigure_comm, dst_rank, layer_index, src_ranks)
+>             for src_rank in src_ranks:
+>                 if src_rank >= 0:
+>                     append_send_info(reconfigure_comm, src_rank, layer_index, dst_ranks, dst_ranks_no_tp, replica_index, divide_factor)
+> 
+> def check_deadlock(comm, current_rank):
+>     src_ranks = []
+>     dst_ranks = []
+>     if "recv_info" in comm:
+>         for layer_index in comm["recv_info"]:
+>             for recv_info in comm["recv_info"][layer_index]:
+>                 for src_rank in recv_info["send_ranks"]:
+>                     if src_rank not in src_ranks:
+>                         src_ranks.append(src_rank)
+>     if "send_info" in comm:
+>         for layer_index in comm["send_info"]:
+>             for send_info in comm["send_info"][layer_index]:
+>                 for dst_rank in send_info["recv_ranks"]:
+>                     if dst_rank not in dst_ranks:
+>                         dst_ranks.append(dst_rank)
+>     deadlock_ranks = []
+>     for rank in src_ranks:
+>         if rank in dst_ranks and rank != current_rank:
+>             deadlock_ranks.append(rank)
+>     return deadlock_ranks
+> 
+> def print_reconfigure_comm(reconfigure_comm):
+>     ranks = [rank for rank in reconfigure_comm]
+>     for rank in sorted(ranks):
+>         print(f"---- rank {rank} ----")
+>         if "recv_info" in reconfigure_comm[rank]:
+>             for layer_index in reconfigure_comm[rank]["recv_info"]:
+>                 for recv_info in reconfigure_comm[rank]["recv_info"][layer_index]:
+>                     num_chunks = len(recv_info["send_ranks"])
+>                     for index, send_rank in enumerate(recv_info["send_ranks"]):
+>                         if send_rank >= 0:
+>                             print(f"rank {rank} recv layer-{layer_index} ({index + 1} / {num_chunks}) from rank {send_rank}")
+>         if "send_info" in reconfigure_comm[rank]:
+>             for layer_index in reconfigure_comm[rank]["send_info"]:
+>                 for send_info in reconfigure_comm[rank]["send_info"][layer_index]:
+>                     num_chunks = len(send_info["recv_ranks"])
+>                     for index, recv_rank in enumerate(send_info["recv_ranks"]):
+>                         if recv_rank >= 0:
+>                             if send_info["replica_index"] > 0:
+>                                 print(f"rank {rank} send layer-{layer_index} ({index + 1} / {num_chunks}) [divide={send_info['divide_factor']}] to rank {recv_rank} (using replica models)")
+>                             else:
+>                                 print(f"rank {rank} send layer-{layer_index} ({index + 1} / {num_chunks}) [divide={send_info['divide_factor']}] to rank {recv_rank}")
+> 
+> 
+> def save_reconfig_comm(reconfigure_comm, file_name, model_size):
+>     ranks = [rank for rank in reconfigure_comm]
+>     send_matrix = [[[] for _ in range(len(ranks))] for _ in range(len(ranks))]
+>     recv_matrix = [[[] for _ in range(len(ranks))] for _ in range(len(ranks))]
+>     send_chunk_sizes = [[1 for _ in range(len(ranks))] for _ in range(len(ranks))]
+>     recv_chunk_sizes = [[1 for _ in range(len(ranks))] for _ in range(len(ranks))]
+> 
+>     for rank in sorted(ranks):
+>         if "recv_info" in reconfigure_comm[rank]:
+>             for layer_index in reconfigure_comm[rank]["recv_info"]:
+>                 for recv_info in reconfigure_comm[rank]["recv_info"][layer_index]:
+>                     num_chunks = len(recv_info["send_ranks"])
+>                     for index, send_rank in enumerate(recv_info["send_ranks"]):
+>                         if send_rank >= 0:
+>                             recv_matrix[rank][send_rank].append(layer_index)
+>                             recv_chunk_sizes[rank][send_rank] = num_chunks
+>         if "send_info" in reconfigure_comm[rank]:
+>             for layer_index in reconfigure_comm[rank]["send_info"]:
+>                 for send_info in reconfigure_comm[rank]["send_info"][layer_index]:
+>                     num_chunks = len(send_info["recv_ranks"])
+>                     for index, recv_rank in enumerate(send_info["recv_ranks"]):
+>                         if recv_rank >= 0:
+>                             send_matrix[rank][recv_rank].append(layer_index)
+>                             send_chunk_sizes[rank][recv_rank] = num_chunks
+> 
+>     reconfig_comm_info = {}
+>     reconfig_comm_info["model_size"] = model_size
+>     reconfig_comm_info["send_info"] = send_matrix
+>     reconfig_comm_info["send_chunk_sizes"] = send_chunk_sizes
+>     reconfig_comm_info["recv_info"] = recv_matrix
+>     reconfig_comm_info["recv_chunk_sizes"] = recv_chunk_sizes
+> 
+>     options = jsbeautifier.default_options()
+>     options.indent_size = 2
+>     beautiful_json = jsbeautifier.beautify(json.dumps(reconfig_comm_info), options)
+> 
+>     with open(file_name, 'w') as f:
+>         f.write(beautiful_json)
+> 
+> 
+> def print_dev_map(dev_map):
+> 
+>     for layer_index in dev_map:
+>         result = f"layer-{layer_index}: "
+>         for replica in dev_map[layer_index]:
+>             result += f"{replica}, "
+>         # print(f"layer-{layer_index}: {dev_map[layer_index][0]},  {dev_map[layer_index][1]}")
+>         print(result)
+> 
+> def update_dev_map(dev_map, lost_ranks):
+>     for rank in lost_ranks:
+>         for layer_index in dev_map:
+>             for rank_groups in dev_map[layer_index]:
+>                 for rank_group in rank_groups:
+>                     for index in range(len(rank_group)):
+>                         if rank_group[index] == rank:
+>                             rank_group[index] = -1
+>     return dev_map
+> 
+> def _update_dev_map(_dev_map, index_mapping):
+>     dev_map = copy.deepcopy(_dev_map)
+>     for layer_index in dev_map:
+>         for rank_groups in dev_map[layer_index]:
+>             for rank_group in rank_groups:
+>                 for index in range(len(rank_group)):
+>                     if rank_group[index] >= 0:
+>                         rank_group[index] = index_mapping[rank_group[index]]
+>     return dev_map
+> 
+> ## Current design of recovering [weights]:
+> ## For each op, check its new device mapping:
+> ##     For each rank in the new device mapping:
+> ##         Get an alive tp group from the old device mapping: (first try the one containing itself)
+> ##             Calculate how the old ranks send to the new ranks, save & output.
+> ## Current design of recovering [gradients]:
+> ## For each op, check its new device mapping:
+> ##     For each rank in the new device mapping:
+> ##         Get an alive dp group from the old device mapping: 
+> ##             Calculate how the old ranks send to the new ranks, save & output. (accumulate gradients from multiple dp groups)
+> def get_reconfigure_comm(src_layer_dev_map, dst_layer_dev_map, recover_target, tensor_type):
+>     """
+>     layer_dev_map = {
+>         layer-index: [normal_distribution], [replica_distribution], ...
+>         0: [[0, 1], [2, 3]], [[6], [7]]
+>         1: ...
+>     }
+>     recover_target: "normal" refers to the normal parameters, "replica" refers to the replicated parameters.
+926,927c692,779
+< ## some globally used values
+< timers = Timers()
+---
+>     return:
+>     reconfigure_comm = {
+>         device_rank: {
+>             "send_info":{
+>                 layer-index: divide_factor, [list of recv ranks]
+>                 0: [{"divide_factor": 1, "recv_ranks": [-1, -1, 0, 1]}, {"divide_factor": 1, "recv_ranks": [-1, 3, -1, 1]}]
+>             },
+>             "recv_info":{
+>                 layer-index: [list of send ranks]
+>                 0: [{"send_ranks": [0, 1, 2, 3]}]
+>             },
+>             "send_info-dup": {}
+>         }
+>     }
+>     """
+>     reconfigure_comm = {}
+> 
+>     for layer_index in dst_layer_dev_map:
+>         if recover_target == "normal":
+>             dst_dev_ranks = dst_layer_dev_map[layer_index][0]
+>         elif recover_target == "replica":
+>             ## TODO: support more replicas
+>             dst_dev_ranks = dst_layer_dev_map[layer_index][1]
+>         else:
+>             raise RuntimeError(f"recover target {recover_target} not supported.")
+>         
+>         dp_size = len(dst_dev_ranks)
+>         for dp_index, rank_group in enumerate(dst_dev_ranks):
+>             tp_size = len(rank_group)
+>             for tp_index, dev_rank in enumerate(rank_group):
+>                 if LOG_LEVEL>= 1:
+>                     print(f"====> (target={recover_target}, tensor_type={tensor_type}) working on layer[{layer_index}], rank[{dev_rank}] out of all_ranks[{rank_group}]")
+>                 if tensor_type == "weights":
+>                     ## TODO: custom policy: which group to use, determines the utilization of network bandwidth
+>                     src_tp_group, replica_index = get_src_tp_group(dev_rank, src_layer_dev_map[layer_index])
+>                     assert src_tp_group is not None, "failed to find an alive group for recovery."              
+>                     if LOG_LEVEL>= 1:
+>                         print(f"====> tp_index = {tp_index}, tp_size = {tp_size}, (rank_group = {rank_group}, dst_dev_ranks = {dst_dev_ranks}) dev_rank = {dev_rank}, src_tp_group = {src_tp_group}")      
+>                     get_send_recv_info(reconfigure_comm, replica_index, layer_index, dev_rank, src_tp_group, tp_size, tp_index)
+>                 elif tensor_type == "gradients":
+>                     src_dp_groups, replica_index, divide_factor = get_src_dp_groups(dp_index, dp_size, src_layer_dev_map[layer_index])
+>                     assert src_dp_groups is not None, "failed to find an alive dp group for recovery."
+>                     for src_tp_group in src_dp_groups:
+>                         get_send_recv_info(reconfigure_comm, replica_index, layer_index, dev_rank, src_tp_group, tp_size, tp_index, divide_factor)
+> 
+>     return reconfigure_comm
+> 
+> def get_redundant_comm(dev_map):
+>     """
+>     return:
+>     redundant_comm = {
+>         device_rank: {
+>             "send_info":{
+>                 layer-index: divide_factor, [list of recv ranks]
+>                 0: [{"divide_factor": 1, "recv_ranks": [-1, -1, 0, 1]}, {"divide_factor": 1, "recv_ranks": [-1, 3, -1, 1]}]
+>             },
+>             "recv_info":{
+>                 layer-index: [list of send ranks]
+>                 0: [{"send_ranks": [0, 1, 2, 3]}]
+>             }
+>         }
+>     """
+>     redundant_comm = {}
+> 
+>     for layer_index in dev_map:
+>         normal_dp_groups = dev_map[layer_index][0]
+>         ## TODO: Currently only support prediction for the first replica group.
+>         replica_index = 0
+>         replica_dp_groups = dev_map[layer_index][1 + replica_index]
+>         dp_size = len(replica_dp_groups)
+>         # print(f"replica_dp_groups = {replica_dp_groups}")
+>         for dp_index, rank_group in enumerate(replica_dp_groups):
+>             tp_size = len(rank_group)
+>             for tp_index, dev_rank in enumerate(rank_group):
+>                 src_dp_groups, _, divide_factor = get_src_dp_groups(dp_index, dp_size, [normal_dp_groups])
+>                 assert src_dp_groups is not None, "failed to find an alive dp group for redundant communication."
+>                 for src_tp_group in src_dp_groups:
+>                     # print(f"dev_rank = {dev_rank}")
+>                     get_send_recv_info(redundant_comm, replica_index, layer_index, dev_rank, src_tp_group, tp_size, tp_index, divide_factor)
+> 
+> 
+>     return redundant_comm
+> 
+> def get_num_gpus(config):
+>     num_gpus = 0
+>     for stage_info in config.stages:
+>         num_gpus += stage_info.num_gpus
+>     return num_gpus
+\ No newline at end of file

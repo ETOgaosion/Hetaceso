@@ -6,27 +6,9 @@
         8,
         4
     ],
-    "flex_recompute_activations": [
-        true,
-        true
-    ],
     "num_ops_in_each_stage": [
         5,
         3
-    ],
-    "recompute_ops": [
-        [
-            false,
-            true,
-            true,
-            true,
-            true
-        ],
-        [
-            true,
-            true,
-            false
-        ]
     ],
     "tensor_parallel_size_of_each_stage":[1, 1],
     "data_parallel_size_of_each_stage": [2, 1],
@@ -34,9 +16,5 @@
     "ring_context_parallel_size_of_each_stage": [2, 2],
     "ulysses_context_parallel_size_of_each_stage": [2, 2],
     "data_parallel_split_of_each_stage": [[2, 2], [4]],
-    "ulysses_context_parallel_split_of_each_stage": [[
-        [256, 256, 256, 256]
-    ], [
-        [256, 256]
-    ]]
+    "ring_context_parallel_split_of_each_stage": [[512, 512], [512, 512]]
 }

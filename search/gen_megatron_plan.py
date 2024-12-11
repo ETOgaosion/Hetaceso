@@ -19,20 +19,12 @@ mbs_list = args.micro_batch_size
 
 full_op_list = get_full_op_list(args)
 NUM_OPS = len(full_op_list)
-read_profiled_time(args.model_name, args.model_size, args.profiled_time_path)
+read_profiled_time(args.model_name, args.model_size, args.profiled_gpt_path, args.profiled_dist_p2p_path, args.profiled_local_p2p_path, args.profiled_local_comm_path)
 
-def get_balance_config(pp, tp, dp, base_mbs, recomp):
+def get_balance_config(pp, tp, dp, base_mbs):
     num_ops_per_stage = [NUM_OPS]
     tp_per_op = [tp for _ in range(NUM_OPS)]
     dp_per_op = [dp for _ in range(NUM_OPS)]
-    if recomp:
-        recompute_ops = [1 for _ in range(NUM_OPS)]
-    else:
-        recompute_ops = [0 for _ in range(NUM_OPS)]
-    if args.model_name in ["gpt", "t5", "scale-layer"]:
-        recompute_ops[0] = 0
-        recompute_ops[-1] = 0
-    algo_list = [0 for _ in range(NUM_OPS)]
     base_batch_size = base_mbs
 
     if args.model_name in ["gpt", "scale-layer"]:
@@ -41,13 +33,13 @@ def get_balance_config(pp, tp, dp, base_mbs, recomp):
             num_ops_list = [(args.num_layers//pp) * 13 for _ in range(pp)]
             num_ops_list[0] += 1
             num_ops_list[-1] += 2
-            config_list.append(get_config(num_ops_list, tp_per_op, dp_per_op, recompute_ops, base_batch_size, args.global_batch_size, full_op_list, algo_list))
+            config_list.append(get_config(num_ops_list, tp_per_op, dp_per_op, base_batch_size, args.global_batch_size, full_op_list))
         return config_list
     elif args.model_name == "t5":
         config_list = []
         if pp == 1:
             num_ops_list = [args.num_layers * (13 + 21) + 5]
-            config_list.append(get_config(num_ops_list, tp_per_op, dp_per_op, recompute_ops, base_batch_size, args.global_batch_size, full_op_list, algo_list))
+            config_list.append(get_config(num_ops_list, tp_per_op, dp_per_op, base_batch_size, args.global_batch_size, full_op_list))
         else:
             for pp_split_rank in range(1, pp):
                 if args.num_layers % pp_split_rank == 0 and args.num_layers % (pp - pp_split_rank) == 0:
@@ -57,7 +49,7 @@ def get_balance_config(pp, tp, dp, base_mbs, recomp):
                     num_ops_list += [(args.num_layers//(pp - pp_split_rank)) * 21 for _ in range(pp - pp_split_rank)]
                     num_ops_list[pp_split_rank] += 1
                     num_ops_list[-1] += 2
-                    config_list.append(get_config(num_ops_list, tp_per_op, dp_per_op, recompute_ops, base_batch_size, args.global_batch_size, full_op_list, algo_list))
+                    config_list.append(get_config(num_ops_list, tp_per_op, dp_per_op, base_batch_size, args.global_batch_size, full_op_list))
         return config_list
     elif args.model_name == "resnet":
         num_ops_list = [(args.num_layers//pp) * 8 for _ in range(pp)]
@@ -66,7 +58,7 @@ def get_balance_config(pp, tp, dp, base_mbs, recomp):
 
         num_ops_list[-1] += (args.num_layers - (args.num_layers//pp) * pp) * 8
         config_list = []
-        config_list.append(get_config(num_ops_list, tp_per_op, dp_per_op, recompute_ops, base_batch_size, args.global_batch_size, full_op_list, algo_list))
+        config_list.append(get_config(num_ops_list, tp_per_op, dp_per_op, base_batch_size, args.global_batch_size, full_op_list))
         return config_list
 
 start_time = time.time()
@@ -90,13 +82,12 @@ for num_stages in range(args.start_num_stages, args.end_num_stages+1):
             for base_mbs in mbs_list:  
                 if base_mbs // dp_size not in mbs_list:
                     continue        
-                for recomp in [True, False]:
-                    print(f"working on num_stages[{num_stages}], tp_size[{tp_size}], dp_size[{dp_size}], mbs[{base_mbs}], recomp[{recomp}] ...")
-                    current_configs = get_balance_config(num_stages, tp_size, dp_size, base_mbs, recomp)
-                    if current_configs is not None:
-                        all_available_configs += current_configs
-                    else:
-                        print(f"config is None.")
+                print(f"working on num_stages[{num_stages}], tp_size[{tp_size}], dp_size[{dp_size}], mbs[{base_mbs}] ...")
+                current_configs = get_balance_config(num_stages, tp_size, dp_size, base_mbs)
+                if current_configs is not None:
+                    all_available_configs += current_configs
+                else:
+                    print(f"config is None.")
 
 min_time = MAX_VALUE
 best_config = None

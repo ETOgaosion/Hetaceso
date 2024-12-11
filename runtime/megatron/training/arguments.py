@@ -78,7 +78,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args.ring_context_parallel_size_of_each_stage = [1]
         args.ulysses_context_parallel_size_of_each_stage = [1]
         args.data_parallel_split_of_each_stage = [[1]]
-        args.ulysses_context_parallel_split_of_each_stage = [[[1024] for _ in range(args.prof_tp_size)]]
+        args.ring_context_parallel_split_of_each_stage = [[1024]]
 
         if len(args.prof_repeat_times) > 1:
             assert args.prof_repeat_threshold is not None, "when args.prof_repeat_times is a list, a threshold is required."
@@ -802,7 +802,7 @@ def _add_logging_args(parser):
                        'number of floating-point operations) to progress.txt file in checkpoint '
                        'directory.')
     group.add_argument('--timing-log-level', type=int,
-                       default=0, choices=range(0,3),
+                       default=2, choices=range(0,3),
                        help='Granularity level to measure and report timing. '
                        '   0: report only iteration time and make sure timing '
                        '      does not introduce extra overhead.'
@@ -821,7 +821,7 @@ def _add_logging_args(parser):
                        'example the user adds a level 1 timer that is not '
                        'called by all ranks.',
                        dest='barrier_with_L1_time')
-    group.add_argument('--timing-log-option', type=str, default='minmax',
+    group.add_argument('--timing-log-option', type=str, default='all',
                        choices=['max', 'minmax', 'all'],
                        help='Options for logging timing:'
                        '  max: report the max timing across all ranks'
@@ -944,7 +944,7 @@ def _add_training_args(parser):
     group.add_argument('--recompute-activations', action='store_true',
                        help='recompute activation to allow for training '
                        'with larger models, sequences, and batch sizes.')
-    group.add_argument('--recompute-granularity', type=str, default='selective',
+    group.add_argument('--recompute-granularity', type=str, default=None,
                        choices=['full', 'selective'],
                        help='Checkpoint activations to allow for training '
                        'with larger models, sequences, and batch sizes. '
@@ -977,18 +977,21 @@ def _add_training_args(parser):
                        help='If not set, clone the output of the scatter in embedding layer to GC original tensor.',
                        dest='clone_scatter_output_in_embedding')
     group.add_argument('--profile', action='store_true',
-                       help='Enable nsys profiling. When using this option, nsys '
+                       help='Enable torch or nsys profiling. When using this option with nsys, nsys '
                        'options should be specified in commandline. An example '
                        'nsys commandline is `nsys profile -s none -t nvtx,cuda '
                        '-o <path/to/output_file> --force-overwrite true '
                        '--capture-range=cudaProfilerApi '
                        '--capture-range-end=stop`.')
-    group.add_argument('--profile-step-start', type=int, default=10,
+    group.add_argument('--profile-method', type=str, default='nsys', choices=['torch', 'nsys'],
+                       help='Method to profile. Default use nsys.')
+    group.add_argument('--profile-step-start', type=int, default=1,
                        help='Global step to start profiling.')
-    group.add_argument('--profile-step-end', type=int, default=12,
+    group.add_argument('--profile-step-end', type=int, default=5,
                        help='Global step to stop profiling.')
     group.add_argument('--profile-ranks', nargs='+', type=int, default=[0],
                        help='Global ranks to profile.')
+    group.add_argument('--profile-output-dir', type=str, default='./logs/profile',)
     group.add_argument('--tp-comm-overlap', action='store_true', help='Enables the '
                        ' overlap of Tensor parallel communication and GEMM kernels.')
     group.add_argument('--tp-comm-overlap-cfg', type=str, default=None,
@@ -1672,7 +1675,7 @@ def _add_profiler_args(parser):
     group.add_argument('--prof-time-only', action='store_true', help='')
     group.add_argument('--prof-memory-only', action='store_true', help='')
     group.add_argument('--prof-warmup-times', type=int, default=20, help='')
-    group.add_argument('--prof-repeat-times', nargs='+', type=int, default=[50], help='')
+    group.add_argument('--prof-repeat-times', nargs='+', type=int, default=[3], help='')
     group.add_argument('--prof-warmup-threshold', type=int, default=None, help='')
     group.add_argument('--prof-repeat-threshold', type=int, default=None, help='')
     group.add_argument('--prof-skip-running', action='store_true', help='')

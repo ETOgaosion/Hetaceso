@@ -19,6 +19,7 @@ import time
 # The earliest we can measure the start time.
 _TRAIN_START_TIME = time.time()
 import torch
+from torch.profiler import profile, ProfilerActivity
 
 from megatron.core import mpu, tensor_parallel
 from megatron.core.utils import get_model_config
@@ -647,7 +648,7 @@ def train_step(forward_step_func, data_iterator,
 
 
 def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_rate, iteration,
-                 loss_scale, report_memory_flag, skipped_iter,
+                 loss_scale, skipped_iter,
                  grad_norm, params_norm, num_zeros_in_grad):
     """Log training information such as losses, timing, ...."""
     args = get_args()
@@ -689,7 +690,9 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
     timers_to_log = [
         'forward-backward',
         'forward-compute',
+        'forward-compute-outside',
         'backward-compute',
+        'backward-compute-outside',
         'batch-generator',
         'forward-recv',
         'forward-send',
@@ -710,7 +713,30 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'optimizer-count-zeros',
         'optimizer-inner-step',
         'optimizer-copy-main-to-model-params',
-        'optimizer']
+        'optimizer',
+        # specific op's timer
+        'self-attention-forward',
+        'cross-attention-forward',
+        'dec-embedding-forward',
+        'dec-embedding-forward-outside',
+        'dec-embedding-backward',
+        'dec-self-attention-forward',
+        'dec-self-attention-forward-outside',
+        'dec-self-attention-backward',
+        'dec-mlp-forward',
+        'dec-mlp-forward-outside',
+        'dec-mlp-backward',
+        'dec-post-process-forward',
+        'dec-post-process-forward-outside',
+        'dec-post-process-backward',
+        'TEA2A',
+        'TEAttnFwd',
+        'TEAttnBwd',
+        'TEFlashAttnFwd',
+        "TEFlashAttnBwd",
+        "RingAttnFwdWait",
+        "RingAttnBwdWait",
+        ]
 
     # Calculate batch size.
     batch_size = args.micro_batch_size * get_num_microbatches()
@@ -867,19 +893,16 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         total_loss_dict[skipped_iters_key] = 0
         total_loss_dict[nan_iters_key] = 0
         print_rank_last(log_string)
-        if report_memory_flag and learning_rate > 0.:
-            # Report memory after optimizer state has been initialized.
-            report_memory('(after {} iterations)'.format(iteration))
-            report_memory_flag = False
-        _time_to_csv = timers.log(timers_to_log, normalizer=args.log_interval)
-        if iteration == (args.train_iters - 1):
-            time_to_csv = [["global_batch_size", "time"] + _time_to_csv[0], [batch_size, f"{elapsed_time_per_iteration * 1000.0:.2f}"] + _time_to_csv[1]]
-            # with open(f"{args.log_path}/csv/stage{mpu.get_pipeline_model_parallel_rank()}_rank{torch.distributed.get_rank()}.csv", mode="w", newline="") as file:
-            #     writer = csv.writer(file)
-            #     for row in time_to_csv:
-            #         writer.writerow(row)
+        # Report memory after optimizer state has been initialized.
+        memory_string = report_memory('(after {} iterations)'.format(iteration))
+        with open(f"{args.log_path}/memory_iter{iteration}_rank{torch.distributed.get_rank()}.log", mode="w") as file:
+            file.write(memory_string + "\n")
+        timers_string = timers.log(timers_to_log, normalizer=args.log_interval)
+        if torch.distributed.get_rank() == 0:
+            with open(f"{args.log_path}/times_iter{iteration}.log", mode="w") as file:
+                file.write(timers_string)
 
-    return report_memory_flag, elapsed_time_per_iteration * 1000.0
+    return elapsed_time_per_iteration * 1000.0
 
 
 def compute_throughputs_and_append_to_progress_log(iteration,
@@ -988,7 +1011,6 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
     timers('interval-time', log_level=0).start(barrier=True)
     print_datetime('before the start of training step')
-    report_memory_flag = True
     exit = False
 
     if args.manual_gc:
@@ -1022,9 +1044,14 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 'train_iterations_time_msecs_avg': train_iterations_time_msecs_avg,
                 'validation_iterations_time_msecs_avg': validation_iterations_time_msecs_avg
             })
+    
+    def trace_handler(prof):
+        print(prof.key_averages().table(
+            sort_by="self_cuda_time_total", row_limit=-1))
+        prof.export_chrome_trace(os.path.join(f'{args.profile_path}', f'rank{torch.distributed.get_rank()}', f'iter{prof.step_num}.json'))
 
-    while iteration < args.train_iters:
-        if args.profile and \
+    def train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far, inside_torchprofile=False):
+        if args.profile and args.profile_method == 'nsys' and \
            iteration == args.profile_step_start and \
            torch.distributed.get_rank() in args.profile_ranks:
             torch.cuda.cudart().cudaProfilerStart()
@@ -1043,15 +1070,42 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                      num_floating_point_operations_so_far)
         num_microbatches = get_num_microbatches()
         update_num_microbatches(args.consumed_train_samples, consistency_check=True)
+        
+        print(f'num_microbatches: {num_microbatches}')
 
         args.curr_iteration = iteration
-        loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
+        
+        if inside_torchprofile and iteration == args.train_iters - 1:
+            if torch.distributed.get_rank() == 0:
+                prof = torch.profiler.profile(
+                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                    # record_shapes=True, 
+                    profile_memory=True,
+                    with_stack=True,
+                    # with_modules=True, with_flops=True,
+                    experimental_config=torch._C._profiler._ExperimentalConfig(verbose=True),
+                    # on_trace_ready=torch.profiler.tensorboard_trace_handler(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}')),
+                )
+                prof.start()
+            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
             train_step(forward_step_func,
-                       train_data_iterator,
-                       model,
-                       optimizer,
-                       opt_param_scheduler,
-                       config)
+                    train_data_iterator,
+                    model,
+                    optimizer,
+                    opt_param_scheduler,
+                    config)
+            if torch.distributed.get_rank() == 0:
+                prof.stop()
+                prof.export_chrome_trace(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}', f'iter{iteration}-with-stack.json'))
+                del prof
+        else:
+            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
+            train_step(forward_step_func,
+                    train_data_iterator,
+                    model,
+                    optimizer,
+                    opt_param_scheduler,
+                    config)
         iteration += 1
         # [TOCHECK] whether need to multiply by 
         # batch_size = mpu.get_data_parallel_world_size() * \
@@ -1076,12 +1130,11 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 decoupled_learning_rate = param_group['lr']
             else:
                 learning_rate = param_group['lr']
-        report_memory_flag = training_log(loss_dict, total_loss_dict,
-                                          learning_rate,
-                                          decoupled_learning_rate,
-                                          iteration, loss_scale,
-                                          report_memory_flag, skipped_iter,
-                                          grad_norm, params_norm, num_zeros_in_grad)
+        training_log(loss_dict, total_loss_dict,
+                    learning_rate, decoupled_learning_rate,
+                    iteration, loss_scale,
+                    skipped_iter, grad_norm, params_norm, 
+                    num_zeros_in_grad)
 
         # Autoresume
         if args.adlr_autoresume and \
@@ -1116,6 +1169,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
         # Checkpointing
         saved_checkpoint = False
+        _exit = False
         if args.exit_signal_handler:
             signal_handler = get_signal_handler()
             if any(signal_handler.signals_received()):
@@ -1123,8 +1177,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                          opt_param_scheduler,
                                          num_floating_point_operations_so_far)
                 print_datetime('exiting program after receiving SIGTERM.')
-                exit = True
-                break
+                _exit = True
+                return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
         if args.save and args.save_interval and \
            iteration % args.save_interval == 0:
@@ -1150,8 +1204,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                              opt_param_scheduler,
                                              num_floating_point_operations_so_far)
                 print_datetime('exiting program after {} minutes'.format(train_time))
-                exit = True
-                break
+                _exit = True
+                return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
         # Exiting based on iterations
         if args.exit_interval and iteration % args.exit_interval == 0:
@@ -1161,10 +1215,10 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                          num_floating_point_operations_so_far)
             torch.distributed.barrier()
             print_datetime('exiting program at iteration {}'.format(iteration))
-            exit = True
-            break
+            _exit = True
+            return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
-        if args.profile and \
+        if args.profile and args.profile_method == 'nsys' and \
            iteration == args.profile_step_end and \
            torch.distributed.get_rank() in args.profile_ranks:
             torch.cuda.cudart().cudaProfilerStop()
@@ -1172,7 +1226,42 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         if args.manual_gc:
             if args.manual_gc_interval != 0 and iteration % args.manual_gc_interval == 0:
                 gc.collect()
+        return iteration, num_microbatches, num_floating_point_operations_so_far, _exit
 
+    _exit = False
+    
+    if args.profile_method == 'torch':
+        if not os.path.exists(args.profile_output_dir):
+            os.makedirs(args.profile_output_dir)
+        dir_name = os.path.join(args.profile_output_dir, f"rank{torch.distributed.get_rank()}")
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
+        if torch.distributed.get_rank() in args.profile_ranks:
+            prof = torch.profiler.profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                schedule=torch.profiler.schedule(wait=args.train_iters - 2, warmup=1, active=1, repeat=1),
+                # record_shapes=True, 
+                profile_memory=True,
+                with_stack=True,
+                # with_modules=True, with_flops=True,
+                experimental_config=torch._C._profiler._ExperimentalConfig(verbose=True),
+                # on_trace_ready=torch.profiler.tensorboard_trace_handler(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}')),
+            )
+            prof.start()
+        for iteration in range(args.iteration, args.train_iters):
+            if torch.distributed.get_rank() == 0:
+                prof.step()
+            _, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far, False)
+        if torch.distributed.get_rank() == 0:
+            prof.stop()
+            prof.export_chrome_trace(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}', f'iter{iteration}-with-stack.json'))
+            del prof
+                    
+    while (args.profile_method == 'nsys') and iteration < args.train_iters:
+        iteration, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far)
+        if _exit:
+            break
+        
     track_e2e_metrics()
 
     # Flush TensorBoard and WandB writers.
@@ -1186,9 +1275,11 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     # Close out pre-hooks if using distributed optimizer and overlapped param gather.
     if args.use_distributed_optimizer and args.overlap_param_gather:
         optimizer.disable_pre_hook()
+    
+    print(f'{torch.distributed.get_rank()} [DEBUG] train finished')
 
     # If any exit conditions (signal handler, duration, iterations) have been reached, exit.
-    if exit:
+    if _exit:
         sys.exit()
 
     return iteration, num_floating_point_operations_so_far

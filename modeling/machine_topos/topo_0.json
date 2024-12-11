@@ -1,0 +1,8 @@
+{
+    "comment": "for machine ranks, we will follow the list of machine_gpus' infomation, We believe that the same machine has homogenous GPU",
+    "num_machines": 1,
+    "num_gpus": 4,
+    "machine_gpus": [4],
+    "machine_gpus_fp32_flops": [35.58],
+    "machine_gpus_memory": [24]
+}

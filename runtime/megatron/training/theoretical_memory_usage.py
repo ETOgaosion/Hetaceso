@@ -2,11 +2,9 @@
 
 """Computes theoretical memory footprint for model training."""
 
-
 import math
 
 NUM_BYTES_IN_MEGABYTE = 1024 * 1024
-
 
 def compute_weight_and_optimizer_memory(args, verbose=False):
     # Group Query Attention.
@@ -83,7 +81,7 @@ def compute_activation_memory(args, num_microbatches, verbose=False):
 
     # Memory footprint from transformer layer (self-attention and MLP).
 
-    if args.sequence_parallel and (args.recompute_granularity == 'selective' or (args.transformer_impl == 'transformer_engine' and use_mcore_models)): # TP + selective recompute + sequence parallel
+    if args.sequence_parallel and (args.recompute_granularity == 'selective' or (args.transformer_impl == 'transformer_engine' and args.use_mcore_models)): # TP + selective recompute + sequence parallel
         activation_memory = (args.seq_length * args.micro_batch_size * args.hidden_size) * (
             18 + (4 * (args.ffn_hidden_size / args.hidden_size))
         ) / args.tensor_model_parallel_size
@@ -201,8 +199,10 @@ def report_theoretical_memory(args, num_microbatches=None, verbose=False):
     )
     total_memory = weight_and_optimizer_memory + activation_memory
 
-    print(
-        f"Theoretical memory footprints: weight and optimizer={weight_and_optimizer_memory:.2f} MB, "
-        f"activation={activation_memory:.2f} MB, "
-        f"total={total_memory:.2f} MB\n"
-    )
+    if verbose:
+        print(
+            f"Theoretical memory footprints: weight and optimizer={weight_and_optimizer_memory:.2f} MB, "
+            f"activation={activation_memory:.2f} MB, "
+            f"total={total_memory:.2f} MB\n"
+        )
+    return weight_and_optimizer_memory, activation_memory, total_memory

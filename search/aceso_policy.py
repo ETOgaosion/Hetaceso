@@ -96,15 +96,13 @@ def get_actions_by_filters(action_resource_table, memory_choice=["+","-","0"], e
 def get_actions_with_policy(config, bottleneck, action_resource_table, adaptive_flag=False):
     """
     get_actions v5:
-    Order actions according to the RATIO of ideal_time, eff_loss_time, recompute_time.
+    Order actions according to the RATIO of ideal_time, eff_loss_time.
     [The ratio is calculated using the per-gpu value.]
     Consider memory at the first place.
     To decrease ideal_time: time_choice=["-"]
         But also consider comm and memory with additional comm_choice and memory_choice.
     To decrease eff_loss_time: comm_choice=["-"]
         But also consider ideal_time and memory with additional time_choice and memory_choice.
-    To decrease recompute_time: memory_choice=["-"]
-        But also consider ideal_time and comm with additional time_choice and comm_choice.
     """
     global NUM_CASES_HIT
 
@@ -128,13 +126,7 @@ def get_actions_with_policy(config, bottleneck, action_resource_table, adaptive_
             eff_loss_time_ratio = config.breakdown_eff_loss_time_per_gpu[bottleneck] / sum(config.breakdown_eff_loss_time_per_gpu)
         else:
             eff_loss_time_ratio = 0
-        recomp_time = config.breakdown_recomp_time_per_gpu[bottleneck]
-        avg_recomp_time = sum(config.breakdown_recomp_time_per_gpu)/config.num_stages
-        if recomp_time > 0:
-            recomp_time_ratio = config.breakdown_recomp_time_per_gpu[bottleneck] / sum(config.breakdown_recomp_time_per_gpu)
-        else:
-            recomp_time_ratio = 0
-        tmp_list = [comp_time_ratio, eff_loss_time_ratio, recomp_time_ratio]
+        tmp_list = [comp_time_ratio, eff_loss_time_ratio]
         index = 0
         visited_actions = []
         while index < 3:
@@ -144,10 +136,7 @@ def get_actions_with_policy(config, bottleneck, action_resource_table, adaptive_
                     comm_choice = ["-", "0"]
                 else:
                     comm_choice = ["+", "-", "0"]
-                if recomp_time > 0: 
-                    memory_choice = ["-", "0"]
-                else:
-                    memory_choice = ["+", "-", "0"]
+                memory_choice = ["+", "-", "0"]
                 _actions = get_actions_by_filters(action_resource_table, time_choice=["-"], comm_choice=comm_choice, memory_choice=memory_choice, exclude=visited_actions)
                 actions.append(_actions)
                 visited_actions += _actions
@@ -165,10 +154,7 @@ def get_actions_with_policy(config, bottleneck, action_resource_table, adaptive_
                     time_choice = ["-", "0"]
                 else:
                     time_choice = ["+", "-", "0"]
-                if recomp_time > 0: 
-                    memory_choice = ["-", "0"]
-                else:
-                    memory_choice = ["+", "-", "0"]
+                memory_choice = ["+", "-", "0"]
                 _actions = get_actions_by_filters(action_resource_table, time_choice=time_choice, comm_choice=["-"], memory_choice=memory_choice, exclude=visited_actions)
                 actions.append(_actions)
                 visited_actions += _actions
@@ -179,28 +165,7 @@ def get_actions_with_policy(config, bottleneck, action_resource_table, adaptive_
 
                 tmp_list.remove(eff_loss_time_ratio)        
                 if index == 0:
-                    NUM_CASES_HIT[1] += 1            
-            ## - memory
-            elif recomp_time_ratio == max(tmp_list):
-                if comp_time > avg_comp_time:
-                    time_choice = ["-", "0"]
-                else:
-                    time_choice = ["+", "-", "0"]
-                if eff_loss_time > avg_eff_loss_time:
-                    comm_choice = ["-", "0"]
-                else:
-                    comm_choice = ["+", "-", "0"]        
-                _actions = get_actions_by_filters(action_resource_table, time_choice=time_choice, comm_choice=comm_choice, memory_choice=["-"], exclude=visited_actions)
-                actions.append(_actions)
-                visited_actions += _actions
-
-                _actions = get_actions_by_filters(action_resource_table, memory_choice=["-"], exclude=visited_actions)
-                actions.append(_actions)
-                visited_actions += _actions      
-
-                tmp_list.remove(recomp_time_ratio)   
-                if index == 0:
-                    NUM_CASES_HIT[2] += 1            
+                    NUM_CASES_HIT[1] += 1                  
             index += 1
         _actions = get_actions_by_filters(action_resource_table, exclude=visited_actions)
         actions.append(_actions)

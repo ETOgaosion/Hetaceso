@@ -3,10 +3,10 @@
 export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
-# export CUDA_DEVICE_MAX_CONNECTIONS=1
-export NCCL_DEBUG=TRACE
-export NCCL_DEBUG_FILE=./nccl.log
-export NCCL_DEBUG_SUBSYS=ALL
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+# export NCCL_DEBUG=TRACE
+# export NCCL_DEBUG_FILE=./nccl.log
+# export NCCL_DEBUG_SUBSYS=ALL
 # export NCCL_IB_DISABLE=1
 # export NCCL_SET_THREAD_NAME=1
 # export NCCL_TOPO_FILE=nccl/rank_topo.xml

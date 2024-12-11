@@ -8,6 +8,7 @@ import numpy
 import torch
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class Split(Enum):

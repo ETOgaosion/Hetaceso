@@ -2,18 +2,32 @@
 MASTER_ADDR=localhost
 MASTER_PORT=7000
 NNODES=2
-NODE_RANK=$1
+NODE_RANK=${1:-0}
 
-REPROFILE=${1:-1}
+MACHINE=${2:-0}
+REPROFILE=${3:-1}
 
 RUNTIME_PATH=$(pwd)/../results/
-PROFILING_PATH=${RUNTIME_PATH}profiled-dist-comm-hetaceso/
-PROFILING_OP_TIME_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
+mkdir -p $RUNTIME_PATH
+PROFILING_PATH=${RUNTIME_PATH}profiled-local-comm-hetaceso/rank$NODE_RANK/
+PROFILING_OP_TIME_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/rank$NODE_RANK/
 
+if [ $REPROFILE -eq 1 ]; then
+    rm -rf ${PROFILING_PATH}
+fi
 mkdir -p ${PROFILING_PATH}
-MAX_NUM_GPUS=8
+MAX_NUM_GPUS=4
 MODEL_NAME=gpt
 MODEL_SIZE=350M
+
+if [[ $MACHINE -eq "0" ]]; then
+    export CUDA_DEVICE_MAX_CONNECTIONS=1
+    export NCCL_SOCKET_IFNAME=eno2
+    export CUDA_VISIBLE_DEVICES=3,4,5,7
+else
+    export CUDA_DEVICE_MAX_CONNECTIONS=1
+    export NCCL_SOCKET_IFNAME=eno1
+fi
 
 for ((num_gpus=2; num_gpus<=$MAX_NUM_GPUS; num_gpus=num_gpus*2))
 do

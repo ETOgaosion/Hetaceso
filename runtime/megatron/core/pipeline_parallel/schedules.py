@@ -165,7 +165,7 @@ def forward_step(
 
     Returns output tensor."""
     if config.timers is not None:
-        config.timers('forward-compute', log_level=2).start()
+        config.timers('forward-compute-outside', log_level=2).start()
 
     if is_first_microbatch and hasattr(model, 'set_is_first_microbatch'):
         model.set_is_first_microbatch()
@@ -183,12 +183,16 @@ def forward_step(
     else:
         context_manager = contextlib.nullcontext()
     with context_manager:
+        if config.timers is not None:
+            config.timers('forward-compute', log_level=2).start()
         if checkpoint_activations_microbatch is None:
             output_tensor, output_extra_tensors, loss_func = forward_step_func(data_iterator, model, extra_tensors)
         else:
             output_tensor, output_extra_tensors, loss_func = forward_step_func(
                 data_iterator, model, checkpoint_activations_microbatch, extra_tensors
             )
+        if config.timers is not None:
+            config.timers('forward-compute').stop()
 
     if parallel_state.is_pipeline_last_stage():
         if not collect_non_loss_data:
@@ -201,7 +205,7 @@ def forward_step(
             forward_data_store.append(data)
 
     if config.timers is not None:
-        config.timers('forward-compute').stop()
+        config.timers('forward-compute-outside').stop()
 
     # Set the loss scale for the auxiliary loss of the MoE layer.
     # Since we use a trick to do backward on the auxiliary loss, we need to set the scale explicitly.
@@ -302,7 +306,7 @@ def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, c
     # connections.
 
     if config.timers is not None:
-        config.timers('backward-compute', log_level=2).start()
+        config.timers('backward-compute-outside', log_level=2).start()
     
     output_extra_tensors = update_output_extra_tensors_grad(output_extra_tensors, output_extra_tensors_grad)
     output_tensor, output_tensor_grad = retain_input_tensors_grad_and_check_output_grad(input_tensor, extra_tensors, output_tensor, output_tensor_grad)
@@ -311,7 +315,11 @@ def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, c
     if output_tensor_grad is None and config.grad_scale_func is not None:       
         output_tensor = config.grad_scale_func(output_tensor)
     
+    if config.timers is not None:
+        config.timers('backward-compute', log_level=2).start()
     torch.autograd.backward(output_tensor, grad_tensors=output_tensor_grad)
+    if config.timers is not None:
+        config.timers('backward-compute').stop()
 
     # Collect the grad of the input_tensor.
     input_tensor_grad = None
@@ -320,7 +328,7 @@ def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, c
     input_tensor_grad, extra_tensors_grad = collect_grad_of_input_and_extra_tensors(input_tensor, extra_tensors)
 
     if config.timers is not None:
-        config.timers('backward-compute').stop()
+        config.timers('backward-compute-outside').stop()
 
     return input_tensor_grad, extra_tensors_grad
 

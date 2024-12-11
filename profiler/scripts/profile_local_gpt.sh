@@ -2,13 +2,15 @@
 MASTER_ADDR=localhost
 MASTER_PORT=7000
 NNODES=1
-NODE_RANK=0
+NODE_RANK=${1:-0}
 GPUS_PER_NODE=1
 
-REPROFILE=${1:-1}
+MACHINE=${2:-0}
+REPROFILE=${3:-0}
 
 RUNTIME_PATH=$(pwd)/../results/
-PROFILING_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/
+mkdir -p $RUNTIME_PATH
+PROFILING_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/rank$NODE_RANK/
 
 VOCAB_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-vocab.json
 MERGE_FILE=/workspace/Hetaceso/runtime/vocabs/gpt2-merges.txt
@@ -59,11 +61,20 @@ fi
 mkdir -p ${PROFILING_PATH}
 mkdir -p logs
 mkdir -p logs/csv
-MAX_NUM_GPUS=8
+MAX_NUM_GPUS=2
 MODEL_NAME=gpt
 MODEL_SIZE=350M
 
-for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
+if [[ $MACHINE -eq "0" ]]; then
+    export CUDA_DEVICE_MAX_CONNECTIONS=1
+    export NCCL_SOCKET_IFNAME=eno2
+    export CUDA_VISIBLE_DEVICES=3,4,5,7
+else
+    export CUDA_DEVICE_MAX_CONNECTIONS=1
+    export NCCL_SOCKET_IFNAME=eno1
+fi
+
+for ((tp_size=2; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
 do
     GPUS_PER_NODE=${tp_size}
     DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
@@ -88,8 +99,8 @@ do
         --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_op_profile.pkl \
         --prof-model-name $MODEL_NAME \
         --prof-model-size $MODEL_SIZE \
-        --prof-warmup-times 10 \
-        --prof-repeat-times 800 \
+        --prof-warmup-times 3 \
+        --prof-repeat-times 20 \
         2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_op_tp${tp_size}.log
 
     echo [TIME] after profiling tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log

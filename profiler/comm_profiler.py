@@ -9,7 +9,7 @@ import time
 import csv
 import pickle
 import argparse
-from model_configs import model_prof_configs, resnet_configs, gpt_configs, t5_configs
+from model_configs import model_prof_configs
 
 
 def parse_args():
@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument("--prof-op-time-path", type=str, default=None, help="")
     parser.add_argument("--max-data-size", type=int, default=4096, help="")
     parser.add_argument("--prof-mbs-list", nargs="+", type=int, default=None, help="")
+    parser.add_argument("--prof-seqlen-list", nargs="+", type=int, default=None, help="")
 
     args = parser.parse_args()
     return args
@@ -111,30 +112,30 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                     torch.zeros(data_size, dtype=torch_data_type).cuda()
                                     for _ in range(world_size)
                                 ]
-                                for i in range(
-                                    args.prof_repeat_times + args.prof_warmup_times
-                                ):
-                                    torch.cuda.synchronize()
-                                    start = time.time()
+                                for i in range(args.prof_warmup_times):
                                     dist.all_gather(tensor_list, send_tensor)
-                                    torch.cuda.synchronize()
-                                    end = time.time()
-                                    if i >= args.prof_warmup_times:
-                                        time_list.append((end - start) * 1000)
+                                start = torch.cuda.Event(enable_timing=True)
+                                end = torch.cuda.Event(enable_timing=True)
+                                start.record()
+                                for i in range(args.prof_repeat_times):
+                                    dist.all_gather(tensor_list, send_tensor)
+                                end.record()
+                                torch.cuda.synchronize()
+                                time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
                             elif collective_type == "all_reduce":
                                 send_tensor = torch.ones(
                                     data_size, dtype=torch_data_type
                                 ).cuda()
-                                for i in range(
-                                    args.prof_repeat_times + args.prof_warmup_times
-                                ):
-                                    torch.cuda.synchronize()
-                                    start = time.time()
+                                for i in range(args.prof_warmup_times):
                                     dist.all_reduce(send_tensor)
-                                    torch.cuda.synchronize()
-                                    end = time.time()
-                                    if i >= args.prof_warmup_times:
-                                        time_list.append((end - start) * 1000)
+                                start = torch.cuda.Event(enable_timing=True)
+                                end = torch.cuda.Event(enable_timing=True)
+                                start.record()
+                                for i in range(args.prof_repeat_times):
+                                    dist.all_reduce(send_tensor)
+                                end.record()
+                                torch.cuda.synchronize()
+                                time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
                             elif collective_type == "reduce_scatter":
                                 if data_size % world_size == 0:
                                     send_tensor = torch.ones(
@@ -145,21 +146,26 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                     send_tensor = torch.ones(
                                         _data_size, dtype=torch_data_type
                                     ).cuda()
-                                for i in range(
-                                    args.prof_repeat_times + args.prof_warmup_times
-                                ):
-                                    torch.cuda.synchronize()
-                                    start = time.time()
+                                for i in range(args.prof_warmup_times):
                                     input_list = list(send_tensor.chunk(world_size, 0))
                                     for idx, tensor in enumerate(input_list):
                                         if not tensor.is_contiguous():
                                             input_list[idx] = tensor.contiguous()
                                     new_input_ = torch.empty_like(input_list[0])
                                     dist.reduce_scatter(new_input_, input_list)
-                                    torch.cuda.synchronize()
-                                    end = time.time()
-                                    if i >= args.prof_warmup_times:
-                                        time_list.append((end - start) * 1000)
+                                start = torch.cuda.Event(enable_timing=True)
+                                end = torch.cuda.Event(enable_timing=True)
+                                start.record()
+                                for i in range(args.prof_repeat_times):
+                                    input_list = list(send_tensor.chunk(world_size, 0))
+                                    for idx, tensor in enumerate(input_list):
+                                        if not tensor.is_contiguous():
+                                            input_list[idx] = tensor.contiguous()
+                                    new_input_ = torch.empty_like(input_list[0])
+                                    dist.reduce_scatter(new_input_, input_list)
+                                end.record()
+                                torch.cuda.synchronize()
+                                time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
                             elif collective_type == "all_to_all":
                                 if data_size % world_size == 0:
                                     send_tensor = torch.ones(
@@ -170,11 +176,7 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                     send_tensor = torch.ones(
                                         _data_size, dtype=torch_data_type
                                     ).cuda()
-                                for i in range(
-                                    args.prof_repeat_times + args.prof_warmup_times
-                                ):
-                                    torch.cuda.synchronize()
-                                    start = time.time()
+                                for i in range(args.prof_warmup_times):
                                     input_list = list(send_tensor.chunk(world_size, 0))
                                     for idx, tensor in enumerate(input_list):
                                         if not tensor.is_contiguous():
@@ -183,10 +185,21 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                         torch.empty_like(t) for t in input_list
                                     ]
                                     dist.all_to_all(new_input_list, input_list)
-                                    torch.cuda.synchronize()
-                                    end = time.time()
-                                    if i >= args.prof_warmup_times:
-                                        time_list.append((end - start) * 1000)
+                                start = torch.cuda.Event(enable_timing=True)
+                                end = torch.cuda.Event(enable_timing=True)
+                                start.record()
+                                for i in range(args.prof_repeat_times):
+                                    input_list = list(send_tensor.chunk(world_size, 0))
+                                    for idx, tensor in enumerate(input_list):
+                                        if not tensor.is_contiguous():
+                                            input_list[idx] = tensor.contiguous()
+                                    new_input_list = [
+                                        torch.empty_like(t) for t in input_list
+                                    ]
+                                    dist.all_to_all(new_input_list, input_list)
+                                end.record()
+                                torch.cuda.synchronize()
+                                time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
                     except RuntimeError as e:
                         print(e)
                         time_list = [1000000 for _ in range(args.prof_repeat_times)]
@@ -225,13 +238,20 @@ def run_profile(task):
     model = task["model"]
     size = task["size"]
     if args.prof_mbs_list is None:
-        mbs_list = model_prof_configs[model]["mbs"]
+        if isinstance(model_prof_configs[model]["mbs"], dict):
+            mbs_list = model_prof_configs[model]["mbs"][size]
+        else:
+            mbs_list = model_prof_configs[model]["mbs"]
     else:
         mbs_list = args.prof_mbs_list
+    if model_prof_configs[model].get("seqlen") is not None:
+        if isinstance(model_prof_configs[model]["seqlen"], dict):
+            seqlen_list = model_prof_configs[model]["seqlen"][size]
+        else:
+            seqlen_list = model_prof_configs[model]["seqlen"]
 
     data_type = model_prof_configs[model]["dtype"]
-    algo_list = model_prof_configs[model]["algo"]
-    tp_size_list = [1, 2, 4, 8]
+    tp_size_list = [1]
 
     if data_type == "fp16":
         torch_data_type = torch.half
@@ -242,15 +262,15 @@ def run_profile(task):
     else:
         raise RuntimeError(f"data type {data_type} not support.")
     
-    print(f'mbs_list: {mbs_list}, tp_size_list: {tp_size_list}, algo_list: {algo_list}')
+    print(f'mbs_list: {mbs_list}, seqlen_list: {seqlen_list}, tp_size_list: {tp_size_list}')
 
     data_size_list = []
     for mbs in mbs_list:
-        for tp in tp_size_list:
-            for algo in algo_list:
+        for seq_len in seqlen_list:
+            for tp in tp_size_list:
                 file_name = (
                     args.prof_op_time_path
-                    + f"{model}_{size}_mbs{mbs}_tp{tp}_algo{algo}.csv"
+                    + f"{model}_{size}_mbs{mbs}_seqlen{seq_len}_tp{tp}.csv"
                 )
                 print(file_name)
                 if os.path.exists(file_name):
