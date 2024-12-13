@@ -7,13 +7,13 @@
     "num_stages": 1,
     "num_gpus": [4],
     "num_ops_in_each_stage": [50],
-    "tensor_parallel_size_of_each_stage": [2],
+    "tensor_parallel_size_of_each_stage": [1],
     "context_parallel_size_of_each_stage": [2],
     "ulysses_context_parallel_size_of_each_stage": [2],
     "ring_context_parallel_size_of_each_stage": [1],
     "ring_context_parallel_split_of_each_stage": [[2048]],
-    "data_parallel_size_of_each_stage": [1],
+    "data_parallel_size_of_each_stage": [2],
     "data_parallel_split_of_each_stage": [
-        [8]
+        [4, 4]
     ]
 }
