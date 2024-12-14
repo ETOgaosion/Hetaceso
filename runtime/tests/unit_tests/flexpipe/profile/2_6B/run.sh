@@ -36,8 +36,8 @@ GLOBAL_BATCH_SIZE=1024
 TEST_NUM=${1:-0}
 TRAIN_ITERS=${2:-5}
 
-VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
-MERGE_FILE=../../../../vocabs/gpt2-merges.txt
+VOCAB_FILE=../../../../../vocabs/gpt2-vocab.json
+MERGE_FILE=../../../../../vocabs/gpt2-merges.txt
 
 # rm -rf logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}
