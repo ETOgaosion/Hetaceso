@@ -61,7 +61,7 @@ fi
 mkdir -p ${PROFILING_PATH}
 mkdir -p logs
 mkdir -p logs/csv
-MAX_NUM_GPUS=2
+MAX_NUM_GPUS=4
 MODEL_NAME=gpt
 MODEL_SIZE=all
 
@@ -74,7 +74,7 @@ else
     export NCCL_SOCKET_IFNAME=eno1
 fi
 
-for ((tp_size=2; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
+for ((tp_size=1; tp_size<=$MAX_NUM_GPUS; tp_size=tp_size*2))
 do
     GPUS_PER_NODE=${tp_size}
     DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE --nnodes $NNODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port $MASTER_PORT"
