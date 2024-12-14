@@ -14,7 +14,7 @@ if [ ! -f $config ]; then
     exit 1
 fi
 
-TOPO_INDEX=${7:-0}
+TOPO_INDEX=${8:-0}
 TOPO_DIR=machine_topos
 TOPO_FILE=$TOPO_DIR/topo_$TOPO_INDEX.json
 
