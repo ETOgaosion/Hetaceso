@@ -2,6 +2,7 @@
     "comment": "Only include flexpipe related configurations",
     "num_layers": 32,
     "num_stages": 1,
+    "micro_batch_size": 4,
     "num_gpus": [
         4
     ],
@@ -13,6 +14,6 @@
     "context_parallel_size_of_each_stage": [2],
     "ulysses_context_parallel_size_of_each_stage": [2],
     "ring_context_parallel_size_of_each_stage": [1],
-    "data_parallel_split_of_each_stage": [[8]],
+    "data_parallel_split_of_each_stage": [[4]],
     "ulysses_context_parallel_split_of_each_stage": [[2048]]
 }

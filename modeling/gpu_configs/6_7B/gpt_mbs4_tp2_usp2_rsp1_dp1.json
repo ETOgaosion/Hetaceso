@@ -3,7 +3,7 @@
     "model_name": "gpt",
     "model_size": "6_7B",
     "global_batch_size": 1024,
-    "micro_batch_size": 8,
+    "micro_batch_size": 4,
     "num_stages": 1,
     "num_gpus": [4],
     "num_ops_in_each_stage": [66],
@@ -14,6 +14,6 @@
     "ring_context_parallel_split_of_each_stage": [[2048]],
     "data_parallel_size_of_each_stage": [1],
     "data_parallel_split_of_each_stage": [
-        [8]
+        [4]
     ]
 }

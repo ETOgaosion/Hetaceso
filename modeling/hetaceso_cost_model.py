@@ -200,6 +200,12 @@ class HetacesoPerformanceModel:
                     f"file ({src_data_file}) not exist, or the file is not formatted as expected."
                 )
         
+        for op_name in self.compute_fwd_time:
+            for mbs in self.compute_fwd_time[op_name]:
+                for seqlen in self.compute_fwd_time[op_name][mbs]:
+                    for tp in self.compute_fwd_time[op_name][mbs][seqlen]:
+                        assert self.reserved_bwd[op_name][mbs][seqlen][tp] < 1000000, f'{self.model_size} {op_name} {mbs} {seqlen} {tp} is not valid'
+        
         '''
         Communications in Megatron:
         
