@@ -24,9 +24,12 @@ if [[ $MACHINE -eq "0" ]]; then
     export CUDA_DEVICE_MAX_CONNECTIONS=1
     export NCCL_SOCKET_IFNAME=eno2
     export CUDA_VISIBLE_DEVICES=3,4,5,7
-else
+elif [[ $MACHINE -eq "1" ]]; then
     export CUDA_DEVICE_MAX_CONNECTIONS=1
     export NCCL_SOCKET_IFNAME=eno1
+elif [[ $MACHINE -eq "2" ]]; then
+    export CUDA_DEVICE_MAX_CONNECTIONS=1
+    export NCCL_SOCKET_IFNAME=ens1f0
 fi
 
 for ((num_gpus=2; num_gpus<=$MAX_NUM_GPUS; num_gpus=num_gpus*2))

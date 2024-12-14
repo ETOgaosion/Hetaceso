@@ -8,11 +8,12 @@ PROFILING_PATH=${RUNTIME_PATH}profiled-dist-p2p-hetaceso/${NODE_RANK}-${OTHER_NO
 mkdir -p ${PROFILING_PATH}
 FILE_NAME=${PROFILING_PATH}p2p_inter_node.csv
 
-
-if [ "$NODE_RANK" -eq 1 ]; then
-    export NCCL_SOCKET_IFNAME=eno1
-else
+if [ "$NODE_RANK" -eq 0 ]; then
     export NCCL_SOCKET_IFNAME=eno2
+elif [ "$NODE_RANK" -eq 1 ]; then
+    export NCCL_SOCKET_IFNAME=eno1
+elif [ "$NODE_RANK" -eq 2 ]; then
+    export NCCL_SOCKET_IFNAME=ens1f0
 fi
 
 if [[ $NODE_RANK -eq 0 || $NODE_RANK -eq 1 ]]; then
