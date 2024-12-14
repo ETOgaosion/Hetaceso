@@ -5,7 +5,7 @@ NNODES=2
 NODE_RANK=0
 
 MACHINE=${1:-0}
-REPROFILE=${2:-1}
+REPROFILE=${2:-0}
 
 RUNTIME_PATH=$(pwd)/../results/
 mkdir -p $RUNTIME_PATH
@@ -18,7 +18,7 @@ fi
 mkdir -p ${PROFILING_PATH}
 MAX_NUM_GPUS=4
 MODEL_NAME=gpt
-MODEL_SIZE=2_6B
+MODEL_SIZE=all
 
 if [[ $MACHINE -eq "0" ]]; then
     export CUDA_DEVICE_MAX_CONNECTIONS=1
