@@ -3,7 +3,7 @@
     "model_name": "gpt",
     "model_size": "13B",
     "global_batch_size": 1024,
-    "micro_batch_size": 4,
+    "micro_batch_size": 8,
     "num_stages": 1,
     "num_gpus": [4],
     "num_ops_in_each_stage": [82],
