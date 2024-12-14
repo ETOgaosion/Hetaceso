@@ -1,5 +1,5 @@
 import sys
-sys.path.append("../../../../../runtime/")
+sys.path.append("../../../../../../runtime/")
 
 # Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
 """Pretrain GPT."""
