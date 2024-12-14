@@ -167,7 +167,7 @@ class HetacesoPerformanceModel:
                         comm_num_gpus_map_map["dp"][dp] = [rank]
                     elif not homogeneous:
                         comm_num_gpus_map_map["dp"][dp].append(rank)
-
+        
         for rank, mbs, seqlen, tp, usp, rsp, dp in unique_config_list:
             src_data_file = f'{self.args.profiled_gpt_path}rank{rank}/{self.model_name}_{self.model_size}_mbs{mbs}_seqlen{seqlen}_tp{tp}.csv'
             print(src_data_file)
@@ -209,7 +209,7 @@ class HetacesoPerformanceModel:
         - data parallel: all ranks need all-reduce gradients
         '''
         self.collective_time = {"all_reduce": {}, "all_gather": {}, "reduce_scatter": {}, "all_to_all": {}}
-        comm_prim_map = {"tp": ["all_reduce"], "usp": ["all_to_all"], "rsp": ["all_reduce"], "dp": ["all_reduce"]}
+        comm_prim_map = {"tp": ["all_reduce", "all_gather", "reduce_scatter"], "usp": ["all_to_all"], "rsp": ["all_reduce"], "dp": ["all_reduce"]}
         for parallel in comm_prim_map.keys():
             for prim in comm_prim_map[parallel]:
                 for num_gpus in comm_num_gpus_list_map[parallel]:
@@ -229,7 +229,7 @@ class HetacesoPerformanceModel:
                                 line_index += 1
                                 if line_index > 1:
                                     data_size = row[0]
-                                    self.collective_time[prim][num_gpus][rank] [data_size]= float(row[1])
+                                    self.collective_time[prim][num_gpus][rank][data_size]= float(row[1])
 
         for rank in range(total_gpus):
             self.intra_band_file = f'{self.args.profiled_local_p2p_path}rank{rank}/p2p_intra_node.csv'
@@ -345,7 +345,7 @@ class HetacesoPerformanceModel:
                 '''
                 if usp > 1:
                     assert cur_op_output_size in self.collective_time["all_to_all"][usp][rank], f'{op_name} {cur_op_output_size}'
-                    cp_comm += self.collective_time["all_to_all"][usp][rank][cur_op_output_size]
+                    usp_comm += self.collective_time["all_to_all"][usp][rank][cur_op_output_size]
             elif op_name == "dec-mlp":
                 '''
                 MLP
@@ -593,7 +593,7 @@ def main():
     args = parse_args()
     args, machine_topo = read_topo(args)
     config, config_dict = read_config_from_json(args, return_config_dict=True)
-    args = config_to_args(config, config_dict, args, 0)
+    args = config_to_args(config, config_dict, args)
     performance_model = HetacesoPerformanceModel(args, machine_topo, config, config_dict)
     performance_model.read_profiled()
     performance_model.predict_single_performance(0, False, False, True, True)

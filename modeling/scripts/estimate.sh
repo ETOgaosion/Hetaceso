@@ -1,12 +1,14 @@
-MBS=${1:-8}
-TP=${2:-1}
-USP=${3:-1}
-RSP=${4:-1}
-DP=${5:-4}
+RANK=${1:-0}
+MBS=${2:-8}
+TP=${3:-1}
+USP=${4:-1}
+RSP=${5:-1}
+DP=${6:-4}
 
 CONFIG_TEST=mbs${MBS}_tp${TP}_usp${USP}_rsp${RSP}_dp${DP}
+
+TOPO_INDEX=${7:-0}
 TOPO_DIR=machine_topos
-TOPO_INDEX=${6:-0}
 TOPO_FILE=$TOPO_DIR/topo_$TOPO_INDEX.json
 
 config=single_gpu_configs/gpt_350M_${CONFIG_TEST}.json
@@ -29,4 +31,6 @@ python3 hetaceso_cost_model.py \
     --profiled-local-comm-path $PROFILED_LOCAL_COMM_PATH \
     --topo-file $TOPO_FILE \
     --save-to-csv $SAVE_TO_CSV \
-    --dist-optimizer
+    --dist-optimizer \
+    --rank ${RANK} \
+    --node-rank ${RANK}

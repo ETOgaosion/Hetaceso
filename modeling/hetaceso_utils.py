@@ -162,10 +162,10 @@ def get_config(
         ), f"rsp split list format error, {len(rsp_split_list)}, {rsp_size_list[i]}"
         assert total_seqlen == sum(
             rsp_split_list[i]
-        ), f"sum of rsp split is not equal to total seqlen"
+        ), f"sum of rsp split is not equal to total seqlen {total_seqlen} != {rsp_split_list[i]}"
         assert aggregate_mbs == sum(
             dp_split_list[i]
-        ), f"sum of dp split is not equal to total mbs"
+        ), f"sum of dp split is not equal to total mbs {aggregate_mbs} != {dp_split_list[i]}"
         stage_info = AcesoStageInfo(
             index=i,
             num_stages_behind=(num_stages - 1 - i),
@@ -196,13 +196,15 @@ def get_config(
     return current_config
 
 
-def config_to_args(config, config_dict, args, node_rank):
+def config_to_args(config, config_dict, args):
     if args.num_layers is None:
         args.num_layers = config.num_layers
     args.tensor_model_parallel_size = config.stages[0].tp_size
     args.num_stages = config.num_stages
-    args.node_rank = node_rank
-    args.rank = node_rank
+    if not args.rank:
+        args.rank = 0
+        args.node_rank = 0
+        args.all_rank = True
 
     args.tensor_parallel_size_of_each_stage = config_dict[
         "tensor_parallel_size_of_each_stage"
@@ -555,6 +557,9 @@ def add_hardware_args(parser):
     group.add_argument(
         "--rank", type=int, default=None, help="rank of this node to estimate"
     )
+    group.add_argument(
+        "--all-rank", action="store_true", help="all rank"
+    )
 
     return parser
 
@@ -770,6 +775,8 @@ def parse_args():
             config_dict = json.load(f)
             args.model_name = config_dict["model_name"]
             args.model_size = config_dict["model_size"]
+    else:
+        raise RuntimeError(f"initial point {args.initial_point} not found.")
 
     if args.model_name not in ["resnet", "gpt", "t5", "scale-layer"]:
         raise RuntimeError(f"model {args.model_name} is not supported yet.")
