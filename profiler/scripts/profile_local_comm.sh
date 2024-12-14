@@ -18,7 +18,7 @@ fi
 mkdir -p ${PROFILING_PATH}
 MAX_NUM_GPUS=4
 MODEL_NAME=gpt
-MODEL_SIZE=350M
+MODEL_SIZE=all
 
 if [[ $MACHINE -eq "0" ]]; then
     export CUDA_DEVICE_MAX_CONNECTIONS=1
