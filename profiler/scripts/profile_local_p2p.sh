@@ -1,5 +1,5 @@
 #! /bin/bash
-NODE_RANK=${1:-0}
+NODE_RANK=0
 
 RUNTIME_PATH=$(pwd)/../results/
 mkdir -p $RUNTIME_PATH
