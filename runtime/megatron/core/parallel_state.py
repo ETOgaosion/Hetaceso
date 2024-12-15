@@ -643,13 +643,13 @@ def initialize_model_parallel_flexpipe2(
     for i in range(1, pipeline_model_parallel_size):
         fwd_reshard_stage(
             i, data_parallel_split_of_each_stage,
-            ulysses_context_parallel_split_of_each_stage,
+            ring_context_parallel_split_of_each_stage,
             ulysses_context_parallel_size_of_each_stage
         )
     for i in range(0, pipeline_model_parallel_size - 1):
         bwd_reshard_stage(
             i, data_parallel_split_of_each_stage,
-            ulysses_context_parallel_split_of_each_stage,
+            ring_context_parallel_split_of_each_stage,
             ulysses_context_parallel_size_of_each_stage
         )
     
@@ -711,8 +711,8 @@ def initialize_model_parallel_flexpipe2(
 def fwd_reshard_stage(
     idx: int,
     data_parallel_split_of_each_stage: list[list[int]],
-    context_parallel_split_of_each_stage: list[list[int]],
-    context_parallel_size_of_each_stage: list[int],
+    ring_context_parallel_split_of_each_stage: list[list[int]],
+    ulysses_context_parallel_size_of_each_stage: list[int],
 ):
     '''
     
@@ -724,31 +724,29 @@ def fwd_reshard_stage(
     prev_stage_split_load_balance: dict[DataSlice, int] = {}
     batch_start = 0
     for i in data_parallel_split_of_each_stage[idx - 1]:
-        for j in context_parallel_split_of_each_stage[idx - 1]:
-            seq_start = 0
-            for l in j:
-                for k in range(context_parallel_size_of_each_stage[idx - 1]):
-                    prev_stage_split[
-                        DataSlice(
-                            (batch_start, batch_start + i),
-                            (seq_start, seq_start + l),
-                        )
-                    ] = []
-                    seq_start += l
+        j = ring_context_parallel_split_of_each_stage[idx - 1] // ulysses_context_parallel_size_of_each_stage[idx - 1]
+        seq_start = 0
+        for k in range(ulysses_context_parallel_size_of_each_stage[idx - 1]):
+            prev_stage_split[
+                DataSlice(
+                    (batch_start, batch_start + i),
+                    (seq_start, seq_start + j),
+                )
+            ] = []
+            seq_start += j
         batch_start += i
 
     # DataSlice -> rank
     curr_stage_split: dict[DataSlice, list[int]] = {}
     batch_start = 0
     for i in data_parallel_split_of_each_stage[idx]:
-        for j in context_parallel_split_of_each_stage[idx]:
-            seq_start = 0
-            for l in j:
-                for k in range(context_parallel_size_of_each_stage[idx]):
-                    curr_stage_split[
-                        DataSlice((batch_start, batch_start + i), (seq_start, seq_start + l))
-                    ] = []
-                    seq_start += l
+        j = ring_context_parallel_split_of_each_stage[idx] // ulysses_context_parallel_size_of_each_stage[idx]
+        seq_start = 0
+        for k in range(ulysses_context_parallel_size_of_each_stage[idx]):
+            curr_stage_split[
+                DataSlice((batch_start, batch_start + i), (seq_start, seq_start + j))
+            ] = []
+            seq_start += j
         batch_start += i
 
     for rank in _ALL_PP_STAGE_RANKS[idx - 1]:
