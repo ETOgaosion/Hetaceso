@@ -64,7 +64,6 @@ GPT_ARGS="
     --num-attention-heads $NUM_ATTENTION_HEADS \
     --seq-length $SEQ_LENGTH \
     --max-position-embeddings $MAX_POSITION_EMBEDDINGS \
-    --micro-batch-size $MICRO_BATCH_SIZE \
     --global-batch-size $GLOBAL_BATCH_SIZE \
     --lr 0.00015 \
     --train-iters $TRAIN_ITERS \

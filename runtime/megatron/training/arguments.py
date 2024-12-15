@@ -249,8 +249,8 @@ def validate_args(args, defaults={}):
             setattr(args, key, defaults[key])
 
     # Batch size.
-    assert args.micro_batch_size is not None, '--micro-batch-size is needed in flexpipe'
-    assert args.micro_batch_size > 0
+    # assert args.micro_batch_size is not None, '--micro-batch-size is needed in flexpipe'
+    # assert args.micro_batch_size > 0
 
     assert args.global_batch_size is not None, '--global-batch-size is needed in flexpipe' 
     assert args.global_batch_size > 0
