@@ -78,6 +78,10 @@ class AcesoConfig:
     time_list: List[float] = field(default_factory=list)
     fwd_time_list: List[float] = field(default_factory=list)
     bwd_time_list: List[float] = field(default_factory=list)
+    tp_comm_time_list: List[float] = field(default_factory=list)
+    usp_comm_time_list: List[float] = field(default_factory=list)
+    rsp_comm_time_list: List[float] = field(default_factory=list)
+    dp_comm_time_list: List[float] = field(default_factory=list)
     
     memory_list: List[float] = field(default_factory=list)
     weight_size_list: List[float] = field(default_factory=list)

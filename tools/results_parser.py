@@ -22,7 +22,7 @@ excel_output_path = os.path.join(output_path, 'res.xlsx')
 model_sizes = ['350M', '1_3B', '2_6B', '6_7B', '13B']
 tests_num = [8, 8, 8, 8, 8]
 
-config_parser = re.compile(r'gpu_configs/(?P<model_size>[\d\_\w]+)/gpt_mbs(?P<mbs>\d+)_tp(?P<tp>\d+)_usp(?P<usp>\d+)_rsp(?P<rsp>\d+)_dp(?P<dp>\d+).json')
+config_parser = re.compile(r'gpu_configs/(?P<model_size>[\d\_\w]+)/gpt_mbs(?P<mbs>\d+)_tp(?P<tp>\d+)_usp(?P<usp>\d+)_rsp(?P<rsp>\d+)_dp(?P<dp>\d+)')
 
 estimate_result_total_time_parser = re.compile(r'total_time: (?P<total_time>\d.*\d)')
 estimate_result_fwd_time_parser = re.compile(r'fwd_time: (?P<fwd_time>\d.*\d)')
@@ -34,6 +34,7 @@ real_time_time_parser = re.compile(r'rank  0: (?P<time>\d.*\d)')
 real_time_memory_parser = re.compile(r'memory \(MB\) \| allocated: (?P<allocated>\d.*\d) \| max allocated: (?P<max_allocated>\d.*\d) \| reserved: (?P<reserved>\d.*\d) \| max reserved: (?P<max_reserved>\d.*\d)')
 
 def estimate_result_parser(file):
+    print(f'estimate_result_parser handling {file}')
     res = {
         "config": {
             "model_size": "",
@@ -61,12 +62,12 @@ def estimate_result_parser(file):
             ref_total_memory_re = estimate_result_ref_total_memory_parser.search(line)
             if config_re:
                 res["config"] = {
-                    "model_size": config_parser.group('model_size'),
-                    "mbs": int(config_parser.group('mbs')),
-                    "tp": int(config_parser.group('tp')),
-                    "usp": int(config_parser.group('usp')),
-                    "rsp": int(config_parser.group('rsp')),
-                    "dp": int(config_parser.group('dp')),
+                    "model_size": config_re.group('model_size'),
+                    "mbs": int(config_re.group('mbs')),
+                    "tp": int(config_re.group('tp')),
+                    "usp": int(config_re.group('usp')),
+                    "rsp": int(config_re.group('rsp')),
+                    "dp": int(config_re.group('dp')),
                 }
                 
             if total_time_re:
@@ -93,6 +94,7 @@ def estimate_results_parse_all(model_size_max):
     return results
 
 def realtime_result_times_parser(file):
+    print(f'realtime_result_times_parser handling {file}')
     res = {
         "data": {
             "forward-backward": 0.0,
@@ -111,6 +113,7 @@ def realtime_result_times_parser(file):
     return res
 
 def realtime_result_memory_parser(file):
+    print(f'realtime_result_memory_parser handling {file}')
     res = {
         "data": {
             "memory-max-allocated": 0.0,
@@ -125,6 +128,8 @@ def realtime_result_memory_parser(file):
                 "memory-max-allocated": float(memory_re.group('max_allocated')),
                 "memory-max-reserved": float(memory_re.group('max_reserved')),
             }
+    assert res["data"]["memory-max-allocated"] != 0.0, f'memory-max-allocated is 0.0'
+    assert res["data"]["memory-max-reserved"] != 0.0, f'memory-max-reserved is 0.0'
     return res
 
 def realtime_results_parse_all(model_size_max):
@@ -138,7 +143,7 @@ def realtime_results_parse_all(model_size_max):
         results["mem"][model_size] = []
         for test_i in range(tests_num[i]):
             time_res = realtime_result_times_parser(os.path.join(real_time_result_path, model_size, f'logs_{test_i}', 'times_iter5.log'))
-            mem_res = realtime_result_memory_parser(os.path.join(real_time_result_path, model_size, f'logs_{test_i}', 'times_iter5.log'))
+            mem_res = realtime_result_memory_parser(os.path.join(real_time_result_path, model_size, f'logs_{test_i}', 'memory_iter5_rank0.log'))
             results["time"][model_size].append(time_res)
             results["mem"][model_size].append(mem_res)
         if model_size == model_size_max:
@@ -152,18 +157,19 @@ def write_to_csv(data, file):
 
 def write_to_excel_sheet(data, sheet_name, excel_file):
     df = pandas.DataFrame(data)
-    writer = pandas.ExcelWriter(excel_file, engine='xlsxwriter', mode='a', if_sheet_exists='overlay')
+    writer = pandas.ExcelWriter(excel_file, engine='xlsxwriter')
     df.to_excel(writer, sheet_name=sheet_name, index=False)
     writer.save()
 
-def res_to_datas(res_estimate, res_realtime):
+def res_to_datas(res_estimate, res_realtime, max_model_size):
     datas = {}
     for model_size in model_sizes:
-        datas[model_size] = [["config", "type", "total_time", "fwd_time", "bwd_time", "memory_sum", "ref_total_memory"]]
+        datas[model_size] = [["config", "type", "total_time_theoretical", "total_time", "fwd_time", "bwd_time", "memory_sum", "ref_total_memory"]]
         for i in range(tests_num[model_sizes.index(model_size)]):
             datas[model_size].append([
                 f'mbs{res_estimate[model_size][i]["config"]["mbs"]}_tp{res_estimate[model_size][i]["config"]["tp"]}_usp{res_estimate[model_size][i]["config"]["usp"]}_rsp{res_estimate[model_size][i]["config"]["rsp"]}_dp{res_estimate[model_size][i]["config"]["dp"]}',
                 'modeling',
+                res_estimate[model_size][i]["data"]["fwd_time"] + res_estimate[model_size][i]["data"]["bwd_time"],
                 res_estimate[model_size][i]["data"]["total_time"],
                 res_estimate[model_size][i]["data"]["fwd_time"],
                 res_estimate[model_size][i]["data"]["bwd_time"],
@@ -173,12 +179,15 @@ def res_to_datas(res_estimate, res_realtime):
             datas[model_size].append([
                 f'mbs{res_estimate[model_size][i]["config"]["mbs"]}_tp{res_estimate[model_size][i]["config"]["tp"]}_usp{res_estimate[model_size][i]["config"]["usp"]}_rsp{res_estimate[model_size][i]["config"]["rsp"]}_dp{res_estimate[model_size][i]["config"]["dp"]}',
                 'realtime',
+                res_realtime["time"][model_size][i]["data"]["forward-compute"] + res_realtime["time"][model_size][i]["data"]["backward-compute"],
                 res_realtime["time"][model_size][i]["data"]["forward-backward"],
                 res_realtime["time"][model_size][i]["data"]["forward-compute"],
                 res_realtime["time"][model_size][i]["data"]["backward-compute"],
                 res_realtime["mem"][model_size][i]["data"]["memory-max-allocated"],
                 res_realtime["mem"][model_size][i]["data"]["memory-max-reserved"],
             ])
+        if model_size == max_model_size:
+            break
     return datas
 
 def main():
@@ -187,11 +196,13 @@ def main():
             max_model_size_re = parser_config_max_model_size_parser.search(line)
             if max_model_size_re:
                 max_model_size = max_model_size_re.group('max_model_size')
-    realtime_res = realtime_results_parse_all(max_model_size)
     estimate_res = estimate_results_parse_all(max_model_size)
-    datas = res_to_datas(estimate_res, realtime_res)
+    realtime_res = realtime_results_parse_all(max_model_size)
+    datas = res_to_datas(estimate_res, realtime_res, max_model_size)
     for model_size in model_sizes:
         write_to_csv(datas[model_size], os.path.join(output_path, f'{model_size}.csv'))
         write_to_excel_sheet(datas[model_size], model_size, excel_output_path)
+        if model_size == max_model_size:
+            break
 
 main()

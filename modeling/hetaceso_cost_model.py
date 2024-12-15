@@ -352,6 +352,8 @@ class HetacesoPerformanceModel:
                 if usp > 1:
                     assert cur_op_output_size in self.collective_time["all_to_all"][usp][rank], f'{op_name} {cur_op_output_size}'
                     usp_comm += self.collective_time["all_to_all"][usp][rank][cur_op_output_size]
+                if rsp > 1:
+                    rsp_comm += int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) // self.intra_node_band(rank, int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]))
             elif op_name == "dec-mlp":
                 '''
                 MLP
@@ -465,7 +467,7 @@ class HetacesoPerformanceModel:
 
         if print_detail:
             print(
-                f"Time(ms)=[{sum_time/1000 * num_micro_batches:.2f}]. fwd_compute = {fwd_comp * num_micro_batches / 1000 :.2f}, bwd_compute = {bwd_comp * num_micro_batches / 1000 :.2f}, in_comm_time = {in_comm * num_micro_batches / 1000 :.2f}, out_comm_time = {out_comm * num_micro_batches / 1000 :.2f}"
+                f"Time(ms)=[{sum_time/1000 * num_micro_batches:.2f}]. fwd_compute = {fwd_comp * num_micro_batches / 1000 :.2f}, bwd_compute = {bwd_comp * num_micro_batches / 1000 :.2f}, in_comm_time = {in_comm * num_micro_batches / 1000 :.2f}, out_comm_time = {out_comm * num_micro_batches / 1000 :.2f}, tp_comm_time = {tp_comm * num_micro_batches / 1000 :.2f}, usp_comm_time = {usp_comm * num_micro_batches / 1000 :.2f}, rsp_comm_time = {rsp_comm * num_micro_batches / 1000 :.2f}, dp_comm_time = {dp_comm * num_micro_batches / 1000 :.2f}"
             )
 
         ## return [ms]
@@ -473,6 +475,10 @@ class HetacesoPerformanceModel:
             sum_time / 1000 * num_micro_batches,
             fwd_comp / 1000 * num_micro_batches,
             bwd_comp / 1000 * num_micro_batches,
+            tp_comm / 1000 * num_micro_batches,
+            usp_comm / 1000 * num_micro_batches,
+            rsp_comm / 1000 * num_micro_batches,
+            dp_comm / 1000 * num_micro_batches,
         )
 
     def predict_stage_memory(
@@ -531,7 +537,7 @@ class HetacesoPerformanceModel:
         micro_batch_size = self.config.micro_bs
         num_micro_batches = self.config.global_bs // micro_batch_size
 
-        total_time, fwd_time, bwd_time = self.predict_stage_time(
+        total_time, fwd_time, bwd_time, tp_comm_time, usp_comm_time, rsp_comm_time, dp_comm_time = self.predict_stage_time(
             rank,
             num_micro_batches,
             in_cross_node,
@@ -548,6 +554,10 @@ class HetacesoPerformanceModel:
         self.config.time_list.append(total_time)
         self.config.fwd_time_list.append(fwd_time)
         self.config.bwd_time_list.append(bwd_time)
+        self.config.tp_comm_time_list.append(tp_comm_time)
+        self.config.usp_comm_time_list.append(usp_comm_time)
+        self.config.rsp_comm_time_list.append(rsp_comm_time)
+        self.config.dp_comm_time_list.append(dp_comm_time)
         
         self.config.memory_list.append(memory_sum)
         self.config.weight_size_list.append(weight_size)
@@ -562,6 +572,10 @@ class HetacesoPerformanceModel:
                     total_time: {total_time}\n \
                     fwd_time: {fwd_time}\n \
                     bwd_time: {bwd_time}\n \
+                    tp_comm_time: {tp_comm_time}\n \
+                    usp_comm_time: {usp_comm_time}\n \
+                    rsp_comm_time: {rsp_comm_time}\n \
+                    dp_comm_time: {dp_comm_time}\n \
                     memory_sum: {memory_sum}\n \
                     memory_weight: {weight_size}\n \
                     memory_weight_no_embed: {weight_size_no_embedding}\n \
@@ -588,6 +602,10 @@ class HetacesoPerformanceModel:
             print(f'self.config.time_list = {self.config.time_list}\n \
                     self.config.fwd_time_list = {self.config.fwd_time_list}\n \
                     self.config.bwd_time_list = {self.config.bwd_time_list}\n \
+                    self.config.tp_comm_time_list = {self.config.tp_comm_time_list}\n \
+                    self.config.usp_comm_time_list = {self.config.usp_comm_time_list}\n \
+                    self.config.rsp_comm_time_list = {self.config.rsp_comm_time_list}\n \
+                    self.config.dp_comm_time_list = {self.config.dp_comm_time_list}\n \
                     self.config.memory_list = {self.config.memory_list}\n \
                     self.config.weight_size_list = {self.config.weight_size_list}\n \
                     self.config.weight_size_no_embed_list = {self.config.weight_size_no_embed_list}\n \
