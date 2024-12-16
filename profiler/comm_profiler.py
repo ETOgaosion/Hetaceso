@@ -168,35 +168,49 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                 time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
                             elif collective_type == "all_to_all":
                                 if data_size % world_size == 0:
-                                    send_tensor = torch.ones(
+                                    send_tensors = [torch.ones(
                                         data_size, dtype=torch_data_type
-                                    ).cuda()
+                                    ).cuda()] * 3
                                 else:
                                     _data_size = (data_size // world_size) * world_size
-                                    send_tensor = torch.ones(
+                                    send_tensors = [torch.ones(
                                         _data_size, dtype=torch_data_type
-                                    ).cuda()
-                                for i in range(args.prof_warmup_times):
-                                    input_list = list(send_tensor.chunk(world_size, 0))
-                                    for idx, tensor in enumerate(input_list):
-                                        if not tensor.is_contiguous():
-                                            input_list[idx] = tensor.contiguous()
-                                    new_input_list = [
-                                        torch.empty_like(t) for t in input_list
-                                    ]
-                                    dist.all_to_all(new_input_list, input_list)
+                                    ).cuda()] * 3
+                                stream = torch.cuda.Stream()
+                                for _ in range(args.prof_warmup_times):
+                                    a2a_reqs = [None] * 3
+                                    for i in range(4):
+                                        if 0 <= i < 3:
+                                            send_tensor = send_tensors[i]
+                                            input_tensor = send_tensor.chunk(world_size, 0)
+                                            for idx, tensor in enumerate(input_list):
+                                                if not tensor.is_contiguous():
+                                                    input_list[idx] = tensor.contiguous()
+                                            output_tensor = torch.empty_like(input_tensor)
+                                            a2a_reqs[i] = dist.all_to_all_single(output_tensor, input_tensor, group=dist.group.WORLD, async_op=True)
+                                        if i > 0:
+                                            with torch.cuda.stream(stream):
+                                                a2a_reqs[i - 1].wait()
+                                torch.cuda.current_stream().wait_stream(stream)
+                                stream = torch.cuda.Stream()
                                 start = torch.cuda.Event(enable_timing=True)
                                 end = torch.cuda.Event(enable_timing=True)
                                 start.record()
-                                for i in range(args.prof_repeat_times):
-                                    input_list = list(send_tensor.chunk(world_size, 0))
-                                    for idx, tensor in enumerate(input_list):
-                                        if not tensor.is_contiguous():
-                                            input_list[idx] = tensor.contiguous()
-                                    new_input_list = [
-                                        torch.empty_like(t) for t in input_list
-                                    ]
-                                    dist.all_to_all(new_input_list, input_list)
+                                for _ in range(args.prof_repeat_times):
+                                    a2a_reqs = [None] * 3
+                                    for i in range(4):
+                                        if 0 <= i < 3:
+                                            send_tensor = send_tensors[i]
+                                            input_tensor = send_tensor.chunk(world_size, 0)
+                                            for idx, tensor in enumerate(input_list):
+                                                if not tensor.is_contiguous():
+                                                    input_list[idx] = tensor.contiguous()
+                                            output_tensor = torch.empty_like(input_tensor)
+                                            a2a_reqs[i] = dist.all_to_all_single(output_tensor, input_tensor, group=dist.group.WORLD, async_op=True)
+                                        if i > 0:
+                                            with torch.cuda.stream(stream):
+                                                a2a_reqs[i - 1].wait()
+                                torch.cuda.current_stream().wait_stream(stream)
                                 end.record()
                                 torch.cuda.synchronize()
                                 time_list.append(start.elapsed_time(end) / args.prof_repeat_times)

@@ -317,14 +317,14 @@ class HetacesoPerformanceModel:
                 '''
                 if tp > 1:
                     assert cur_op_output_size in self.collective_time["all_reduce"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    tp_comm += self.collective_time["all_reduce"][tp][rank][cur_op_output_size]
+                    tp_comm += self.collective_time["all_reduce"][tp][rank][cur_op_output_size] * 2
             elif op_name == "dec-post-process":
                 '''
                 TP: In theory like above
                 '''
                 if tp > 1:
                     assert cur_op_input_size in self.collective_time["all_reduce"][tp][rank], f'{op_name} {cur_op_input_size}'
-                    tp_comm += self.collective_time["all_reduce"][tp][rank][cur_op_input_size]
+                    tp_comm += self.collective_time["all_reduce"][tp][rank][cur_op_input_size] * 2
                 '''
                 DP: Need to allreduce gradients
                 - Grad Buffer Async and Overlappable: runtime/megatron/core/distributed/param_and_grad_buffer.py: 140, Bucket::start_gradient_sync
@@ -332,7 +332,7 @@ class HetacesoPerformanceModel:
                 '''
                 if dp > 1:
                     assert cur_op_input_size in self.collective_time["all_reduce"][dp][rank], f'{op_name} {cur_op_input_size}'
-                    dp_comm += self.collective_time["all_reduce"][dp][rank][cur_op_input_size]
+                    dp_comm += self.collective_time["all_reduce"][dp][rank][cur_op_input_size] * 2
             elif op_name == "dec-self-attention":
                 '''
                 Self attention
@@ -351,9 +351,9 @@ class HetacesoPerformanceModel:
                 '''
                 if usp > 1:
                     assert cur_op_output_size in self.collective_time["all_to_all"][usp][rank], f'{op_name} {cur_op_output_size}'
-                    usp_comm += self.collective_time["all_to_all"][usp][rank][cur_op_output_size]
+                    usp_comm += self.collective_time["all_to_all"][usp][rank][cur_op_output_size] * 4
                 if rsp > 1:
-                    rsp_comm += int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) // self.intra_node_band(rank, int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]))
+                    rsp_comm += int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) // self.intra_node_band(rank, int(self.output_size[op_name][cur_mbs][cur_seqlen][tp])) * 2
             elif op_name == "dec-mlp":
                 '''
                 MLP

@@ -34,7 +34,18 @@ MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 GLOBAL_BATCH_SIZE=1024
 
 TEST_NUM=${1:-0}
-TRAIN_ITERS=${2:-5}
+MACHINE=${2:-0}
+TRAIN_ITERS=${3:-5}
+
+if [[ $MACHINE -eq "0" ]]; then
+    export NCCL_SOCKET_IFNAME=eno2
+    export CUDA_VISIBLE_DEVICES=3,4,5,7
+elif [[ $MACHINE -eq "1" ]]; then
+    export NCCL_SOCKET_IFNAME=eno1
+elif [[ $MACHINE -eq "2" ]]; then
+    export NCCL_SOCKET_IFNAME=ens1f0
+    export CUDA_VISIBLE_DEVICES=3,4,5,6
+fi
 
 VOCAB_FILE=../../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../../vocabs/gpt2-merges.txt
