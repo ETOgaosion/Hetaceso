@@ -174,14 +174,19 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
                                     if i > 0:
                                         with torch.cuda.stream(stream):
                                             a2a_reqs[i - 1].wait()
+                            end.record()
                             torch.cuda.current_stream().wait_stream(stream)
                             torch.cuda.synchronize()
                             time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                            for tensor in send_tensors:
+                                tensor.cpu()
+                            output_tensor.cpu()
+                            send_tensor.cpu()
                             del send_tensors, output_tensor, send_tensor
+                            gc.collect()
+                            torch.cuda.empty_cache()
                         else:
                             raise RuntimeError(f"collective type {collective_type} not support.")
-                        gc.collect()
-                        torch.cuda.empty_cache()
                     except RuntimeError as e:
                         print(e)
                         time_list = [1000000 for _ in range(args.prof_repeat_times)]
