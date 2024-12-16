@@ -12,6 +12,13 @@ from megatron.training.theoretical_memory_usage import report_theoretical_memory
 from model_ops_info import get_op_list, get_full_op_list
 from hetaceso_utils import *
 
+configs = {
+    "tp": [1, 2, 1, 1, 2, 1, 1, 1],
+    "usp": [1, 1, 2, 1, 2, 2, 1, 4],
+    "rsp": [1, 1, 1, 2, 1, 2, 4, 1],
+    "dp": [4, 2, 2, 2, 1, 1, 1, 1],
+}
+
 class HetacesoPerformanceModel:
     def __init__(self, args, machine_topo, config, config_dict):
         self.args = args
@@ -216,26 +223,41 @@ class HetacesoPerformanceModel:
         '''
         self.collective_time = {"all_reduce": {}, "all_gather": {}, "reduce_scatter": {}, "all_to_all": {}}
         comm_prim_map = {"tp": ["all_reduce", "all_gather", "reduce_scatter"], "usp": ["all_to_all"], "rsp": ["all_reduce"], "dp": ["all_reduce"]}
-        for parallel in comm_prim_map.keys():
-            for prim in comm_prim_map[parallel]:
-                for num_gpus in comm_num_gpus_list_map[parallel]:
-                    if num_gpus not in self.collective_time[prim]:
-                        self.collective_time[prim][num_gpus] = {}
-                        for rank in comm_num_gpus_map_map[parallel][num_gpus]:
-                            self.collective_time[prim][num_gpus][rank] = {}
-                    else:
-                        continue
-                    for rank in comm_num_gpus_map_map[parallel][num_gpus]:
-                        src_data_file = f'{self.args.profiled_local_comm_path}rank{rank}/prim_{self.model_name}_{self.model_size}_{prim}_{num_gpus}gpus.csv'
-                        
-                        with open(src_data_file) as f:
-                            src_data = csv.reader(f)
-                            line_index = 0
-                            for row in src_data:
-                                line_index += 1
-                                if line_index > 1:
-                                    data_size = row[0]
-                                    self.collective_time[prim][num_gpus][rank][data_size]= float(row[1])
+        global configs
+        for cfg_i in range(len(configs["tp"])):
+            tp = configs["tp"][cfg_i]
+            usp = configs["usp"][cfg_i]
+            rsp = configs["rsp"][cfg_i]
+            dp = configs["dp"][cfg_i]
+            for prim in self.collective_time.keys():
+                if prim == "all_to_all":
+                    if (tp, usp) not in self.collective_time[prim]:
+                        self.collective_time[prim][(tp, usp)] = {}
+                    if rank not in self.collective_time[prim][(tp, usp)]:
+                        self.collective_time[prim][(tp, usp)][rank] = {}
+                    src_data_file = f'{self.args.profiled_local_comm_path}rank{rank}/prim_{self.model_name}_{self.model_size}_tp{tp}_cp{usp}_{prim}.csv'
+                    with open(src_data_file) as f:
+                        src_data = csv.reader(f)
+                        line_index = 0
+                        for row in src_data:
+                            line_index += 1
+                            if line_index > 1:
+                                data_size = row[0]
+                                self.collective_time[prim][(tp, usp)][rank][data_size]= float(row[1])
+                else:
+                    if (tp, usp, dp) not in self.collective_time[prim]:
+                        self.collective_time[prim][(tp, usp, dp)] = {}
+                    if rank not in self.collective_time[prim][(tp, usp, dp)]:
+                        self.collective_time[prim][(tp, usp, dp)][rank] = {}
+                    src_data_file = f'{self.args.profiled_local_comm_path}rank{rank}/prim_{self.model_name}_{self.model_size}_tp{tp}_cp{usp}_rsp{rsp}_dp{dp}_{prim}.csv'
+                    with open(src_data_file) as f:
+                        src_data = csv.reader(f)
+                        line_index = 0
+                        for row in src_data:
+                            line_index += 1
+                            if line_index > 1:
+                                data_size = row[0]
+                                self.collective_time[prim][(tp, usp, dp)][rank][data_size]= float(row[1])
 
         for rank in range(total_gpus):
             self.intra_band_file = f'{self.args.profiled_local_p2p_path}rank{rank}/p2p_intra_node.csv'
@@ -315,24 +337,19 @@ class HetacesoPerformanceModel:
                 Embedding layer need all-reduce output 
                 runtime/megatron/core/tensor_parallel/layers.py: 228, VocabParallelEmbedding::forward
                 '''
-                if tp > 1:
-                    assert cur_op_output_size in self.collective_time["all_reduce"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    tp_comm += self.collective_time["all_reduce"][tp][rank][cur_op_output_size] * 2
+                pass
             elif op_name == "dec-post-process":
                 '''
                 TP: In theory like above
                 '''
-                if tp > 1:
-                    assert cur_op_input_size in self.collective_time["all_reduce"][tp][rank], f'{op_name} {cur_op_input_size}'
-                    tp_comm += self.collective_time["all_reduce"][tp][rank][cur_op_input_size] * 2
                 '''
                 DP: Need to allreduce gradients
                 - Grad Buffer Async and Overlappable: runtime/megatron/core/distributed/param_and_grad_buffer.py: 140, Bucket::start_gradient_sync
                 - Model Grad not overlappable: runtime/megatron/core/distributed/finalize_model_grads.py
                 '''
                 if dp > 1:
-                    assert cur_op_input_size in self.collective_time["all_reduce"][dp][rank], f'{op_name} {cur_op_input_size}'
-                    dp_comm += self.collective_time["all_reduce"][dp][rank][cur_op_input_size] * 2
+                    assert cur_op_input_size in self.collective_time["all_reduce"][(tp, usp, dp)][rank], f'{op_name} {cur_op_input_size}'
+                    dp_comm += self.collective_time["all_reduce"][(tp, usp, dp)][rank][cur_op_input_size] * 2
             elif op_name == "dec-self-attention":
                 '''
                 Self attention
@@ -340,18 +357,14 @@ class HetacesoPerformanceModel:
                 runtime/megatron/core/tensor_parallel/layers.py: 826, ColumnParallelLinear::forward
                 - Dropout need 1 RowParallelLinear layer, thus forward: 1 all-reduce, backward: 1 all-gather
                 '''
-                if tp > 1:
-                    assert cur_op_output_size in self.collective_time["all_gather"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    assert cur_op_output_size in self.collective_time["all_reduce"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    tp_comm += (self.collective_time["all_gather"][tp][rank][cur_op_output_size] + self.collective_time["all_reduce"][tp][rank][cur_op_output_size]) * 4
                 '''
                 CP:
                 - USP: In TE's implementation, USP QKV communication can overlap with each other, thus only need to consider 1 all-to-all
                 - RSP: In most case rsp can overlap with calculation
                 '''
                 if usp > 1:
-                    assert cur_op_output_size in self.collective_time["all_to_all"][usp][rank], f'{op_name} {cur_op_output_size}'
-                    usp_comm += self.collective_time["all_to_all"][usp][rank][cur_op_output_size] * 4
+                    assert cur_op_output_size in self.collective_time["all_to_all"][(tp, usp)][rank], f'{op_name} {cur_op_output_size}'
+                    usp_comm += self.collective_time["all_to_all"][(tp, usp)][rank][cur_op_output_size] * 4
                 if rsp > 1:
                     rsp_comm += int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) // self.intra_node_band(rank, int(self.output_size[op_name][cur_mbs][cur_seqlen][tp])) * 2
             elif op_name == "dec-mlp":
@@ -359,10 +372,7 @@ class HetacesoPerformanceModel:
                 MLP
                 MLP need 1 ColumnParallelLinear, 1 RowParallelLinear
                 '''
-                if tp > 1:
-                    assert cur_op_output_size in self.collective_time["all_gather"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    assert cur_op_output_size in self.collective_time["all_reduce"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    tp_comm += (self.collective_time["all_gather"][tp][rank][cur_op_output_size] + self.collective_time["all_reduce"][tp][rank][cur_op_output_size]) * 2
+                pass
             else:
                 raise RuntimeError(f"unknown op_name {op_name}")
 

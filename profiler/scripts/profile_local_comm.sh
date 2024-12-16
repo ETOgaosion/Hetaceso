@@ -33,25 +33,20 @@ elif [[ $MACHINE -eq "2" ]]; then
     export NCCL_SOCKET_IFNAME=ens1f0
 fi
 
-for ((num_gpus=2; num_gpus<=$MAX_NUM_GPUS; num_gpus=num_gpus*2))
-do
-    echo [TIME] before profiling communication ${num_gpus}-gpus : $(date '+%Y-%m-%d-%H-%M-%S')
-    echo [TIME] before profiling communication ${num_gpus}-gpus : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
+echo [TIME] before profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m-%d-%H-%M-%S')
+echo [TIME] before profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
 
-    python3 comm_profiler.py \
-        --prof-path $PROFILING_PATH \
-        --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_comm_profile.pkl \
-        --prof-op-time-path $PROFILING_OP_TIME_PATH \
-        --prof-tp-size $num_gpus \
-        --prof-model-name $MODEL_NAME \
-        --prof-model-size $MODEL_SIZE \
-        --prof-warmup-times 20 \
-        --prof-repeat-times 100 \
-        --max-num-gpus $MAX_NUM_GPUS \
-        --max-data-size 4096 \
-        2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_comm${num_gpus}gpus.log
+python3 comm_profiler.py \
+    --prof-path $PROFILING_PATH \
+    --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_comm_profile.pkl \
+    --prof-op-time-path $PROFILING_OP_TIME_PATH \
+    --prof-model-name $MODEL_NAME \
+    --prof-model-size $MODEL_SIZE \
+    --prof-warmup-times 20 \
+    --prof-repeat-times 100 \
+    --max-num-gpus $MAX_NUM_GPUS \
+    --max-data-size 51200 \
+    2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_comm${MAX_NUM_GPUS}gpus.log
 
-    echo [TIME] after profiling communication ${num_gpus}-gpus : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
-    echo [TIME] after profiling communication ${num_gpus}-gpus : $(date '+%Y-%m-%d-%H-%M-%S')
-
-done
+echo [TIME] after profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
+echo [TIME] after profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m-%d-%H-%M-%S')

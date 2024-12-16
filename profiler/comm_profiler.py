@@ -11,6 +11,12 @@ import pickle
 import argparse
 from model_configs import model_prof_configs
 
+configs = {
+    "tp": [1, 2, 1, 1, 2, 1, 1, 1],
+    "usp": [1, 1, 2, 1, 2, 2, 1, 4],
+    "rsp": [1, 1, 1, 2, 1, 2, 4, 1],
+    "dp": [4, 2, 2, 2, 1, 1, 1, 1],
+}
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -20,13 +26,18 @@ def parse_args():
     parser.add_argument(
         "--prof-tp-size", type=int, default=None, help="Profiler tp size."
     )
+    parser.add_argument(
+        "--prof-cp-size", type=int, default=None, help="Profiler cp size."
+    )
+    parser.add_argument(
+        "--prof-dp-size", type=int, default=None, help="Profiler dp size."
+    )
     parser.add_argument("--prof-path", type=str, default=None, help="")
     parser.add_argument("--prof-cache-file", type=str, default=None, help="")
     parser.add_argument("--prof-model-name", type=str, default="all", help="")
     parser.add_argument("--prof-model-size", type=str, default="all", help="")
     parser.add_argument("--prof-warmup-times", type=int, default=0, help="")
     parser.add_argument("--prof-repeat-times", type=int, default=1, help="")
-    parser.add_argument("--prof-skip-running", action="store_true", help="")
     parser.add_argument("--prof-op-time-path", type=str, default=None, help="")
     parser.add_argument("--max-num-gpus", type=int, default=4, help="")
     parser.add_argument("--max-data-size", type=int, default=4096, help="")
@@ -47,15 +58,21 @@ def print_cached_dicts(cached_dict):
         print(f"{item}: {cached_dict[item]}")
 
 
-def run(rank, base, world_size, data_size_list, model, size, torch_data_type):
+def profile_cp(rank, initialize, world_size, tp_size, cp_size, data_size_list, model, size, torch_data_type):
     args = parse_args()
-    init_method = "tcp://"
-    master_ip = os.getenv("MASTER_ADDR", "localhost")
-    master_port = os.getenv("MASTER_PORT", "6000")
-    init_method += master_ip + ":" + master_port
-    dist.init_process_group(
-        backend="nccl", world_size=world_size, rank=rank+base, init_method=init_method
-    )
+    if initialize:
+        init_method = "tcp://"
+        master_ip = os.getenv("MASTER_ADDR", "localhost")
+        master_port = os.getenv("MASTER_PORT", "6000")
+        init_method += master_ip + ":" + master_port
+        dist.init_process_group(
+            backend="nccl", world_size=world_size, rank=rank, init_method=init_method
+        )
+        print(f'rank {rank} initialized', flush=True)
+    cp_group_start = rank // (tp_size * cp_size) * (tp_size * cp_size)
+    cp_group_end = cp_group_start + tp_size * cp_size
+    cp_group = dist.new_group(list(range(cp_group_start, cp_group_end, tp_size)))
+    print(f'rank {rank} cp_group_start: {cp_group_start}, cp_group_end: {cp_group_end}', flush=True)
 
     if os.path.exists(args.prof_cache_file):
         cached_results = pickle.load(open(args.prof_cache_file, "rb"))
@@ -73,14 +90,14 @@ def run(rank, base, world_size, data_size_list, model, size, torch_data_type):
 
     if model == "gpt":
         collectives = ["all_to_all"]
-        # collectives = ["all_gather", "all_reduce", "reduce_scatter", "all_to_all"]
     else:
         raise RuntimeError(f"Model {model} is not supported.")
 
     for collective_type in collectives:
         avg_time_list = {}
-        print_rank0(
-            f"Start profiling {collective_type}... len(data_size_list) = {len(data_size_list)}"
+        dist.barrier()
+        print(
+            f"{dist.get_rank()} Start profiling {collective_type}... len(data_size_list) = {len(data_size_list)}", flush=True
         )
         for data_size in data_size_list:
             data_size_in_mb = int(data_size * mb_per_item)
@@ -91,11 +108,11 @@ def run(rank, base, world_size, data_size_list, model, size, torch_data_type):
 
             if data_size_in_mb not in avg_time_list:
                 print(
-                    f"[rank {rank + base}] {model}_{size} profiling {collective_type} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB)...\n"
+                    f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} cp{cp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB)...\n", flush=True
                 )
-                hash_name = f"{collective_type}_{world_size}gpus_{data_size_in_mb}_{torch_data_type}"
+                hash_name = f"{collective_type}_tp{tp_size}_cp{cp_size}_{data_size_in_mb}_{torch_data_type}"
                 if hash_name in profiled_results:
-                    print_rank0(f"hit in cache!")
+                    print(f"hit in cache!", flush=True)
                     avg_time_list[data_size_in_mb] = profiled_results[hash_name]
                 elif full_data_size_in_mb > args.max_data_size:
                     avg_time_list[data_size_in_mb] = 1000000000
@@ -103,109 +120,48 @@ def run(rank, base, world_size, data_size_list, model, size, torch_data_type):
                     time_list = []
 
                     try:
-                        if not args.prof_skip_running:
-                            if collective_type == "all_gather":
-                                send_tensor = torch.ones(
+                        if collective_type == "all_to_all":
+                            if data_size % world_size == 0:
+                                send_tensors = [torch.ones(
                                     data_size, dtype=torch_data_type
-                                ).cuda()
-                                tensor_list = [
-                                    torch.zeros(data_size, dtype=torch_data_type).cuda()
-                                    for _ in range(world_size)
-                                ]
-                                for i in range(args.prof_warmup_times):
-                                    dist.all_gather(tensor_list, send_tensor)
-                                start = torch.cuda.Event(enable_timing=True)
-                                end = torch.cuda.Event(enable_timing=True)
-                                start.record()
-                                for i in range(args.prof_repeat_times):
-                                    dist.all_gather(tensor_list, send_tensor)
-                                end.record()
-                                torch.cuda.synchronize()
-                                time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
-                            elif collective_type == "all_reduce":
-                                send_tensor = torch.ones(
-                                    data_size, dtype=torch_data_type
-                                ).cuda()
-                                for i in range(args.prof_warmup_times):
-                                    dist.all_reduce(send_tensor)
-                                start = torch.cuda.Event(enable_timing=True)
-                                end = torch.cuda.Event(enable_timing=True)
-                                start.record()
-                                for i in range(args.prof_repeat_times):
-                                    dist.all_reduce(send_tensor)
-                                end.record()
-                                torch.cuda.synchronize()
-                                time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
-                            elif collective_type == "reduce_scatter":
-                                if data_size % world_size == 0:
-                                    send_tensor = torch.ones(
-                                        data_size, dtype=torch_data_type
-                                    ).cuda()
-                                else:
-                                    _data_size = (data_size // world_size) * world_size
-                                    send_tensor = torch.ones(
-                                        _data_size, dtype=torch_data_type
-                                    ).cuda()
-                                for i in range(args.prof_warmup_times):
-                                    input_list = list(send_tensor.chunk(world_size, 0))
-                                    for idx, tensor in enumerate(input_list):
-                                        if not tensor.is_contiguous():
-                                            input_list[idx] = tensor.contiguous()
-                                    new_input_ = torch.empty_like(input_list[0])
-                                    dist.reduce_scatter(new_input_, input_list)
-                                start = torch.cuda.Event(enable_timing=True)
-                                end = torch.cuda.Event(enable_timing=True)
-                                start.record()
-                                for i in range(args.prof_repeat_times):
-                                    input_list = list(send_tensor.chunk(world_size, 0))
-                                    for idx, tensor in enumerate(input_list):
-                                        if not tensor.is_contiguous():
-                                            input_list[idx] = tensor.contiguous()
-                                    new_input_ = torch.empty_like(input_list[0])
-                                    dist.reduce_scatter(new_input_, input_list)
-                                end.record()
-                                torch.cuda.synchronize()
-                                time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
-                            elif collective_type == "all_to_all":
-                                if data_size % world_size == 0:
-                                    send_tensors = [torch.ones(
-                                        data_size, dtype=torch_data_type
-                                    ).cuda()] * 3
-                                else:
-                                    _data_size = (data_size // world_size) * world_size
-                                    send_tensors = [torch.ones(
-                                        _data_size, dtype=torch_data_type
-                                    ).cuda()] * 3
-                                stream = torch.cuda.Stream()
-                                for _ in range(args.prof_warmup_times):
-                                    a2a_reqs = [None] * 3
-                                    for i in range(4):
-                                        if 0 <= i < 3:
-                                            send_tensor = send_tensors[i]
-                                            output_tensor = torch.empty_like(send_tensor)
-                                            a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=dist.group.WORLD, async_op=True)
-                                        if i > 0:
-                                            with torch.cuda.stream(stream):
-                                                a2a_reqs[i - 1].wait()
-                                torch.cuda.current_stream().wait_stream(stream)
-                                torch.cuda.synchronize()
-                                stream = torch.cuda.Stream()
-                                start = torch.cuda.Event(enable_timing=True)
-                                end = torch.cuda.Event(enable_timing=True)
-                                start.record()
-                                for _ in range(args.prof_repeat_times):
-                                    a2a_reqs = [None] * 3
-                                    for i in range(4):
-                                        if 0 <= i < 3:
-                                            send_tensor = send_tensors[i]
-                                            output_tensor = torch.empty_like(send_tensor)
-                                            a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=dist.group.WORLD, async_op=True)
-                                        if i > 0:
-                                            with torch.cuda.stream(stream):
-                                                a2a_reqs[i - 1].wait()
-                                torch.cuda.current_stream().wait_stream(stream)
-                                torch.cuda.synchronize()
-                                time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                                ).cuda()] * 3
+                            else:
+                                _data_size = (data_size // world_size) * world_size
+                                send_tensors = [torch.ones(
+                                    _data_size, dtype=torch_data_type
+                                ).cuda()] * 3
+                            stream = torch.cuda.Stream()
+                            for _ in range(args.prof_warmup_times):
+                                a2a_reqs = [None] * 3
+                                for i in range(4):
+                                    if 0 <= i < 3:
+                                        send_tensor = send_tensors[i]
+                                        output_tensor = torch.empty_like(send_tensor)
+                                        a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=cp_group, async_op=True)
+                                    if i > 0:
+                                        with torch.cuda.stream(stream):
+                                            a2a_reqs[i - 1].wait()
+                            torch.cuda.current_stream().wait_stream(stream)
+                            torch.cuda.synchronize()
+                            stream = torch.cuda.Stream()
+                            start = torch.cuda.Event(enable_timing=True)
+                            end = torch.cuda.Event(enable_timing=True)
+                            start.record()
+                            for _ in range(args.prof_repeat_times):
+                                a2a_reqs = [None] * 3
+                                for i in range(4):
+                                    if 0 <= i < 3:
+                                        send_tensor = send_tensors[i]
+                                        output_tensor = torch.empty_like(send_tensor)
+                                        a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=cp_group, async_op=True)
+                                    if i > 0:
+                                        with torch.cuda.stream(stream):
+                                            a2a_reqs[i - 1].wait()
+                            torch.cuda.current_stream().wait_stream(stream)
+                            torch.cuda.synchronize()
+                            time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                        else:
+                            raise RuntimeError(f"collective type {collective_type} not support.")
                     except RuntimeError as e:
                         print(e)
                         time_list = [1000000 for _ in range(args.prof_repeat_times)]
@@ -219,11 +175,171 @@ def run(rank, base, world_size, data_size_list, model, size, torch_data_type):
         if rank == 0:
             for data_size_in_mb in avg_time_list:
                 print(
-                    f"[{collective_type}] {data_size_in_mb} MB: {avg_time_list[data_size_in_mb]:.2f} ms"
+                    f"[{collective_type}] {data_size_in_mb} MB: {avg_time_list[data_size_in_mb]:.2f} ms", flush=True
                 )
             result_title = ["data_size(MB)", "time(ms)"]
             save_file_name = (
-                f"prim_{model}_{size}_{collective_type}_{world_size}gpus.csv"
+                f"prim_{model}_{size}_tp{tp_size}_cp{cp_size}_{collective_type}.csv"
+            )
+            f_result = open(args.prof_path + save_file_name, "w")
+            f_csv = csv.writer(f_result)
+            f_csv.writerow(result_title)
+            for data_size_in_mb in avg_time_list:
+                tmp_row = [0, 0]
+                tmp_row[0] = "{:.0f}".format(data_size_in_mb)
+                tmp_row[1] = "{:.3f}".format(float(avg_time_list[data_size_in_mb]))
+                f_csv.writerow(tmp_row)
+
+    if rank == 0:
+        save_dict = {}
+        save_dict["profiled_results"] = profiled_results
+        pickle.dump(save_dict, open(args.prof_cache_file, "wb"))
+
+
+def profile_dp(rank, initialize, world_size, tp_size, cp_size, dp_size, data_size_list, model, size, torch_data_type):
+    args = parse_args()
+    if initialize:
+        init_method = "tcp://"
+        master_ip = os.getenv("MASTER_ADDR", "localhost")
+        master_port = os.getenv("MASTER_PORT", "6000")
+        init_method += master_ip + ":" + master_port
+        dist.init_process_group(
+            backend="nccl", world_size=world_size, rank=rank, init_method=init_method
+        )
+        print(f'rank {rank} initialized', flush=True)
+    dp_group_start = rank // (tp_size * cp_size * dp_size) * (tp_size * cp_size * dp_size)
+    dp_group_end = dp_group_start + tp_size * cp_size * dp_size
+    dp_group = dist.new_group(list(range(dp_group_start, dp_group_end, tp_size * cp_size)))
+    print(f'rank {rank} dp_group_start: {dp_group_start}, dp_group_end: {dp_group_end}', flush=True)
+
+    if os.path.exists(args.prof_cache_file):
+        cached_results = pickle.load(open(args.prof_cache_file, "rb"))
+        profiled_results = cached_results["profiled_results"]
+    else:
+        profiled_results = {}
+
+    torch.cuda.set_device(rank)
+    if torch_data_type == torch.float:
+        mb_per_item = 4 / (1024 * 1024)
+    elif torch_data_type == torch.half:
+        mb_per_item = 2 / (1024 * 1024)
+    else:
+        raise RuntimeError(f"type {torch_data_type} not support.")
+
+    if model == "gpt":
+        collectives = ["all_gather", "all_reduce", "reduce_scatter"]
+    else:
+        raise RuntimeError(f"Model {model} is not supported.")
+
+    for collective_type in collectives:
+        avg_time_list = {}
+        print(
+            f"{dist.get_rank()} Start profiling {collective_type}... len(data_size_list) = {len(data_size_list)}", flush=True
+        )
+        dist.barrier()
+        for data_size in data_size_list:
+            data_size_in_mb = int(data_size * mb_per_item)
+            if collective_type in ["all_gather", "all_to_all"]:
+                full_data_size_in_mb = data_size_in_mb * world_size
+            elif collective_type in ["all_reduce", "reduce_scatter"]:
+                full_data_size_in_mb = data_size_in_mb
+
+            if data_size_in_mb not in avg_time_list:
+                print(
+                    f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} cp{cp_size} dp{dp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB)...\n", flush=True
+                )
+                hash_name = f"{collective_type}_tp{tp_size}_cp{cp_size}_dp{dp_size}_{data_size_in_mb}_{torch_data_type}"
+                if hash_name in profiled_results:
+                    print_rank0(f"hit in cache!")
+                    avg_time_list[data_size_in_mb] = profiled_results[hash_name]
+                elif full_data_size_in_mb > args.max_data_size:
+                    avg_time_list[data_size_in_mb] = 1000000000
+                else:
+                    time_list = []
+
+                    try:
+                        if collective_type == "all_gather":
+                            send_tensor = torch.ones(
+                                data_size, dtype=torch_data_type
+                            ).cuda()
+                            tensor_list = [
+                                torch.zeros(data_size, dtype=torch_data_type).cuda()
+                                for _ in range(world_size)
+                            ]
+                            for i in range(args.prof_warmup_times):
+                                dist.all_gather(tensor_list, send_tensor, group=dp_group)
+                            start = torch.cuda.Event(enable_timing=True)
+                            end = torch.cuda.Event(enable_timing=True)
+                            start.record()
+                            for i in range(args.prof_repeat_times):
+                                dist.all_gather(tensor_list, send_tensor, group=dp_group)
+                            end.record()
+                            torch.cuda.synchronize()
+                            time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                        elif collective_type == "all_reduce":
+                            send_tensor = torch.ones(
+                                data_size, dtype=torch_data_type
+                            ).cuda()
+                            for i in range(args.prof_warmup_times):
+                                dist.all_reduce(send_tensor, group=dp_group)
+                            start = torch.cuda.Event(enable_timing=True)
+                            end = torch.cuda.Event(enable_timing=True)
+                            start.record()
+                            for i in range(args.prof_repeat_times):
+                                dist.all_reduce(send_tensor, group=dp_group)
+                            end.record()
+                            torch.cuda.synchronize()
+                            time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                        elif collective_type == "reduce_scatter":
+                            if data_size % world_size == 0:
+                                send_tensor = torch.ones(
+                                    data_size, dtype=torch_data_type
+                                ).cuda()
+                            else:
+                                _data_size = (data_size // world_size) * world_size
+                                send_tensor = torch.ones(
+                                    _data_size, dtype=torch_data_type
+                                ).cuda()
+                            for i in range(args.prof_warmup_times):
+                                input_list = list(send_tensor.chunk(world_size, 0))
+                                for idx, tensor in enumerate(input_list):
+                                    if not tensor.is_contiguous():
+                                        input_list[idx] = tensor.contiguous()
+                                new_input_ = torch.empty_like(input_list[0])
+                                dist.reduce_scatter(new_input_, input_list, group=dp_group)
+                            start = torch.cuda.Event(enable_timing=True)
+                            end = torch.cuda.Event(enable_timing=True)
+                            start.record()
+                            for i in range(args.prof_repeat_times):
+                                input_list = list(send_tensor.chunk(world_size, 0))
+                                for idx, tensor in enumerate(input_list):
+                                    if not tensor.is_contiguous():
+                                        input_list[idx] = tensor.contiguous()
+                                new_input_ = torch.empty_like(input_list[0])
+                                dist.reduce_scatter(new_input_, input_list, group=dp_group)
+                            end.record()
+                            torch.cuda.synchronize()
+                            time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                        else:
+                            raise RuntimeError(f"collective {collective_type} not support.")
+                    except RuntimeError as e:
+                        print(e)
+                        time_list = [1000000 for _ in range(args.prof_repeat_times)]
+
+                    avg_time_list[data_size_in_mb] = (
+                        sum(time_list) / args.prof_repeat_times
+                    )
+                    profiled_results[hash_name] = (
+                        sum(time_list) / args.prof_repeat_times
+                    )
+        if rank == 0:
+            for data_size_in_mb in avg_time_list:
+                print(
+                    f"[{collective_type}] {data_size_in_mb} MB: {avg_time_list[data_size_in_mb]:.2f} ms", flush=True
+                )
+            result_title = ["data_size(MB)", "time(ms)"]
+            save_file_name = (
+                f"prim_{model}_{size}_tp{tp_size}_cp{cp_size}_dp{dp_size}_{collective_type}.csv"
             )
             f_result = open(args.prof_path + save_file_name, "w")
             f_csv = csv.writer(f_result)
@@ -243,6 +359,7 @@ def run(rank, base, world_size, data_size_list, model, size, torch_data_type):
 def run_profile(task):
     model = task["model"]
     size = task["size"]
+    world_size = args.max_num_gpus
     if args.prof_mbs_list is None:
         if isinstance(model_prof_configs[model]["mbs"], dict):
             mbs_list = model_prof_configs[model]["mbs"][size]
@@ -257,7 +374,10 @@ def run_profile(task):
             seqlen_list = model_prof_configs[model]["seqlen"]
 
     data_type = model_prof_configs[model]["dtype"]
-    tp_size_list = [1]
+    tp_size_list = []
+    for tp in configs["tp"]:
+        if tp not in tp_size_list:
+            tp_size_list.append(tp)
 
     if data_type == "fp16":
         torch_data_type = torch.half
@@ -291,16 +411,31 @@ def run_profile(task):
                 else:
                     print(f"file {file_name} not exist.")
 
-    ctx = []
-    for i in range(args.max_num_gpus // args.prof_tp_size):
-        ctx.append(torch.multiprocessing.spawn(
-            run,
-            args=(i * args.prof_tp_size, args.prof_tp_size, data_size_list, model, size, torch_data_type),
-            nprocs=args.prof_tp_size,
-        ))
-    
-    for i in range(args.max_num_gpus // args.prof_tp_size):
-        ctx[i].join()
+    # global configs
+    initialized = False
+    for i in range(len(configs["tp"])):
+        tp_size = configs["tp"][i]
+        usp_size = configs["usp"][i]
+        dp_size = configs["dp"][i]
+        print(f"tp_size: {tp_size}, usp_size: {usp_size}, dp_size: {dp_size}")
+        if usp_size > 1:
+            torch.multiprocessing.spawn(
+                profile_cp,
+                args=(not initialized, world_size, tp_size, usp_size, data_size_list, model, size, torch_data_type),
+                nprocs=world_size,
+                join=True,
+            )
+            if not initialized:
+                initialized = True
+        if dp_size > 1:
+            torch.multiprocessing.spawn(
+                profile_dp,
+                args=(not initialized, world_size, tp_size, usp_size, dp_size, data_size_list, model, size, torch_data_type),
+                nprocs=world_size,
+                join=True,
+            )
+            if not initialized:
+                initialized = True
 
 
 if __name__ == "__main__":
