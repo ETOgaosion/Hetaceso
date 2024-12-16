@@ -395,7 +395,8 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
         raise RuntimeError(f"type {torch_data_type} not support.")
 
     if model == "gpt":
-        collectives = ["all_gather", "all_reduce", "reduce_scatter"]
+        collectives = ["all_reduce"]
+        # collectives = ["all_gather", "all_reduce", "reduce_scatter"]
     else:
         raise RuntimeError(f"Model {model} is not supported.")
 
@@ -427,16 +428,8 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                     time_list = []
 
                     try:
-                        if collective_type == "all_gather":
-                            time_list.append(all_gather_single(args, data_size, world_size, torch_data_type, dp_group))
-                            gc.collect()
-                            torch.cuda.empty_cache()
-                        elif collective_type == "all_reduce":
+                        if collective_type == "all_reduce":
                             time_list.append(all_reduce_single(args, data_size, torch_data_type, dp_group))
-                            gc.collect()
-                            torch.cuda.empty_cache()
-                        elif collective_type == "reduce_scatter":
-                            time_list.append(reduce_scatter_single(args, data_size, world_size, torch_data_type, dp_group, dp_size))
                             gc.collect()
                             torch.cuda.empty_cache()
                         else:
