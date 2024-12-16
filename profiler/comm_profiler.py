@@ -109,13 +109,13 @@ def get_num_item_per_mb(torch_data_type):
         raise RuntimeError(f"data type {torch_data_type} not support.")
     return num_item_per_mb
 
-def load_data_size_list(torch_data_type, tp, cp, dp, model_size, cfg_i):
+def load_data_size_list(args, torch_data_type, tp, cp, dp, model_size, cfg_i):
     data_size_list = []
     seq_len = gpt_configs[model_size][1] // cp
     mbs = configs["mbs"][model_size][cfg_i] // dp
     file_name = (
         args.prof_op_time_path
-        + f"{model}_{size}_mbs{mbs}_seqlen{seq_len}_tp{tp}.csv"
+        + f"{model}_{model_size}_mbs{mbs}_seqlen{seq_len}_tp{tp}.csv"
     )
     print(file_name)
     num_item_per_mb = get_num_item_per_mb(torch_data_type)
@@ -506,7 +506,7 @@ def run_profile(task):
         tp_size = configs["tp"][i]
         usp_size = configs["usp"][i]
         dp_size = configs["dp"][i]
-        data_size_list = load_data_size_list(torch_data_type, tp_size, usp_size, dp_size, size, i)
+        data_size_list = load_data_size_list(args, torch_data_type, tp_size, usp_size, dp_size, size, i)
         print(f"tp_size: {tp_size}, usp_size: {usp_size}, dp_size: {dp_size}")
         if usp_size > 1:
             torch.multiprocessing.spawn(
