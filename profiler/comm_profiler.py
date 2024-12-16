@@ -152,7 +152,8 @@ def all_to_all_single(args, data_size, world_size, torch_data_type, cp_group):
                 a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=cp_group, async_op=True)
             if i > 0:
                 with torch.cuda.stream(stream):
-                    a2a_reqs[i - 1].wait()
+                    if a2a_reqs[i - 1]:
+                        a2a_reqs[i - 1].wait()
     torch.cuda.current_stream().wait_stream(stream)
     torch.cuda.synchronize()
     stream = torch.cuda.Stream()
