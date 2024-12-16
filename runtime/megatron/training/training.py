@@ -736,6 +736,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         "TEFlashAttnBwd",
         "RingAttnFwdWait",
         "RingAttnBwdWait",
+        "self-attention-forward-outside"
         ]
 
     # Calculate batch size.
@@ -961,6 +962,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     """Train the model function."""
     args = get_args()
     timers = get_timers()
+    # timers = None
 
     # Write args to tensorboard
     write_args_to_tensorboard()
@@ -990,7 +992,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
     # Setup some training config params
     config.grad_scale_func = optimizer.scale_loss
-    config.timers = timers
+    # config.timers = timers
+    config.timers = None
     if isinstance(model[0], DDP) and args.overlap_grad_reduce:
         assert config.no_sync_func is None, \
             ('When overlap_grad_reduce is True, config.no_sync_func must be None; '
@@ -1008,8 +1011,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         if len(model) == 1:
             config.param_sync_func = config.param_sync_func[0]
     config.finalize_model_grads_func = finalize_model_grads
-
-    timers('interval-time', log_level=0).start(barrier=True)
+    if timers is not None:
+        timers('interval-time', log_level=0).start(barrier=True)
     print_datetime('before the start of training step')
     exit = False
 

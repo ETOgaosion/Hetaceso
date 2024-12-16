@@ -157,7 +157,6 @@ def forward_step(
     is_first_microbatch=False,
     extra_tensors=None,
 ):
-
     """Forward step for passed-in model.
 
     If first stage, input tensor is obtained from data_iterator, otherwise

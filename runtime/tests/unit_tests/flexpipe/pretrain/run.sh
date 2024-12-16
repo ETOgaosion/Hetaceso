@@ -13,12 +13,12 @@ NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 # fixed Model related configuration here, pls not overlap with json config
-HIDDEN_SIZE=1024
-NUM_ATTENTION_HEADS=16
-SEQ_LENGTH=1024
+HIDDEN_SIZE=2048
+NUM_ATTENTION_HEADS=32
+SEQ_LENGTH=2048
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
-MICRO_BATCH_SIZE=4
-GLOBAL_BATCH_SIZE=16
+MICRO_BATCH_SIZE=8
+GLOBAL_BATCH_SIZE=1024
 
 
 VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
@@ -49,7 +49,7 @@ GPT_ARGS="
     --micro-batch-size $MICRO_BATCH_SIZE \
     --global-batch-size $GLOBAL_BATCH_SIZE \
     --lr 0.00015 \
-    --train-iters 5 \
+    --train-iters 10 \
     --lr-decay-iters 320000 \
     --lr-decay-style cosine \
     --min-lr 1.0e-5 \
@@ -66,6 +66,8 @@ GPT_ARGS="
 FLEX_ARGS="
     --flexpipe-config ./test_pretrain.json \
     --log-path ./logs \
+    --nproc-per-node $GPUS_PER_NODE \
+    --nnodes $NNODES \
 "
 
 mkdir -p logs

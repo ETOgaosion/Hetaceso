@@ -365,6 +365,9 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         input_layernorm_output = self.input_layernorm(hidden_states)
 
         # Self attention.
+        if self.config.timers is not None:
+            self.config.timers(f"self-attention-forward-outside").start()
+            
         attention_output_with_bias = self.self_attention(
             input_layernorm_output,
             attention_mask=attention_mask,
@@ -372,7 +375,8 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             rotary_pos_emb=rotary_pos_emb,
             packed_seq_params=packed_seq_params,
         )
-
+        if self.config.timers is not None:
+            self.config.timers(f"self-attention-forward-outside").stop()
         with self.bias_dropout_add_exec_handler():
             hidden_states = self.self_attn_bda(
                 self.training, self.config.bias_dropout_fusion
