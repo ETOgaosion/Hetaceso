@@ -122,6 +122,7 @@ def load_data_size_list(torch_data_type, tp, cp, dp, model_size, cfg_i):
     if os.path.exists(file_name):
         f_op_time = open(file_name, "r")
         f_csv = csv.reader(f_op_time)
+        headers = next(f_csv)
         for row in f_csv:
             for index in [-3, -5]:
                 data_size = int(float(row[index]) * num_item_per_mb)
