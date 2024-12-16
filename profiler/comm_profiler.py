@@ -7,6 +7,7 @@ import torch.distributed as dist
 import torch.multiprocessing as multiproc
 import time
 import csv
+import gc
 import pickle
 import argparse
 from model_configs import model_prof_configs
@@ -162,6 +163,7 @@ def profile_cp(rank, initialize, world_size, tp_size, cp_size, data_size_list, m
                             time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
                         else:
                             raise RuntimeError(f"collective type {collective_type} not support.")
+                        gc.collect()
                     except RuntimeError as e:
                         print(e)
                         time_list = [1000000 for _ in range(args.prof_repeat_times)]
@@ -322,6 +324,7 @@ def profile_dp(rank, initialize, world_size, tp_size, cp_size, dp_size, data_siz
                             time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
                         else:
                             raise RuntimeError(f"collective {collective_type} not support.")
+                        gc.collect()
                     except RuntimeError as e:
                         print(e)
                         time_list = [1000000 for _ in range(args.prof_repeat_times)]
