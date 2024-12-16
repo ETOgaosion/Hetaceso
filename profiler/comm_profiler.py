@@ -180,9 +180,8 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                     for i in range(4):
                                         if 0 <= i < 3:
                                             send_tensor = send_tensors[i]
-                                            input_tensor = send_tensor.chunk(world_size, 0)[rank].contiguous()
-                                            output_tensor = torch.empty_like(input_tensor)
-                                            a2a_reqs[i] = dist.all_to_all_single(output_tensor, input_tensor, group=dist.group.WORLD, async_op=True)
+                                            output_tensor = torch.empty_like(send_tensor)
+                                            a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=dist.group.WORLD, async_op=True)
                                         if i > 0:
                                             with torch.cuda.stream(stream):
                                                 a2a_reqs[i - 1].wait()
@@ -196,9 +195,8 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                     for i in range(4):
                                         if 0 <= i < 3:
                                             send_tensor = send_tensors[i]
-                                            input_tensor = send_tensor.chunk(world_size, 0)[rank].contiguous()
-                                            output_tensor = torch.empty_like(input_tensor)
-                                            a2a_reqs[i] = dist.all_to_all_single(output_tensor, input_tensor, group=dist.group.WORLD, async_op=True)
+                                            output_tensor = torch.empty_like(send_tensor)
+                                            a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=dist.group.WORLD, async_op=True)
                                         if i > 0:
                                             with torch.cuda.stream(stream):
                                                 a2a_reqs[i - 1].wait()
