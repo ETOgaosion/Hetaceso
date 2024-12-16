@@ -42,9 +42,9 @@ if [[ $MACHINE -eq "0" ]]; then
     export CUDA_VISIBLE_DEVICES=3,4,5,7
 elif [[ $MACHINE -eq "1" ]]; then
     export NCCL_SOCKET_IFNAME=eno1
+    export CUDA_VISIBLE_DEVICES=3,4,5,6
 elif [[ $MACHINE -eq "2" ]]; then
     export NCCL_SOCKET_IFNAME=ens1f0
-    export CUDA_VISIBLE_DEVICES=3,4,5,6
 fi
 
 VOCAB_FILE=../../../../../vocabs/gpt2-vocab.json
