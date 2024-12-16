@@ -17,6 +17,23 @@ configs = {
     "usp": [1, 1, 2, 1, 2, 2, 1, 4],
     "rsp": [1, 1, 1, 2, 1, 2, 4, 1],
     "dp": [4, 2, 2, 2, 1, 1, 1, 1],
+    "mbs": {
+        "350M": [8, 8, 8, 8, 8, 8, 8, 8],
+        "1_3B": [8, 8, 8, 8, 8, 8, 8, 8],
+        "2_6B": [8, 8, 8, 8, 8, 8, 8, 8],
+        "6_7B": [8, 8, 8, 8, 4, 4, 4, 4],
+        "13B": [8, 4, 4, 4, 2, 2, 2, 2],
+    }
+}
+
+# model_size: (num_layers, total_seqlen, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype)
+gpt_configs = {
+    "350M": (24, 2048, 1024, 1024 * 4, 16, 1024 // 16, 51200, "fp16"),
+    "1_3B": (24, 2048, 2048, 2048 * 4, 32, 2048 // 32, 51200, "fp16"),
+    "2_6B": (32, 2048, 2560, 2560 * 4, 32, 2560 // 32, 51200, "fp16"),
+    "6_7B": (32, 2048, 4096, 4096 * 4, 32, 4096 // 32, 51200, "fp16"),
+    "13B": (40, 2048, 5120, 5120 * 4, 40, 5120 // 40, 51200, "fp16"),
+    # "scale-layer": (1, 1024, 512, 512 * 4, 8, 512 // 8, 51200, "fp16"),
 }
 
 def report_memory(name):
@@ -74,6 +91,45 @@ def print_cached_dicts(cached_dict):
     for item in cached_dict:
         print(f"{item}: {cached_dict[item]}")
 
+def get_torch_data_type(data_type):
+    if data_type == "fp16":
+        torch_data_type = torch.half
+    elif data_type == "fp32":
+        torch_data_type = torch.float
+    else:
+        raise RuntimeError(f"data type {data_type} not support.")
+    return torch_data_type
+
+def get_num_item_per_mb(torch_data_type):
+    if torch_data_type == torch.half:
+        num_item_per_mb = 1024 * 1024 / 2
+    elif torch_data_type == torch.float:
+        num_item_per_mb = 1024 * 1024 / 4
+    else:
+        raise RuntimeError(f"data type {torch_data_type} not support.")
+    return num_item_per_mb
+
+def load_data_size_list(torch_data_type, tp, cp, dp, model_size, cfg_i):
+    data_size_list = []
+    seq_len = gpt_configs[model_size][1] // cp
+    mbs = configs["mbs"][model_size][cfg_i] // dp
+    file_name = (
+        args.prof_op_time_path
+        + f"{model}_{size}_mbs{mbs}_seqlen{seq_len}_tp{tp}.csv"
+    )
+    print(file_name)
+    num_item_per_mb = get_num_item_per_mb(torch_data_type)
+    if os.path.exists(file_name):
+        f_op_time = open(file_name, "r")
+        f_csv = csv.reader(f_op_time)
+        for row in f_csv:
+            for index in [-3, -5]:
+                data_size = int(float(row[index]) * num_item_per_mb)
+                if data_size not in data_size_list and data_size > 0:
+                    data_size_list.append(data_size)
+    else:
+        print(f"file {file_name} not exist.")
+    return data_size_list
 
 def all_to_all_single(args, data_size, world_size, torch_data_type, cp_group):
     if data_size % world_size == 0:
@@ -246,7 +302,7 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
         print(
             f"{dist.get_rank()} Start profiling {collective_type}... len(data_size_list) = {len(data_size_list)}", flush=True
         )
-        for data_size in data_size_list:
+        for idx, data_size in enumerate(data_size_list):
             data_size_in_mb = int(data_size * mb_per_item)
             if collective_type in ["all_gather", "all_to_all"]:
                 full_data_size_in_mb = data_size_in_mb * world_size
@@ -255,9 +311,9 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
 
             if data_size_in_mb not in avg_time_list:
                 print(
-                    f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} cp{cp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB)...\n", flush=True
+                    f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} cp{cp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB) Progress: {idx / len(data_size_list)}\n", flush=True
                 )
-                report_memory(f"{collective_type} {data_size_in_mb}")
+                # report_memory(f"{collective_type} {data_size_in_mb}")
                 hash_name = f"{collective_type}_tp{tp_size}_cp{cp_size}_{data_size_in_mb}_{torch_data_type}"
                 if hash_name in profiled_results:
                     print(f"hit in cache!", flush=True)
@@ -348,7 +404,7 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
             f"{dist.get_rank()} Start profiling {collective_type}... len(data_size_list) = {len(data_size_list)}", flush=True
         )
         dist.barrier()
-        for data_size in data_size_list:
+        for idx, data_size in enumerate(data_size_list):
             data_size_in_mb = int(data_size * mb_per_item)
             if collective_type in ["all_gather", "all_to_all"]:
                 full_data_size_in_mb = data_size_in_mb * world_size
@@ -357,9 +413,9 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
 
             if data_size_in_mb not in avg_time_list:
                 print(
-                    f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} cp{cp_size} dp{dp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB)...\n", flush=True
+                    f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} cp{cp_size} dp{dp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB) Progress: {idx / len(data_size_list)}\n", flush=True
                 )
-                report_memory(f"{collective_type} {data_size_in_mb}")
+                # report_memory(f"{collective_type} {data_size_in_mb}")
                 hash_name = f"{collective_type}_tp{tp_size}_cp{cp_size}_dp{dp_size}_{data_size_in_mb}_{torch_data_type}"
                 if hash_name in profiled_results:
                     print_rank0(f"hit in cache!")
@@ -440,43 +496,16 @@ def run_profile(task):
     for tp in configs["tp"]:
         if tp not in tp_size_list:
             tp_size_list.append(tp)
-
-    if data_type == "fp16":
-        torch_data_type = torch.half
-        num_item_per_mb = 1024 * 1024 / 2
-    elif data_type == "fp32":
-        torch_data_type = torch.float
-        num_item_per_mb = 1024 * 1024 / 4
-    else:
-        raise RuntimeError(f"data type {data_type} not support.")
     
     print(f'mbs_list: {mbs_list}, seqlen_list: {seqlen_list}, tp_size_list: {tp_size_list}')
 
-    data_size_list = []
-    for mbs in mbs_list:
-        for seq_len in seqlen_list:
-            for tp in tp_size_list:
-                file_name = (
-                    args.prof_op_time_path
-                    + f"{model}_{size}_mbs{mbs}_seqlen{seq_len}_tp{tp}.csv"
-                )
-                print(file_name)
-                if os.path.exists(file_name):
-                    f_op_time = open(file_name, "r")
-                    f_csv = csv.reader(f_op_time)
-                    headers = next(f_csv)
-                    for row in f_csv:
-                        for index in [-3, -5]:
-                            data_size = int(float(row[index]) * num_item_per_mb)
-                            if data_size not in data_size_list and data_size > 0:
-                                data_size_list.append(data_size)
-                else:
-                    print(f"file {file_name} not exist.")
+    torch_data_type = get_torch_data_type(data_type)
 
     for i in range(len(configs["tp"])):
         tp_size = configs["tp"][i]
         usp_size = configs["usp"][i]
         dp_size = configs["dp"][i]
+        data_size_list = load_data_size_list(torch_data_type, tp_size, usp_size, dp_size, size, i)
         print(f"tp_size: {tp_size}, usp_size: {usp_size}, dp_size: {dp_size}")
         if usp_size > 1:
             torch.multiprocessing.spawn(
