@@ -28,6 +28,7 @@ def parse_args():
     parser.add_argument("--prof-repeat-times", type=int, default=1, help="")
     parser.add_argument("--prof-skip-running", action="store_true", help="")
     parser.add_argument("--prof-op-time-path", type=str, default=None, help="")
+    parser.add_argument("--max-num-gpus", type=int, default=4, help="")
     parser.add_argument("--max-data-size", type=int, default=4096, help="")
     parser.add_argument("--prof-mbs-list", nargs="+", type=int, default=None, help="")
     parser.add_argument("--prof-seqlen-list", nargs="+", type=int, default=None, help="")
@@ -46,14 +47,14 @@ def print_cached_dicts(cached_dict):
         print(f"{item}: {cached_dict[item]}")
 
 
-def run(rank, world_size, data_size_list, model, size, torch_data_type):
+def run(rank, base, world_size, data_size_list, model, size, torch_data_type):
     args = parse_args()
     init_method = "tcp://"
     master_ip = os.getenv("MASTER_ADDR", "localhost")
     master_port = os.getenv("MASTER_PORT", "6000")
     init_method += master_ip + ":" + master_port
     dist.init_process_group(
-        backend="nccl", world_size=world_size, rank=rank, init_method=init_method
+        backend="nccl", world_size=world_size, rank=rank+base, init_method=init_method
     )
 
     if os.path.exists(args.prof_cache_file):
@@ -71,7 +72,8 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
         raise RuntimeError(f"type {torch_data_type} not support.")
 
     if model == "gpt":
-        collectives = ["all_gather", "all_reduce", "reduce_scatter", "all_to_all"]
+        collectives = ["all_to_all"]
+        # collectives = ["all_gather", "all_reduce", "reduce_scatter", "all_to_all"]
     else:
         raise RuntimeError(f"Model {model} is not supported.")
 
@@ -89,7 +91,7 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
 
             if data_size_in_mb not in avg_time_list:
                 print(
-                    f"[rank {rank}] {model}_{size} profiling {collective_type} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB)...\n"
+                    f"[rank {rank + base}] {model}_{size} profiling {collective_type} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB)...\n"
                 )
                 hash_name = f"{collective_type}_{world_size}gpus_{data_size_in_mb}_{torch_data_type}"
                 if hash_name in profiled_results:
@@ -186,6 +188,7 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                             with torch.cuda.stream(stream):
                                                 a2a_reqs[i - 1].wait()
                                 torch.cuda.current_stream().wait_stream(stream)
+                                torch.cuda.synchronize()
                                 stream = torch.cuda.Stream()
                                 start = torch.cuda.Event(enable_timing=True)
                                 end = torch.cuda.Event(enable_timing=True)
@@ -201,7 +204,6 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                             with torch.cuda.stream(stream):
                                                 a2a_reqs[i - 1].wait()
                                 torch.cuda.current_stream().wait_stream(stream)
-                                end.record()
                                 torch.cuda.synchronize()
                                 time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
                     except RuntimeError as e:
@@ -289,12 +291,16 @@ def run_profile(task):
                 else:
                     print(f"file {file_name} not exist.")
 
-    torch.multiprocessing.spawn(
-        run,
-        args=(args.prof_tp_size, data_size_list, model, size, torch_data_type),
-        nprocs=args.prof_tp_size,
-        join=True,
-    )
+    ctx = []
+    for i in range(args.max_num_gpus // args.prof_tp_size):
+        ctx.append(torch.multiprocessing.spawn(
+            run,
+            args=(i * args.prof_tp_size, args.prof_tp_size, data_size_list, model, size, torch_data_type),
+            nprocs=args.prof_tp_size,
+        ))
+    
+    for i in range(args.max_num_gpus // args.prof_tp_size):
+        ctx[i].join()
 
 
 if __name__ == "__main__":

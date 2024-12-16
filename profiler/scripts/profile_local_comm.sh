@@ -45,8 +45,9 @@ do
         --prof-tp-size $num_gpus \
         --prof-model-name $MODEL_NAME \
         --prof-model-size $MODEL_SIZE \
-        --prof-warmup-times 5 \
-        --prof-repeat-times 20 \
+        --prof-warmup-times 20 \
+        --prof-repeat-times 100 \
+        --max-num-gpus $MAX_NUM_GPUS \
         --max-data-size 4096 \
         2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_comm${num_gpus}gpus.log
 
