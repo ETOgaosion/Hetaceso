@@ -461,13 +461,13 @@ class HetacesoPerformanceModel:
         
         ops = self.ops_in_each_stage[pp_rank]
 
-        ## all the time is in [us].
+        ## fwd bwd time is in [us], comm time is in [ms].
         fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm = self.get_comp_comm_time(rank, self.machine_idx_rank_map[rank], ops, cur_mbs, cur_seqlen, cur_tp, cur_usp, cur_rsp, cur_dp, in_cross_node, out_cross_node)
         sum_time = fwd_comp + bwd_comp + in_comm + out_comm + tp_comm + usp_comm + rsp_comm + dp_comm
 
         if print_detail:
             print(
-                f"Time(ms)=[{sum_time/1000 * num_micro_batches:.2f}]. fwd_compute = {fwd_comp * num_micro_batches / 1000 :.2f}, bwd_compute = {bwd_comp * num_micro_batches / 1000 :.2f}, in_comm_time = {in_comm * num_micro_batches / 1000 :.2f}, out_comm_time = {out_comm * num_micro_batches / 1000 :.2f}, tp_comm_time = {tp_comm * num_micro_batches / 1000 :.2f}, usp_comm_time = {usp_comm * num_micro_batches / 1000 :.2f}, rsp_comm_time = {rsp_comm * num_micro_batches / 1000 :.2f}, dp_comm_time = {dp_comm * num_micro_batches / 1000 :.2f}"
+                f"Time(ms)=[{sum_time/1000 * num_micro_batches:.2f}]. fwd_compute = {fwd_comp * num_micro_batches / 1000 :.2f}, bwd_compute = {bwd_comp * num_micro_batches / 1000 :.2f}, in_comm_time = {in_comm * num_micro_batches :.2f}, out_comm_time = {out_comm * num_micro_batches :.2f}, tp_comm_time = {tp_comm * num_micro_batches :.2f}, usp_comm_time = {usp_comm * num_micro_batches :.2f}, rsp_comm_time = {rsp_comm * num_micro_batches :.2f}, dp_comm_time = {dp_comm * num_micro_batches :.2f}"
             )
 
         ## return [ms]
@@ -475,10 +475,10 @@ class HetacesoPerformanceModel:
             sum_time / 1000 * num_micro_batches,
             fwd_comp / 1000 * num_micro_batches,
             bwd_comp / 1000 * num_micro_batches,
-            tp_comm / 1000 * num_micro_batches,
-            usp_comm / 1000 * num_micro_batches,
-            rsp_comm / 1000 * num_micro_batches,
-            dp_comm / 1000 * num_micro_batches,
+            tp_comm * num_micro_batches,
+            usp_comm * num_micro_batches,
+            rsp_comm * num_micro_batches,
+            dp_comm * num_micro_batches,
         )
 
     def predict_stage_memory(
