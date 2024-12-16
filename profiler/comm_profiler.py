@@ -323,6 +323,7 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                         else:
                             raise RuntimeError(f"collective {collective_type} not support.")
                         gc.collect()
+                        torch.cuda.empty_cache()
                     except RuntimeError as e:
                         print(e)
                         time_list = [1000000 for _ in range(args.prof_repeat_times)]
