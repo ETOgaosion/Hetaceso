@@ -59,17 +59,16 @@ def print_cached_dicts(cached_dict):
         print(f"{item}: {cached_dict[item]}")
 
 
-def profile_cp(rank, initialize, world_size, tp_size, cp_size, data_size_list, model, size, torch_data_type):
+def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, torch_data_type):
     args = parse_args()
-    if initialize:
-        init_method = "tcp://"
-        master_ip = os.getenv("MASTER_ADDR", "localhost")
-        master_port = os.getenv("MASTER_PORT", "6000")
-        init_method += master_ip + ":" + master_port
-        dist.init_process_group(
-            backend="nccl", world_size=world_size, rank=rank, init_method=init_method
-        )
-        print(f'rank {rank} initialized', flush=True)
+    init_method = "tcp://"
+    master_ip = os.getenv("MASTER_ADDR", "localhost")
+    master_port = os.getenv("MASTER_PORT", "6000")
+    init_method += master_ip + ":" + master_port
+    dist.init_process_group(
+        backend="nccl", world_size=world_size, rank=rank, init_method=init_method
+    )
+    print(f'rank {rank} initialized', flush=True)
     cp_group_start = rank // (tp_size * cp_size) * (tp_size * cp_size)
     cp_group_end = cp_group_start + tp_size * cp_size
     cp_group = dist.new_group(list(range(cp_group_start, cp_group_end, tp_size)))
@@ -198,17 +197,16 @@ def profile_cp(rank, initialize, world_size, tp_size, cp_size, data_size_list, m
         pickle.dump(save_dict, open(args.prof_cache_file, "wb"))
 
 
-def profile_dp(rank, initialize, world_size, tp_size, cp_size, dp_size, data_size_list, model, size, torch_data_type):
+def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, model, size, torch_data_type):
     args = parse_args()
-    if initialize:
-        init_method = "tcp://"
-        master_ip = os.getenv("MASTER_ADDR", "localhost")
-        master_port = os.getenv("MASTER_PORT", "6000")
-        init_method += master_ip + ":" + master_port
-        dist.init_process_group(
-            backend="nccl", world_size=world_size, rank=rank, init_method=init_method
-        )
-        print(f'rank {rank} initialized', flush=True)
+    init_method = "tcp://"
+    master_ip = os.getenv("MASTER_ADDR", "localhost")
+    master_port = os.getenv("MASTER_PORT", "6000")
+    init_method += master_ip + ":" + master_port
+    dist.init_process_group(
+        backend="nccl", world_size=world_size, rank=rank, init_method=init_method
+    )
+    print(f'rank {rank} initialized', flush=True)
     dp_group_start = rank // (tp_size * cp_size * dp_size) * (tp_size * cp_size * dp_size)
     dp_group_end = dp_group_start + tp_size * cp_size * dp_size
     dp_group = dist.new_group(list(range(dp_group_start, dp_group_end, tp_size * cp_size)))
@@ -414,8 +412,6 @@ def run_profile(task):
                 else:
                     print(f"file {file_name} not exist.")
 
-    # global configs
-    initialized = False
     for i in range(len(configs["tp"])):
         tp_size = configs["tp"][i]
         usp_size = configs["usp"][i]
@@ -424,21 +420,17 @@ def run_profile(task):
         if usp_size > 1:
             torch.multiprocessing.spawn(
                 profile_cp,
-                args=(not initialized, world_size, tp_size, usp_size, data_size_list, model, size, torch_data_type),
+                args=(world_size, tp_size, usp_size, data_size_list, model, size, torch_data_type),
                 nprocs=world_size,
                 join=True,
             )
-            if not initialized:
-                initialized = True
         if dp_size > 1:
             torch.multiprocessing.spawn(
                 profile_dp,
-                args=(not initialized, world_size, tp_size, usp_size, dp_size, data_size_list, model, size, torch_data_type),
+                args=(world_size, tp_size, usp_size, dp_size, data_size_list, model, size, torch_data_type),
                 nprocs=world_size,
                 join=True,
             )
-            if not initialized:
-                initialized = True
 
 
 if __name__ == "__main__":
