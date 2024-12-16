@@ -72,8 +72,6 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
 
     if model == "gpt":
         collectives = ["all_gather", "all_reduce", "reduce_scatter", "all_to_all"]
-    elif model == "resnet":
-        collectives = ["all_gather", "all_to_all"]
     else:
         raise RuntimeError(f"Model {model} is not supported.")
 
@@ -182,10 +180,7 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                     for i in range(4):
                                         if 0 <= i < 3:
                                             send_tensor = send_tensors[i]
-                                            input_tensor = send_tensor.chunk(world_size, 0)
-                                            for idx, tensor in enumerate(input_list):
-                                                if not tensor.is_contiguous():
-                                                    input_list[idx] = tensor.contiguous()
+                                            input_tensor = send_tensor.chunk(world_size, 0)[rank].contiguous()
                                             output_tensor = torch.empty_like(input_tensor)
                                             a2a_reqs[i] = dist.all_to_all_single(output_tensor, input_tensor, group=dist.group.WORLD, async_op=True)
                                         if i > 0:
@@ -201,10 +196,7 @@ def run(rank, world_size, data_size_list, model, size, torch_data_type):
                                     for i in range(4):
                                         if 0 <= i < 3:
                                             send_tensor = send_tensors[i]
-                                            input_tensor = send_tensor.chunk(world_size, 0)
-                                            for idx, tensor in enumerate(input_list):
-                                                if not tensor.is_contiguous():
-                                                    input_list[idx] = tensor.contiguous()
+                                            input_tensor = send_tensor.chunk(world_size, 0)[rank].contiguous()
                                             output_tensor = torch.empty_like(input_tensor)
                                             a2a_reqs[i] = dist.all_to_all_single(output_tensor, input_tensor, group=dist.group.WORLD, async_op=True)
                                         if i > 0:
