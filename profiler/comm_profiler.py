@@ -19,6 +19,22 @@ configs = {
     "dp": [4, 2, 2, 2, 1, 1, 1, 1],
 }
 
+def report_memory(name):
+    """Simple GPU memory report."""
+    mega_bytes = 1024.0 * 1024.0
+    string = name + ' memory (MB)'
+    string += ' | allocated: {}'.format(
+        torch.cuda.memory_allocated() / mega_bytes)
+    string += ' | max allocated: {}'.format(
+        torch.cuda.max_memory_allocated() / mega_bytes)
+    string += ' | reserved: {}'.format(
+        torch.cuda.memory_reserved() / mega_bytes)
+    string += ' | max reserved: {}'.format(
+        torch.cuda.max_memory_reserved() / mega_bytes)
+    print("[Rank {}] {}".format(torch.distributed.get_rank(), string),
+              flush=True)
+    return string
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="communication-profiler arguments", allow_abbrev=False
@@ -110,6 +126,7 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
                 print(
                     f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} cp{cp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB)...\n", flush=True
                 )
+                report_memory(f"{collective_type} {data_size_in_mb}")
                 hash_name = f"{collective_type}_tp{tp_size}_cp{cp_size}_{data_size_in_mb}_{torch_data_type}"
                 if hash_name in profiled_results:
                     print(f"hit in cache!", flush=True)
@@ -164,6 +181,7 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
                         else:
                             raise RuntimeError(f"collective type {collective_type} not support.")
                         gc.collect()
+                        torch.cuda.empty_cache()
                     except RuntimeError as e:
                         print(e)
                         time_list = [1000000 for _ in range(args.prof_repeat_times)]
@@ -249,6 +267,7 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                 print(
                     f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} cp{cp_size} dp{dp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB)...\n", flush=True
                 )
+                report_memory(f"{collective_type} {data_size_in_mb}")
                 hash_name = f"{collective_type}_tp{tp_size}_cp{cp_size}_dp{dp_size}_{data_size_in_mb}_{torch_data_type}"
                 if hash_name in profiled_results:
                     print_rank0(f"hit in cache!")
@@ -277,7 +296,12 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                             end.record()
                             torch.cuda.synchronize()
                             time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                            send_tensor.cpu()
+                            for tensor in tensor_list:
+                                tensor.cpu()
                             del send_tensor, tensor_list
+                            gc.collect()
+                            torch.cuda.empty_cache()
                         elif collective_type == "all_reduce":
                             send_tensor = torch.ones(
                                 data_size, dtype=torch_data_type
@@ -292,7 +316,10 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                             end.record()
                             torch.cuda.synchronize()
                             time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                            send_tensor.cpu()
                             del send_tensor
+                            gc.collect()
+                            torch.cuda.empty_cache()
                         elif collective_type == "reduce_scatter":
                             if data_size % world_size == 0:
                                 send_tensor = torch.ones(
@@ -304,7 +331,7 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                                     _data_size, dtype=torch_data_type
                                 ).cuda()
                             for i in range(args.prof_warmup_times):
-                                input_list = list(send_tensor.chunk(world_size, 0))
+                                input_list = list(send_tensor.chunk(dp_size, 0))
                                 for idx, tensor in enumerate(input_list):
                                     if not tensor.is_contiguous():
                                         input_list[idx] = tensor.contiguous()
@@ -314,7 +341,7 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                             end = torch.cuda.Event(enable_timing=True)
                             start.record()
                             for i in range(args.prof_repeat_times):
-                                input_list = list(send_tensor.chunk(world_size, 0))
+                                input_list = list(send_tensor.chunk(dp_size, 0))
                                 for idx, tensor in enumerate(input_list):
                                     if not tensor.is_contiguous():
                                         input_list[idx] = tensor.contiguous()
@@ -323,11 +350,15 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                             end.record()
                             torch.cuda.synchronize()
                             time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                            send_tensor.cpu()
+                            for tensor in input_list:
+                                tensor.cpu()
+                            new_input_.cpu()
                             del send_tensor, input_list, new_input_
+                            gc.collect()
+                            torch.cuda.empty_cache()
                         else:
                             raise RuntimeError(f"collective {collective_type} not support.")
-                        gc.collect()
-                        torch.cuda.empty_cache()
                     except RuntimeError as e:
                         print(e)
                         time_list = [1000000 for _ in range(args.prof_repeat_times)]
