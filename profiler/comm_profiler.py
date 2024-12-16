@@ -75,6 +75,137 @@ def print_cached_dicts(cached_dict):
         print(f"{item}: {cached_dict[item]}")
 
 
+def all_to_all_single(args, data_size, world_size, torch_data_type, cp_group):
+    if data_size % world_size == 0:
+        send_tensors = [torch.ones(
+            data_size, dtype=torch_data_type
+        ).cuda()] * 3
+    else:
+        _data_size = (data_size // world_size) * world_size
+        send_tensors = [torch.ones(
+            _data_size, dtype=torch_data_type
+        ).cuda()] * 3
+    stream = torch.cuda.Stream()
+    for _ in range(args.prof_warmup_times):
+        a2a_reqs = [None] * 3
+        for i in range(4):
+            if 0 <= i < 3:
+                send_tensor = send_tensors[i]
+                output_tensor = torch.empty_like(send_tensor)
+                a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=cp_group, async_op=True)
+            if i > 0:
+                with torch.cuda.stream(stream):
+                    a2a_reqs[i - 1].wait()
+    torch.cuda.current_stream().wait_stream(stream)
+    torch.cuda.synchronize()
+    stream = torch.cuda.Stream()
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    for _ in range(args.prof_repeat_times):
+        a2a_reqs = [None] * 3
+        for i in range(4):
+            if 0 <= i < 3:
+                send_tensor = send_tensors[i]
+                output_tensor = torch.empty_like(send_tensor)
+                a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=cp_group, async_op=True)
+            if i > 0:
+                with torch.cuda.stream(stream):
+                    a2a_reqs[i - 1].wait()
+    end.record()
+    torch.cuda.current_stream().wait_stream(stream)
+    torch.cuda.synchronize()
+    for tensor in send_tensors:
+        tensor.cpu()
+    output_tensor.cpu()
+    send_tensor.cpu()
+    del send_tensors, output_tensor, send_tensor
+    gc.collect()
+    torch.cuda.empty_cache()
+    return start.elapsed_time(end) / args.prof_repeat_times
+
+def all_gather_single(args, data_size, world_size, torch_data_type, dp_group):
+    send_tensor = torch.ones(
+        data_size, dtype=torch_data_type
+    ).cuda()
+    tensor_list = [
+        torch.zeros(data_size, dtype=torch_data_type).cuda()
+        for _ in range(world_size)
+    ]
+    for _ in range(args.prof_warmup_times):
+        dist.all_gather(tensor_list, send_tensor, group=dp_group)
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    for _ in range(args.prof_repeat_times):
+        dist.all_gather(tensor_list, send_tensor, group=dp_group)
+    end.record()
+    torch.cuda.synchronize()
+    send_tensor.cpu()
+    for tensor in tensor_list:
+        tensor.cpu()
+    del send_tensor, tensor_list
+    gc.collect()
+    torch.cuda.empty_cache()
+    return start.elapsed_time(end) / args.prof_repeat_times
+
+def all_reduce_single(args, data_size, torch_data_type, dp_group):
+    send_tensor = torch.ones(
+        data_size, dtype=torch_data_type
+    ).cuda()
+    for _ in range(args.prof_warmup_times):
+        dist.all_reduce(send_tensor, group=dp_group)
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    for _ in range(args.prof_repeat_times):
+        dist.all_reduce(send_tensor, group=dp_group)
+    end.record()
+    torch.cuda.synchronize()
+    send_tensor.cpu()
+    del send_tensor
+    gc.collect()
+    torch.cuda.empty_cache()
+    return start.elapsed_time(end) / args.prof_repeat_times
+
+def reduce_scatter_single(args, data_size, world_size, torch_data_type, dp_group, dp_size):
+    if data_size % world_size == 0:
+        send_tensor = torch.ones(
+            data_size, dtype=torch_data_type
+        ).cuda()
+    else:
+        _data_size = (data_size // world_size) * world_size
+        send_tensor = torch.ones(
+            _data_size, dtype=torch_data_type
+        ).cuda()
+    for _ in range(args.prof_warmup_times):
+        input_list = list(send_tensor.chunk(dp_size, 0))
+        for idx, tensor in enumerate(input_list):
+            if not tensor.is_contiguous():
+                input_list[idx] = tensor.contiguous()
+        new_input_ = torch.empty_like(input_list[0])
+        dist.reduce_scatter(new_input_, input_list, group=dp_group)
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    for _ in range(args.prof_repeat_times):
+        input_list = list(send_tensor.chunk(dp_size, 0))
+        for idx, tensor in enumerate(input_list):
+            if not tensor.is_contiguous():
+                input_list[idx] = tensor.contiguous()
+        new_input_ = torch.empty_like(input_list[0])
+        dist.reduce_scatter(new_input_, input_list, group=dp_group)
+    end.record()
+    torch.cuda.synchronize()
+    send_tensor.cpu()
+    for tensor in input_list:
+        tensor.cpu()
+    new_input_.cpu()
+    del send_tensor, input_list, new_input_
+    gc.collect()
+    torch.cuda.empty_cache()
+    return start.elapsed_time(end) / args.prof_repeat_times
+
 def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, torch_data_type):
     args = parse_args()
     init_method = "tcp://"
@@ -138,51 +269,7 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
 
                     try:
                         if collective_type == "all_to_all":
-                            if data_size % world_size == 0:
-                                send_tensors = [torch.ones(
-                                    data_size, dtype=torch_data_type
-                                ).cuda()] * 3
-                            else:
-                                _data_size = (data_size // world_size) * world_size
-                                send_tensors = [torch.ones(
-                                    _data_size, dtype=torch_data_type
-                                ).cuda()] * 3
-                            stream = torch.cuda.Stream()
-                            for _ in range(args.prof_warmup_times):
-                                a2a_reqs = [None] * 3
-                                for i in range(4):
-                                    if 0 <= i < 3:
-                                        send_tensor = send_tensors[i]
-                                        output_tensor = torch.empty_like(send_tensor)
-                                        a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=cp_group, async_op=True)
-                                    if i > 0:
-                                        with torch.cuda.stream(stream):
-                                            a2a_reqs[i - 1].wait()
-                            torch.cuda.current_stream().wait_stream(stream)
-                            torch.cuda.synchronize()
-                            stream = torch.cuda.Stream()
-                            start = torch.cuda.Event(enable_timing=True)
-                            end = torch.cuda.Event(enable_timing=True)
-                            start.record()
-                            for _ in range(args.prof_repeat_times):
-                                a2a_reqs = [None] * 3
-                                for i in range(4):
-                                    if 0 <= i < 3:
-                                        send_tensor = send_tensors[i]
-                                        output_tensor = torch.empty_like(send_tensor)
-                                        a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=cp_group, async_op=True)
-                                    if i > 0:
-                                        with torch.cuda.stream(stream):
-                                            a2a_reqs[i - 1].wait()
-                            end.record()
-                            torch.cuda.current_stream().wait_stream(stream)
-                            torch.cuda.synchronize()
-                            time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
-                            for tensor in send_tensors:
-                                tensor.cpu()
-                            output_tensor.cpu()
-                            send_tensor.cpu()
-                            del send_tensors, output_tensor, send_tensor
+                            time_list.append(all_to_all_single(args, data_size, world_size, torch_data_type, cp_group))
                             gc.collect()
                             torch.cuda.empty_cache()
                         else:
@@ -284,82 +371,15 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
 
                     try:
                         if collective_type == "all_gather":
-                            send_tensor = torch.ones(
-                                data_size, dtype=torch_data_type
-                            ).cuda()
-                            tensor_list = [
-                                torch.zeros(data_size, dtype=torch_data_type).cuda()
-                                for _ in range(world_size)
-                            ]
-                            for i in range(args.prof_warmup_times):
-                                dist.all_gather(tensor_list, send_tensor, group=dp_group)
-                            start = torch.cuda.Event(enable_timing=True)
-                            end = torch.cuda.Event(enable_timing=True)
-                            start.record()
-                            for i in range(args.prof_repeat_times):
-                                dist.all_gather(tensor_list, send_tensor, group=dp_group)
-                            end.record()
-                            torch.cuda.synchronize()
-                            time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
-                            send_tensor.cpu()
-                            for tensor in tensor_list:
-                                tensor.cpu()
-                            del send_tensor, tensor_list
+                            time_list.append(all_gather_single(args, data_size, world_size, torch_data_type, dp_group))
                             gc.collect()
                             torch.cuda.empty_cache()
                         elif collective_type == "all_reduce":
-                            send_tensor = torch.ones(
-                                data_size, dtype=torch_data_type
-                            ).cuda()
-                            for i in range(args.prof_warmup_times):
-                                dist.all_reduce(send_tensor, group=dp_group)
-                            start = torch.cuda.Event(enable_timing=True)
-                            end = torch.cuda.Event(enable_timing=True)
-                            start.record()
-                            for i in range(args.prof_repeat_times):
-                                dist.all_reduce(send_tensor, group=dp_group)
-                            end.record()
-                            torch.cuda.synchronize()
-                            time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
-                            send_tensor.cpu()
-                            del send_tensor
+                            time_list.append(all_reduce_single(args, data_size, torch_data_type, dp_group))
                             gc.collect()
                             torch.cuda.empty_cache()
                         elif collective_type == "reduce_scatter":
-                            if data_size % world_size == 0:
-                                send_tensor = torch.ones(
-                                    data_size, dtype=torch_data_type
-                                ).cuda()
-                            else:
-                                _data_size = (data_size // world_size) * world_size
-                                send_tensor = torch.ones(
-                                    _data_size, dtype=torch_data_type
-                                ).cuda()
-                            for i in range(args.prof_warmup_times):
-                                input_list = list(send_tensor.chunk(dp_size, 0))
-                                for idx, tensor in enumerate(input_list):
-                                    if not tensor.is_contiguous():
-                                        input_list[idx] = tensor.contiguous()
-                                new_input_ = torch.empty_like(input_list[0])
-                                dist.reduce_scatter(new_input_, input_list, group=dp_group)
-                            start = torch.cuda.Event(enable_timing=True)
-                            end = torch.cuda.Event(enable_timing=True)
-                            start.record()
-                            for i in range(args.prof_repeat_times):
-                                input_list = list(send_tensor.chunk(dp_size, 0))
-                                for idx, tensor in enumerate(input_list):
-                                    if not tensor.is_contiguous():
-                                        input_list[idx] = tensor.contiguous()
-                                new_input_ = torch.empty_like(input_list[0])
-                                dist.reduce_scatter(new_input_, input_list, group=dp_group)
-                            end.record()
-                            torch.cuda.synchronize()
-                            time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
-                            send_tensor.cpu()
-                            for tensor in input_list:
-                                tensor.cpu()
-                            new_input_.cpu()
-                            del send_tensor, input_list, new_input_
+                            time_list.append(reduce_scatter_single(args, data_size, world_size, torch_data_type, dp_group, dp_size))
                             gc.collect()
                             torch.cuda.empty_cache()
                         else:
