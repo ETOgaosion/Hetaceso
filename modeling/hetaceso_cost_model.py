@@ -223,7 +223,6 @@ class HetacesoPerformanceModel:
         '''
         self.collective_time = {"all_reduce": {}, "all_gather": {}, "reduce_scatter": {}, "all_to_all": {}}
         comm_prim_map = {"tp": ["all_reduce", "all_gather", "reduce_scatter"], "usp": ["all_to_all"], "rsp": ["all_reduce"], "dp": ["all_reduce"]}
-        global configs
         for cfg_i in range(len(configs["tp"])):
             tp = configs["tp"][cfg_i]
             usp = configs["usp"][cfg_i]
