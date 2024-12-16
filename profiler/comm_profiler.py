@@ -160,6 +160,7 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
                             torch.cuda.current_stream().wait_stream(stream)
                             torch.cuda.synchronize()
                             time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                            del send_tensors, output_tensor, send_tensor
                         else:
                             raise RuntimeError(f"collective type {collective_type} not support.")
                         gc.collect()
@@ -276,6 +277,7 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                             end.record()
                             torch.cuda.synchronize()
                             time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                            del send_tensor, tensor_list
                         elif collective_type == "all_reduce":
                             send_tensor = torch.ones(
                                 data_size, dtype=torch_data_type
@@ -290,6 +292,7 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                             end.record()
                             torch.cuda.synchronize()
                             time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                            del send_tensor
                         elif collective_type == "reduce_scatter":
                             if data_size % world_size == 0:
                                 send_tensor = torch.ones(
@@ -320,6 +323,7 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                             end.record()
                             torch.cuda.synchronize()
                             time_list.append(start.elapsed_time(end) / args.prof_repeat_times)
+                            del send_tensor, input_list, new_input_
                         else:
                             raise RuntimeError(f"collective {collective_type} not support.")
                         gc.collect()
