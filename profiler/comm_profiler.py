@@ -277,10 +277,10 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
     initialized = False
     for i in range(tp_size):
         cp_group_start = i
-        cp_group_end = i + tp_size * cp_size
+        cp_group_end = world_size
         if rank in range(cp_group_start, cp_group_end, tp_size):
-            cp_group = dist.new_group(list(range(cp_group_start, cp_group_end, tp_size)))
-            print(f'rank {rank} cp_group_start: {cp_group_start}, cp_group_end: {cp_group_end}', flush=True)
+            cp_group = dist.new_group(list(range(cp_group_start, cp_group_end, tp_size)), use_local_synchronization=True)
+            print(f'rank {rank} cp_ranks: {dist.get_process_group_ranks(cp_group)}', flush=True)
             initialized = True
             break
     assert initialized, f'rank {rank} not initialized'
@@ -386,10 +386,10 @@ def profile_dp(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size
     initialized = False
     for i in range(tp_size * cp_size):
         dp_group_start = i
-        dp_group_end = i + tp_size * cp_size * dp_size
+        dp_group_end = world_size
         if rank in range(dp_group_start, dp_group_end, tp_size * cp_size):
-            dp_group = dist.new_group(list(range(dp_group_start, dp_group_end, tp_size * cp_size)))
-            print(f'rank {rank} dp_group_start: {dp_group_start}, dp_group_end: {dp_group_end}', flush=True)
+            dp_group = dist.new_group(list(range(dp_group_start, dp_group_end, tp_size * cp_size)), use_local_synchronization=True)
+            print(f'rank {rank} dp_ranks: {dist.get_process_group_ranks(dp_group)}', flush=True)
             initialized = True
             break
     assert initialized, f'rank {rank} not initialized'

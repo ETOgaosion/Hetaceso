@@ -39,6 +39,7 @@ fi
 echo [TIME] before profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m-%d-%H-%M-%S')
 echo [TIME] before profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
 
+export CUDA_DEVICE_MAX_CONNECTIONS=1 && \
 python3 comm_profiler.py \
     --prof-path $PROFILING_PATH \
     --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_comm_profile.pkl \
