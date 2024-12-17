@@ -570,8 +570,8 @@ class HetacesoPerformanceModel:
         
         self.config.embed_fwd_time_list.append(op_comp_time["dec-embedding"]["fwd"])
         self.config.embed_bwd_time_list.append(op_comp_time["dec-embedding"]["bwd"])
-        self.config.att_fwd_time_list.append(op_comp_time["dec-self-attention"]["fwd"])
-        self.config.att_bwd_time_list.append(op_comp_time["dec-self-attention"]["bwd"])
+        self.config.attn_fwd_time_list.append(op_comp_time["dec-self-attention"]["fwd"])
+        self.config.attn_bwd_time_list.append(op_comp_time["dec-self-attention"]["bwd"])
         self.config.mlp_fwd_time_list.append(op_comp_time["dec-mlp"]["fwd"])
         self.config.mlp_bwd_time_list.append(op_comp_time["dec-mlp"]["bwd"])
         self.config.post_fwd_time_list.append(op_comp_time["dec-post-process"]["fwd"])
