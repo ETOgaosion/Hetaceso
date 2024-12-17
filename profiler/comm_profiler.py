@@ -170,9 +170,9 @@ def all_to_all_single(args, data_size, world_size, torch_data_type, cp_group):
             if i > 0:
                 with torch.cuda.stream(stream):
                     a2a_reqs[i - 1].wait()
-    end.record()
     torch.cuda.current_stream().wait_stream(stream)
     torch.cuda.synchronize()
+    end.record()
     for tensor in send_tensors:
         tensor.cpu()
     output_tensor.cpu()
@@ -197,8 +197,8 @@ def all_gather_single(args, data_size, world_size, torch_data_type, dp_group):
     start.record()
     for _ in range(args.prof_repeat_times):
         dist.all_gather(tensor_list, send_tensor, group=dp_group)
-    end.record()
     torch.cuda.synchronize()
+    end.record()
     send_tensor.cpu()
     for tensor in tensor_list:
         tensor.cpu()
@@ -218,8 +218,8 @@ def all_reduce_single(args, data_size, torch_data_type, dp_group):
     start.record()
     for _ in range(args.prof_repeat_times):
         dist.all_reduce(send_tensor, group=dp_group)
-    end.record()
     torch.cuda.synchronize()
+    end.record()
     send_tensor.cpu()
     del send_tensor
     gc.collect()
@@ -253,8 +253,8 @@ def reduce_scatter_single(args, data_size, world_size, torch_data_type, dp_group
                 input_list[idx] = tensor.contiguous()
         new_input_ = torch.empty_like(input_list[0])
         dist.reduce_scatter(new_input_, input_list, group=dp_group)
-    end.record()
     torch.cuda.synchronize()
+    end.record()
     send_tensor.cpu()
     for tensor in input_list:
         tensor.cpu()
