@@ -274,10 +274,16 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
         backend="nccl", world_size=world_size, rank=rank, init_method=init_method
     )
     print(f'rank {rank} initialized', flush=True)
-    cp_group_start = rank // (tp_size * cp_size) * (tp_size * cp_size)
-    cp_group_end = cp_group_start + tp_size * cp_size
-    cp_group = dist.new_group(list(range(cp_group_start, cp_group_end, tp_size)))
-    print(f'rank {rank} cp_group_start: {cp_group_start}, cp_group_end: {cp_group_end}', flush=True)
+    initialized = False
+    for i in range(tp_size):
+        cp_group_start = i
+        cp_group_end = i + tp_size * cp_size
+        if rank in range(cp_group_start, cp_group_end, tp_size):
+            cp_group = dist.new_group(list(range(cp_group_start, cp_group_end, tp_size)))
+            print(f'rank {rank} cp_group_start: {cp_group_start}, cp_group_end: {cp_group_end}', flush=True)
+            initialized = True
+            break
+    assert initialized, f'rank {rank} not initialized'
 
     if os.path.exists(args.prof_cache_file):
         cached_results = pickle.load(open(args.prof_cache_file, "rb"))
@@ -366,7 +372,7 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
         pickle.dump(save_dict, open(args.prof_cache_file, "wb"))
 
 
-def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, model, size, torch_data_type):
+def profile_dp(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type):
     args = parse_args()
     init_method = "tcp://"
     master_ip = os.getenv("MASTER_ADDR", "localhost")
@@ -376,10 +382,17 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
         backend="nccl", world_size=world_size, rank=rank, init_method=init_method
     )
     print(f'rank {rank} initialized', flush=True)
-    dp_group_start = rank // (tp_size * cp_size * dp_size) * (tp_size * cp_size * dp_size)
-    dp_group_end = dp_group_start + tp_size * cp_size * dp_size
-    dp_group = dist.new_group(list(range(dp_group_start, dp_group_end, tp_size * cp_size)))
-    print(f'rank {rank} dp_group_start: {dp_group_start}, dp_group_end: {dp_group_end}', flush=True)
+    cp_size = usp_size * rsp_size
+    initialized = False
+    for i in range(tp_size * cp_size):
+        dp_group_start = i
+        dp_group_end = i + tp_size * cp_size * dp_size
+        if rank in range(dp_group_start, dp_group_end, tp_size * cp_size):
+            dp_group = dist.new_group(list(range(dp_group_start, dp_group_end, tp_size * cp_size)))
+            print(f'rank {rank} dp_group_start: {dp_group_start}, dp_group_end: {dp_group_end}', flush=True)
+            initialized = True
+            break
+    assert initialized, f'rank {rank} not initialized'
 
     if os.path.exists(args.prof_cache_file):
         cached_results = pickle.load(open(args.prof_cache_file, "rb"))
@@ -416,10 +429,10 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
 
             if data_size_in_mb not in avg_time_list:
                 print(
-                    f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} cp{cp_size} dp{dp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB) Progress: {idx / len(data_size_list)}\n", flush=True
+                    f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} usp{usp_size} rsp{rsp_size} dp{dp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB) Progress: {idx / len(data_size_list)}\n", flush=True
                 )
                 # report_memory(f"{collective_type} {data_size_in_mb}")
-                hash_name = f"{collective_type}_tp{tp_size}_cp{cp_size}_dp{dp_size}_{data_size_in_mb}_{torch_data_type}"
+                hash_name = f"{collective_type}_tp{tp_size}_up{usp_size}_rsp{rsp_size}_dp{dp_size}_{data_size_in_mb}_{torch_data_type}"
                 if hash_name in profiled_results:
                     print_rank0(f"hit in cache!")
                     avg_time_list[data_size_in_mb] = profiled_results[hash_name]
@@ -452,7 +465,7 @@ def profile_dp(rank, world_size, tp_size, cp_size, dp_size, data_size_list, mode
                 )
             result_title = ["data_size(MB)", "time(ms)"]
             save_file_name = (
-                f"prim_{model}_{size}_tp{tp_size}_cp{cp_size}_dp{dp_size}_{collective_type}.csv"
+                f"prim_{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}.csv"
             )
             f_result = open(args.prof_path + save_file_name, "w")
             f_csv = csv.writer(f_result)
@@ -513,7 +526,7 @@ def run_profile(task):
         if dp_size > 1:
             torch.multiprocessing.spawn(
                 profile_dp,
-                args=(world_size, tp_size, usp_size * rsp_size, dp_size, data_size_list, model, size, torch_data_type),
+                args=(world_size, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type),
                 nprocs=world_size,
                 join=True,
             )

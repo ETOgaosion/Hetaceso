@@ -244,11 +244,11 @@ class HetacesoPerformanceModel:
                                 data_size = row[0]
                                 self.collective_time[prim][(tp, usp)][rank][data_size]= float(row[1])
                 else:
-                    if (tp, usp, dp) not in self.collective_time[prim]:
-                        self.collective_time[prim][(tp, usp, dp)] = {}
-                    if rank not in self.collective_time[prim][(tp, usp, dp)]:
-                        self.collective_time[prim][(tp, usp, dp)][rank] = {}
-                    src_data_file = f'{self.args.profiled_local_comm_path}rank{rank}/prim_{self.model_name}_{self.model_size}_tp{tp}_cp{usp}_rsp{rsp}_dp{dp}_{prim}.csv'
+                    if (tp, usp, rsp, dp) not in self.collective_time[prim]:
+                        self.collective_time[prim][(tp, rsp, usp, dp)] = {}
+                    if rank not in self.collective_time[prim][(tp, usp, rsp, dp)]:
+                        self.collective_time[prim][(tp, usp, rsp, dp)][rank] = {}
+                    src_data_file = f'{self.args.profiled_local_comm_path}rank{rank}/prim_{self.model_name}_{self.model_size}_tp{tp}_usp{usp}_rsp{rsp}_dp{dp}_{prim}.csv'
                     with open(src_data_file) as f:
                         src_data = csv.reader(f)
                         line_index = 0
@@ -256,7 +256,7 @@ class HetacesoPerformanceModel:
                             line_index += 1
                             if line_index > 1:
                                 data_size = row[0]
-                                self.collective_time[prim][(tp, usp, dp)][rank][data_size]= float(row[1])
+                                self.collective_time[prim][(tp, usp, rsp, dp)][rank][data_size]= float(row[1])
 
         for rank in range(total_gpus):
             self.intra_band_file = f'{self.args.profiled_local_p2p_path}rank{rank}/p2p_intra_node.csv'
