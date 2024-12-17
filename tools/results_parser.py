@@ -159,7 +159,7 @@ def write_to_excel_sheet(data, sheet_name, excel_file):
     df = pandas.DataFrame(data)
     writer = pandas.ExcelWriter(excel_file, engine='xlsxwriter')
     df.to_excel(writer, sheet_name=sheet_name, index=False)
-    writer.save()
+    writer.close()
 
 def res_to_datas(res_estimate, res_realtime, max_model_size):
     datas = {}
