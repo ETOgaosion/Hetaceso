@@ -38,7 +38,14 @@ estimate_result_post_comp_bwd_time_parser = re.compile(r'post_comp_bwd_time: (?P
 estimate_result_memory_sum_parser = re.compile(r'memory_sum: (?P<memory_sum>\d.*\d)')
 estimate_result_ref_total_memory_parser = re.compile(r'ref_total_memory: (?P<ref_total_memory>\d.*\d)')
 
-real_time_time_parser = re.compile(r'rank  0: (?P<time>\d.*\d)')
+real_time_forward_backward_time_parser = re.compile(r'forward-backward:')
+real_time_forward_compute_time_parser = re.compile(r'forward-compute:')
+real_time_backward_compute_time_parser = re.compile(r'backward-compute:')
+real_time_dec_embedding_forward_time_parser = re.compile(r'dec-embedding-forward:')
+real_time_dec_self_attention_forward_time_parser = re.compile(r'dec-self-attention-forward:')
+real_time_dec_mlp_forward_time_parser = re.compile(r'dec-mlp-forward:')
+real_time_dec_post_process_forward_time_parser = re.compile(r'dec-post-process-forward:')
+real_time_rank0_time_parser = re.compile(r'rank  0: (?P<time>\d.*\d)')
 real_time_memory_parser = re.compile(r'memory \(MB\) \| allocated: (?P<allocated>\d.*\d) \| max allocated: (?P<max_allocated>\d.*\d) \| reserved: (?P<reserved>\d.*\d) \| max reserved: (?P<max_reserved>\d.*\d)')
 
 def estimate_result_parser(file):
@@ -147,28 +154,36 @@ def realtime_result_times_parser(file):
         }
     }
     with open(file, 'r') as fp:
-        for line in fp.readlines():
-            fwd_bwd_time_re = real_time_time_parser.search(line)
+        lines = fp.readlines()
+        for idx, line in enumerate(lines):
+            fwd_bwd_time_re = real_time_forward_backward_time_parser.search(line)
             if fwd_bwd_time_re:
-                res["data"]["forward-backward"] = float(fwd_bwd_time_re.group('time'))
-            fwd_time_re = real_time_time_parser.search(line)
+                rank0_time_re = real_time_rank0_time_parser.search(lines[idx + 1])
+                res["data"]["forward-backward"] = float(rank0_time_re.group('time'))
+            fwd_time_re = real_time_forward_compute_time_parser.search(line)
             if fwd_time_re:
-                res["data"]["forward-compute"] = float(fwd_time_re.group('time'))
-            bwd_time_re = real_time_time_parser.search(line)
+                rank0_time_re = real_time_rank0_time_parser.search(lines[idx + 1])
+                res["data"]["forward-compute"] = float(rank0_time_re.group('time'))
+            bwd_time_re = real_time_backward_compute_time_parser.search(line)
             if bwd_time_re:
-                res["data"]["backward-compute"] = float(bwd_time_re.group('time'))
-            dec_embed_fwd_time_re = real_time_time_parser.search(line)
+                rank0_time_re = real_time_rank0_time_parser.search(lines[idx + 1])
+                res["data"]["backward-compute"] = float(rank0_time_re.group('time'))
+            dec_embed_fwd_time_re = real_time_dec_embedding_forward_time_parser.search(line)
             if dec_embed_fwd_time_re:
-                res["data"]["dec-embedding-forward"] = float(dec_embed_fwd_time_re.group('time'))
-            dec_self_attn_fwd_time_re = real_time_time_parser.search(line)
+                rank0_time_re = real_time_rank0_time_parser.search(lines[idx + 1])
+                res["data"]["dec-embedding-forward"] = float(rank0_time_re.group('time'))
+            dec_self_attn_fwd_time_re = real_time_dec_self_attention_forward_time_parser.search(line)
             if dec_self_attn_fwd_time_re:
-                res["data"]["dec-self-attention-forward"] = float(dec_self_attn_fwd_time_re.group('time'))
-            dec_mlp_fwd_time_re = real_time_time_parser.search(line)
+                rank0_time_re = real_time_rank0_time_parser.search(lines[idx + 1])
+                res["data"]["dec-self-attention-forward"] = float(rank0_time_re.group('time'))
+            dec_mlp_fwd_time_re = real_time_dec_mlp_forward_time_parser.search(line)
             if dec_mlp_fwd_time_re:
-                res["data"]["dec-mlp-forward"] = float(dec_mlp_fwd_time_re.group('time'))
-            dec_post_fwd_time_re = real_time_time_parser.search(line)
+                rank0_time_re = real_time_rank0_time_parser.search(lines[idx + 1])
+                res["data"]["dec-mlp-forward"] = float(rank0_time_re.group('time'))
+            dec_post_fwd_time_re = real_time_dec_post_process_forward_time_parser.search(line)
             if dec_post_fwd_time_re:
-                res["data"]["dec-post-process-forward"] = float(dec_post_fwd_time_re.group('time'))
+                rank0_time_re = real_time_rank0_time_parser.search(lines[idx + 1])
+                res["data"]["dec-post-process-forward"] = float(rank0_time_re.group('time'))
         assert res["data"]["forward-backward"] != 0.0, f'forward-backward is 0.0'
         assert res["data"]["forward-compute"] != 0.0, f'forward-compute is 0.0'
         assert res["data"]["backward-compute"] != 0.0, f'backward-compute is 0.0'
