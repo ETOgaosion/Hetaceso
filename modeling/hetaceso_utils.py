@@ -83,6 +83,15 @@ class AcesoConfig:
     rsp_comm_time_list: List[float] = field(default_factory=list)
     dp_comm_time_list: List[float] = field(default_factory=list)
     
+    embed_fwd_time_list: List[float] = field(default_factory=list)
+    embed_bwd_time_list: List[float] = field(default_factory=list)
+    attn_fwd_time_list: List[float] = field(default_factory=list)
+    attn_bwd_time_list: List[float] = field(default_factory=list)
+    mlp_fwd_time_list: List[float] = field(default_factory=list)
+    mlp_bwd_time_list: List[float] = field(default_factory=list)
+    post_fwd_time_list: List[float] = field(default_factory=list)
+    post_bwd_time_list: List[float] = field(default_factory=list)
+    
     memory_list: List[float] = field(default_factory=list)
     weight_size_list: List[float] = field(default_factory=list)
     weight_size_no_embed_list: List[float] = field(default_factory=list)

@@ -27,6 +27,14 @@ config_parser = re.compile(r'gpu_configs/(?P<model_size>[\d\_\w]+)/gpt_mbs(?P<mb
 estimate_result_total_time_parser = re.compile(r'total_time: (?P<total_time>\d.*\d)')
 estimate_result_fwd_time_parser = re.compile(r'fwd_time: (?P<fwd_time>\d.*\d)')
 estimate_result_bwd_time_parser = re.compile(r'bwd_time: (?P<bwd_time>\d.*\d)')
+estimate_result_embed_comp_fwd_time_parser = re.compile(r'embed_comp_fwd_time: (?P<embed_comp_fwd_time>\d.*\d)')
+estimate_result_embed_comp_bwd_time_parser = re.compile(r'embed_comp_bwd_time: (?P<embed_comp_bwd_time>\d.*\d)')
+estimate_result_attn_comp_fwd_time_parser = re.compile(r'attn_comp_fwd_time: (?P<attn_comp_fwd_time>\d.*\d)')
+estimate_result_attn_comp_bwd_time_parser = re.compile(r'attn_comp_bwd_time: (?P<attn_comp_bwd_time>\d.*\d)')
+estimate_result_mlp_comp_fwd_time_parser = re.compile(r'mlp_comp_fwd_time: (?P<mlp_comp_fwd_time>\d.*\d)')
+estimate_result_mlp_comp_bwd_time_parser = re.compile(r'mlp_comp_bwd_time: (?P<mlp_comp_bwd_time>\d.*\d)')
+estimate_result_post_comp_fwd_time_parser = re.compile(r'post_comp_fwd_time: (?P<post_comp_fwd_time>\d.*\d)')
+estimate_result_post_comp_bwd_time_parser = re.compile(r'post_comp_bwd_time: (?P<post_comp_bwd_time>\d.*\d)')
 estimate_result_memory_sum_parser = re.compile(r'memory_sum: (?P<memory_sum>\d.*\d)')
 estimate_result_ref_total_memory_parser = re.compile(r'ref_total_memory: (?P<ref_total_memory>\d.*\d)')
 
@@ -48,6 +56,14 @@ def estimate_result_parser(file):
             "total_time": 0.0,
             "fwd_time": 0.0,
             "bwd_time": 0.0,
+            "embed_comp_fwd_time": 0.0,
+            "embed_comp_bwd_time": 0.0,
+            "attn_comp_fwd_time": 0.0,
+            "attn_comp_bwd_time": 0.0,
+            "mlp_comp_fwd_time": 0.0,
+            "mlp_comp_bwd_time": 0.0,
+            "post_comp_fwd_time": 0.0,
+            "post_comp_bwd_time": 0.0,
             "memory_sum": 0.0,
             "ref_total_memory": 0.0,
         }
@@ -58,6 +74,14 @@ def estimate_result_parser(file):
             total_time_re = estimate_result_total_time_parser.search(line)
             fwd_time_re = estimate_result_fwd_time_parser.search(line)
             bwd_time_re = estimate_result_bwd_time_parser.search(line)
+            embed_fwd_comp_time_re = estimate_result_embed_comp_fwd_time_parser.search(line)
+            embed_bwd_comp_time_re = estimate_result_embed_comp_bwd_time_parser.search(line)
+            attn_fwd_comp_time_re = estimate_result_attn_comp_fwd_time_parser.search(line)
+            attn_bwd_comp_time_re = estimate_result_attn_comp_bwd_time_parser.search(line)
+            mlp_fwd_comp_time_re = estimate_result_mlp_comp_fwd_time_parser.search(line)
+            mlp_bwd_comp_time_re = estimate_result_mlp_comp_bwd_time_parser.search(line)
+            post_fwd_comp_time_re = estimate_result_post_comp_fwd_time_parser.search(line)
+            post_bwd_comp_time_re = estimate_result_post_comp_bwd_time_parser.search(line)
             memory_sum_re = estimate_result_memory_sum_parser.search(line)
             ref_total_memory_re = estimate_result_ref_total_memory_parser.search(line)
             if config_re:
@@ -76,6 +100,22 @@ def estimate_result_parser(file):
                 res["data"]["fwd_time"] = float(fwd_time_re.group('fwd_time'))
             if bwd_time_re:
                 res["data"]["bwd_time"] = float(bwd_time_re.group('bwd_time'))
+            if embed_fwd_comp_time_re:
+                res["data"]["embed_comp_fwd_time"] = float(embed_fwd_comp_time_re.group('embed_comp_fwd_time'))
+            if embed_bwd_comp_time_re:
+                res["data"]["embed_comp_bwd_time"] = float(embed_bwd_comp_time_re.group('embed_comp_bwd_time'))
+            if attn_fwd_comp_time_re:
+                res["data"]["attn_comp_fwd_time"] = float(attn_fwd_comp_time_re.group('attn_comp_fwd_time'))
+            if attn_bwd_comp_time_re:
+                res["data"]["attn_comp_bwd_time"] = float(attn_bwd_comp_time_re.group('attn_comp_bwd_time'))
+            if mlp_fwd_comp_time_re:
+                res["data"]["mlp_comp_fwd_time"] = float(mlp_fwd_comp_time_re.group('mlp_comp_fwd_time'))
+            if mlp_bwd_comp_time_re:
+                res["data"]["mlp_comp_bwd_time"] = float(mlp_bwd_comp_time_re.group('mlp_comp_bwd_time'))
+            if post_fwd_comp_time_re:
+                res["data"]["post_comp_fwd_time"] = float(post_fwd_comp_time_re.group('post_comp_fwd_time'))
+            if post_bwd_comp_time_re:
+                res["data"]["post_comp_bwd_time"] = float(post_bwd_comp_time_re.group('post_comp_bwd_time'))
             if memory_sum_re:
                 res["data"]["memory_sum"] = float(memory_sum_re.group('memory_sum'))
             if ref_total_memory_re:
@@ -100,6 +140,10 @@ def realtime_result_times_parser(file):
             "forward-backward": 0.0,
             "forward-compute": 0.0,
             "backward-compute": 0.0,
+            "dec-embedding-forward": 0.0,
+            "dec-self-attention-forward": 0.0,
+            "dec-mlp-forward": 0.0,
+            "dec-post-process-forward": 0.0,
         }
     }
     with open(file, 'r') as fp:
@@ -110,6 +154,14 @@ def realtime_result_times_parser(file):
         res["data"]["forward-compute"] = float(fwd_time_re.group('time'))
         bwd_time_re = real_time_time_parser.search(lines[17])
         res["data"]["backward-compute"] = float(bwd_time_re.group('time'))
+        dec_embed_fwd_time_re = real_time_time_parser.search(lines[68])
+        res["data"]["dec-embedding-forward"] = float(dec_embed_fwd_time_re.group('time'))
+        dec_self_attn_fwd_time_re = real_time_time_parser.search(lines[78])
+        res["data"]["dec-self-attention-forward"] = float(dec_self_attn_fwd_time_re.group('time'))
+        dec_mlp_fwd_time_re = real_time_time_parser.search(lines[88])
+        res["data"]["dec-mlp-forward"] = float(dec_mlp_fwd_time_re.group('time'))
+        dec_post_fwd_time_re = real_time_time_parser.search(lines[98])
+        res["data"]["dec-post-process-forward"] = float(dec_post_fwd_time_re.group('time'))
     return res
 
 def realtime_result_memory_parser(file):
@@ -164,7 +216,7 @@ def write_to_excel_sheet(data, sheet_name, excel_file):
 def res_to_datas(res_estimate, res_realtime, max_model_size):
     datas = {}
     for model_size in model_sizes:
-        datas[model_size] = [["config", "type", "total_time", "fwd_time", "bwd_time", "memory_sum", "ref_total_memory"]]
+        datas[model_size] = [["config", "type", "total_time", "fwd_time", "bwd_time", "embed_fwd_time", "attn_fwd_time", "mlp_fwd_time", "post_fwd_time", "memory_sum", "ref_total_memory"]]
         for i in range(tests_num[model_sizes.index(model_size)]):
             datas[model_size].append([
                 f'mbs{res_estimate[model_size][i]["config"]["mbs"]}_tp{res_estimate[model_size][i]["config"]["tp"]}_usp{res_estimate[model_size][i]["config"]["usp"]}_rsp{res_estimate[model_size][i]["config"]["rsp"]}_dp{res_estimate[model_size][i]["config"]["dp"]}',
@@ -172,6 +224,10 @@ def res_to_datas(res_estimate, res_realtime, max_model_size):
                 res_estimate[model_size][i]["data"]["total_time"],
                 res_estimate[model_size][i]["data"]["fwd_time"],
                 res_estimate[model_size][i]["data"]["bwd_time"],
+                res_estimate[model_size][i]["data"]["embed_comp_fwd_time"],
+                res_estimate[model_size][i]["data"]["attn_comp_fwd_time"],
+                res_estimate[model_size][i]["data"]["mlp_comp_fwd_time"],
+                res_estimate[model_size][i]["data"]["post_comp_fwd_time"],
                 res_estimate[model_size][i]["data"]["memory_sum"],
                 res_estimate[model_size][i]["data"]["ref_total_memory"],
             ])
@@ -181,6 +237,10 @@ def res_to_datas(res_estimate, res_realtime, max_model_size):
                 res_realtime["time"][model_size][i]["data"]["forward-backward"],
                 res_realtime["time"][model_size][i]["data"]["forward-compute"],
                 res_realtime["time"][model_size][i]["data"]["backward-compute"],
+                res_realtime["time"][model_size][i]["data"]["dec-embedding-forward"],
+                res_realtime["time"][model_size][i]["data"]["dec-self-attention-forward"],
+                res_realtime["time"][model_size][i]["data"]["dec-mlp-forward"],
+                res_realtime["time"][model_size][i]["data"]["dec-post-process-forward"],
                 res_realtime["mem"][model_size][i]["data"]["memory-max-allocated"],
                 res_realtime["mem"][model_size][i]["data"]["memory-max-reserved"],
             ])

@@ -306,6 +306,9 @@ class HetacesoPerformanceModel:
         if len(ops) == 0:
             return 0, 0, 0, 0, 0
         fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm = 0, 0, 0, 0, 0, 0, 0, 0
+        op_comp_time = {}
+        for op in get_op_list(self.args):
+            op_comp_time[op] = {"fwd": 0, "bwd": 0}
         
         '''
         TP communication refer to https://www.cnblogs.com/rossiXYZ/p/15871062.html
@@ -317,6 +320,8 @@ class HetacesoPerformanceModel:
             op_name = ops[i]
             fwd_comp += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]
             bwd_comp += self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]
+            op_comp_time[op_name]["fwd"] += fwd_comp
+            op_comp_time[op_name]["bwd"] += bwd_comp
             cur_op_input_size = str(int(self.input_size[op_name][cur_mbs][cur_seqlen][tp]))
             cur_op_output_size = str(int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]))
             if op_name == "dec-embedding":
@@ -379,7 +384,7 @@ class HetacesoPerformanceModel:
         else:
             out_comm = output_comm_size / self.intra_node_band(rank, output_comm_size)
 
-        return fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm
+        return fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm, op_comp_time
 
 
     ## TODO: check if mbs is needed
@@ -462,7 +467,11 @@ class HetacesoPerformanceModel:
         ops = self.ops_in_each_stage[pp_rank]
 
         ## fwd bwd time is in [us], comm time is in [ms].
-        fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm = self.get_comp_comm_time(rank, self.machine_idx_rank_map[rank], ops, cur_mbs, cur_seqlen, cur_tp, cur_usp, cur_rsp, cur_dp, in_cross_node, out_cross_node)
+        fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm, op_comp_time = self.get_comp_comm_time(rank, self.machine_idx_rank_map[rank], ops, cur_mbs, cur_seqlen, cur_tp, cur_usp, cur_rsp, cur_dp, in_cross_node, out_cross_node)
+        
+        for op in op_comp_time:
+            for fwd_bwd in op_comp_time[op]:
+                op_comp_time[op][fwd_bwd] = op_comp_time[op][fwd_bwd] / 1000 * num_micro_batches
 
         if print_detail:
             print(
@@ -477,6 +486,7 @@ class HetacesoPerformanceModel:
             usp_comm * num_micro_batches,
             rsp_comm * num_micro_batches,
             dp_comm * num_micro_batches,
+            op_comp_time,
         )
 
     def predict_stage_memory(
@@ -535,7 +545,7 @@ class HetacesoPerformanceModel:
         micro_batch_size = self.config.micro_bs
         num_micro_batches = self.config.global_bs // micro_batch_size
 
-        fwd_time, bwd_time, tp_comm_time, usp_comm_time, rsp_comm_time, dp_comm_time = self.predict_stage_time(
+        fwd_time, bwd_time, tp_comm_time, usp_comm_time, rsp_comm_time, dp_comm_time, op_comp_time = self.predict_stage_time(
             rank,
             num_micro_batches,
             in_cross_node,
@@ -558,6 +568,15 @@ class HetacesoPerformanceModel:
         self.config.rsp_comm_time_list.append(rsp_comm_time)
         self.config.dp_comm_time_list.append(dp_comm_time)
         
+        self.config.embed_fwd_time_list.append(op_comp_time["dec-embedding"]["fwd"])
+        self.config.embed_bwd_time_list.append(op_comp_time["dec-embedding"]["bwd"])
+        self.config.att_fwd_time_list.append(op_comp_time["dec-self-attention"]["fwd"])
+        self.config.att_bwd_time_list.append(op_comp_time["dec-self-attention"]["bwd"])
+        self.config.mlp_fwd_time_list.append(op_comp_time["dec-mlp"]["fwd"])
+        self.config.mlp_bwd_time_list.append(op_comp_time["dec-mlp"]["bwd"])
+        self.config.post_fwd_time_list.append(op_comp_time["dec-post-process"]["fwd"])
+        self.config.post_bwd_time_list.append(op_comp_time["dec-post-process"]["bwd"])
+        
         self.config.memory_list.append(memory_sum)
         self.config.weight_size_list.append(weight_size)
         self.config.weight_size_no_embed_list.append(weight_size_no_embedding)
@@ -575,6 +594,14 @@ class HetacesoPerformanceModel:
                     usp_comm_time: {usp_comm_time}\n \
                     rsp_comm_time: {rsp_comm_time}\n \
                     dp_comm_time: {dp_comm_time}\n \
+                    embed_comp_fwd_time: {op_comp_time["dec-embedding"]["fwd"]}\n \
+                    embed_comp_bwd_time: {op_comp_time["dec-embedding"]["bwd"]}\n \
+                    att_comp_fwd_time: {op_comp_time["dec-self-attention"]["fwd"]}\n \
+                    att_comp_bwd_time: {op_comp_time["dec-self-attention"]["bwd"]}\n \
+                    mlp_comp_fwd_time: {op_comp_time["dec-mlp"]["fwd"]}\n \
+                    mlp_comp_bwd_time: {op_comp_time["dec-mlp"]["bwd"]}\n \
+                    post_comp_fwd_time: {op_comp_time["dec-post-process"]["fwd"]}\n \
+                    post_comp_bwd_time: {op_comp_time["dec-post-process"]["bwd"]}\n \
                     memory_sum: {memory_sum}\n \
                     memory_weight: {weight_size}\n \
                     memory_weight_no_embed: {weight_size_no_embedding}\n \
