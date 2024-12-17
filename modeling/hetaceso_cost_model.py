@@ -320,8 +320,8 @@ class HetacesoPerformanceModel:
             op_name = ops[i]
             fwd_comp += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]
             bwd_comp += self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]
-            op_comp_time[op_name]["fwd"] += fwd_comp
-            op_comp_time[op_name]["bwd"] += bwd_comp
+            op_comp_time[op_name]["fwd"] += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]
+            op_comp_time[op_name]["bwd"] += self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]
             cur_op_input_size = str(int(self.input_size[op_name][cur_mbs][cur_seqlen][tp]))
             cur_op_output_size = str(int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]))
             if op_name == "dec-embedding":
