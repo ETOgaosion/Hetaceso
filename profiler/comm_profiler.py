@@ -180,7 +180,6 @@ def all_to_all_single(args, data_size, world_size, torch_data_type, cp_group):
     del send_tensors, output_tensor, send_tensor
     gc.collect()
     torch.cuda.empty_cache()
-    print(start.elapsed_time(end), args.prof_repeat_times)
     return start.elapsed_time(end) / args.prof_repeat_times
 
 def all_gather_single(args, data_size, world_size, torch_data_type, dp_group):
