@@ -596,8 +596,8 @@ class HetacesoPerformanceModel:
                     dp_comm_time: {dp_comm_time}\n \
                     embed_comp_fwd_time: {op_comp_time["dec-embedding"]["fwd"]}\n \
                     embed_comp_bwd_time: {op_comp_time["dec-embedding"]["bwd"]}\n \
-                    att_comp_fwd_time: {op_comp_time["dec-self-attention"]["fwd"]}\n \
-                    att_comp_bwd_time: {op_comp_time["dec-self-attention"]["bwd"]}\n \
+                    attn_comp_fwd_time: {op_comp_time["dec-self-attention"]["fwd"]}\n \
+                    attn_comp_bwd_time: {op_comp_time["dec-self-attention"]["bwd"]}\n \
                     mlp_comp_fwd_time: {op_comp_time["dec-mlp"]["fwd"]}\n \
                     mlp_comp_bwd_time: {op_comp_time["dec-mlp"]["bwd"]}\n \
                     post_comp_fwd_time: {op_comp_time["dec-post-process"]["fwd"]}\n \
