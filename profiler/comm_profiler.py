@@ -499,8 +499,9 @@ def run_profile(task):
     for i in range(len(configs["tp"])):
         tp_size = configs["tp"][i]
         usp_size = configs["usp"][i]
+        rsp_size = configs["rsp"][i]
         dp_size = configs["dp"][i]
-        data_size_list = load_data_size_list(args, torch_data_type, tp_size, usp_size, dp_size, size, i)
+        data_size_list = load_data_size_list(args, torch_data_type, tp_size, usp_size * rsp_size, dp_size, size, i)
         print(f"tp_size: {tp_size}, usp_size: {usp_size}, dp_size: {dp_size}")
         if usp_size > 1:
             torch.multiprocessing.spawn(
@@ -512,7 +513,7 @@ def run_profile(task):
         if dp_size > 1:
             torch.multiprocessing.spawn(
                 profile_dp,
-                args=(world_size, tp_size, usp_size, dp_size, data_size_list, model, size, torch_data_type),
+                args=(world_size, tp_size, usp_size * rsp_size, dp_size, data_size_list, model, size, torch_data_type),
                 nprocs=world_size,
                 join=True,
             )
