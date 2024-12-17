@@ -446,9 +446,7 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
             extra_kwargs['window_size'] = config.window_size
         
         if self.config.timers:
-            self.hooks = OpHooks("MegatronTEProductAttention", self.config.timers)
-            self.register_forward_pre_hook(self.hooks.pre_forward_hook)
-            self.register_forward_hook(self.hooks.forward_hook)
+            self.timer = self.config.timers("MegatronTEDotProductAttention-forward", level=2)
 
         super().__init__(
             num_attention_heads=self.config.num_attention_heads,
@@ -476,6 +474,9 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
         attn_mask_type: AttnMaskType,
         packed_seq_params: PackedSeqParams = None,
     ):
+        if self.timer:
+            self.timer.start()
+        
         packed_seq_kwargs = (
             dataclasses.asdict(packed_seq_params) if packed_seq_params is not None else {}
         )
@@ -515,6 +516,9 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
             )
         else:
             core_attn_out = super().forward(query, key, value, attention_mask, **packed_seq_kwargs,)
+
+        if self.timer:
+            self.timer.stop()
 
         if self.config.apply_rope_fusion and qkv_format == 'bshd':
             return core_attn_out.transpose(0, 1)
