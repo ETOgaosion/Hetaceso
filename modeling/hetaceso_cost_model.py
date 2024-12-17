@@ -230,7 +230,7 @@ class HetacesoPerformanceModel:
             rsp = configs["rsp"][cfg_i]
             dp = configs["dp"][cfg_i]
             for prim in self.collective_time.keys():
-                if usp > 1 or dp > 1:
+                if (prim == "all_to_all" and usp > 1) or (prim == "all_reduce" and dp > 1):
                     if (tp, usp, rsp, dp) not in self.collective_time[prim]:
                         self.collective_time[prim][(tp, usp, rsp, dp)] = {}
                     if rank not in self.collective_time[prim][(tp, usp, rsp, dp)]:
@@ -284,9 +284,9 @@ class HetacesoPerformanceModel:
             if index >= 1:
                 index -= 1
             if index >= len(self.intra_band[rank]):
-                return self.intra_band[rank][-1] * 0.001
+                return self.intra_band[rank][-1]
             else:
-                return self.intra_band[rank][index] * 0.001
+                return self.intra_band[rank][index]
         else:
             return 1
 
@@ -296,9 +296,9 @@ class HetacesoPerformanceModel:
             if index >= 1:
                 index -= 1
             if index >= len(self.inter_band):
-                return self.inter_band[(cur_machine, other_machine)][-1] * 0.001
+                return self.inter_band[(cur_machine, other_machine)][-1]
             else:
-                return self.inter_band[(cur_machine, other_machine)][index] * 0.001
+                return self.inter_band[(cur_machine, other_machine)][index]
         else:
             return 1
 
@@ -351,10 +351,12 @@ class HetacesoPerformanceModel:
                 '''
                 if usp > 1:
                     assert cur_op_output_size in self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank], f'{op_name} {cur_op_output_size} {(tp, usp, rsp, dp)} {self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank]}'
-                    # bandwidth unit is MB/s, thus need to multiply 1000
-                    usp_comm += (self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size]) * 1000 * 4
+                    usp_comm += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 4
                 if rsp > 1:
-                    rsp_comm += int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) // self.intra_node_band(rank, int(self.output_size[op_name][cur_mbs][cur_seqlen][tp])) * 2
+                    # ring KV, communication calculate where cannot overlap with computation
+                    rsp_comm += (float(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) / self.intra_node_band(rank, self.output_size[op_name][cur_mbs][cur_seqlen][tp]) - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * 4
+                    if rsp_comm < 0:
+                        rsp_comm = 0
             elif op_name == "dec-mlp":
                 '''
                 MLP
