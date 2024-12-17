@@ -446,7 +446,7 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
             extra_kwargs['window_size'] = config.window_size
         
         if self.config.timers:
-            self.timer = self.config.timers("MegatronTEDotProductAttention-forward", level=2)
+            self.timer = self.config.timers("MegatronTEDotProductAttention-forward", log_level=2)
 
         super().__init__(
             num_attention_heads=self.config.num_attention_heads,
