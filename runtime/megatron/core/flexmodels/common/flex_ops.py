@@ -11,6 +11,7 @@ from megatron.core import InferenceParams, parallel_state, tensor_parallel
 import torch
 from torch import Tensor
 from dataclasses import dataclass
+from megatron.core.transformer.utils import OpHooks
 from megatron.core.transformer.spec_utils import build_module, ModuleSpec
 from megatron.core.transformer.transformer_layer import (
     TransformerLayerSubmodules,
@@ -92,26 +93,6 @@ class FlexModule(MegatronModule):
                         self.embedding.word_embeddings.weight.main_grad = new_data[key][0]
                     else:
                         self.embedding.word_embeddings.weight.data = new_data[key][0]
-
-
-class OpHooks:
-    def __init__(self, opName: str, timers):
-        self.opName = opName
-        print('hook ', opName + '-forward', opName + '-backward')
-        self.fwd_timers = timers(opName + '-forward', log_level=1)
-        self.bwd_timers = timers(opName + '-backward', log_level=1)
-        
-    def pre_forward_hook(self, module, args):
-        self.fwd_timers.start()
-    
-    def forward_hook(self, module, args, output):
-        self.fwd_timers.stop()
-    
-    def pre_backward_hook(self, module, grad_output):
-        self.bwd_timers.start()
-    
-    def backward_hook(self, module, grad_input, grad_output):
-        self.bwd_timers.stop()
 
 @dataclass
 class OpInfo:

@@ -729,14 +729,17 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'dec-post-process-forward',
         'dec-post-process-forward-outside',
         'dec-post-process-backward',
-        'TEA2A',
+        'MegatronTEProductAttention-forward',
+        'MegatronTEProductAttention-backward',
+        'FlashAttentionClassFwd',
         'TEAttnFwd',
         'TEAttnBwd',
+        'TERingAttnCoreLoopFwd',
         'TEFlashAttnFwd',
-        "TEFlashAttnBwd",
-        "TERingAttnCoreLoopFwd",
-        "RingAttnFwdWait",
-        "RingAttnBwdWait",
+        'TEFlashAttnBwd',
+        'TEA2A',
+        'RingAttnFwdWait',
+        'RingAttnBwdWait',
         ]
 
     # Calculate batch size.

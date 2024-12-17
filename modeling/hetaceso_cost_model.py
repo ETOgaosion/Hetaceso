@@ -359,7 +359,7 @@ class HetacesoPerformanceModel:
                     usp_comm += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 4
                 if rsp > 1:
                     # ring KV, communication calculate where cannot overlap with computation
-                    rsp_comm += (float(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) / self.intra_node_band(rank, self.output_size[op_name][cur_mbs][cur_seqlen][tp]) - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * 4
+                    rsp_comm += float(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) / self.intra_node_band(rank, self.output_size[op_name][cur_mbs][cur_seqlen][tp]) * 4
                     if rsp_comm < 0:
                         rsp_comm = 0
             elif op_name == "dec-mlp":
@@ -553,6 +553,8 @@ class HetacesoPerformanceModel:
             print_detail,
         )
         total_time = fwd_time + bwd_time + usp_comm_time + rsp_comm_time + dp_comm_time
+        fwd_time += (tp_comm_time + usp_comm_time + rsp_comm_time + dp_comm_time) / 2
+        bwd_time += (tp_comm_time + usp_comm_time + rsp_comm_time + dp_comm_time) / 2
         memory_ret = (
             self.predict_stage_memory(
                 rank, print_detail=print_detail, breakdown=True, with_reference=True

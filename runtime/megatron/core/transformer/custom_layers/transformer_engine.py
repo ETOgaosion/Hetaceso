@@ -24,7 +24,7 @@ from megatron.core.parallel_state import (
 from megatron.core.tensor_parallel import get_cuda_rng_tracker
 from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.transformer_config import TransformerConfig
-from megatron.core.transformer.utils import make_sharded_tensors_for_checkpoint
+from megatron.core.transformer.utils import make_sharded_tensors_for_checkpoint, OpHooks
 
 _te_version = packaging.version.Version(version("transformer-engine"))
 
@@ -368,7 +368,6 @@ class TERowParallelLinear(TELinear):
             state_dict, prefix, {'weight': 1}, sharded_offsets
         )
 
-
 class TEDotProductAttention(te.pytorch.DotProductAttention):
     """
     Wrapper for the Transformer-Engine's `DotProductAttention` layer that also
@@ -445,6 +444,11 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
                 "1.2.0"
             ), f"Transformer-Engine version ({str(_te_version)}) must be >= 1.2.0 to support sliding window attention."
             extra_kwargs['window_size'] = config.window_size
+        
+        if self.config.timers:
+            self.hooks = OpHooks("MegatronTEProductAttention", self.config.timers)
+            self.register_forward_pre_hook(self.hooks.pre_forward_hook)
+            self.register_forward_hook(self.hooks.forward_hook)
 
         super().__init__(
             num_attention_heads=self.config.num_attention_heads,
