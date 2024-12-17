@@ -35,7 +35,8 @@ GLOBAL_BATCH_SIZE=1024
 
 TEST_NUM=${1:-0}
 MACHINE=${2:-0}
-TRAIN_ITERS=${3:-5}
+TRAIN_ITERS=${3:-3}
+RETRAIN=${4:-1}
 
 if [[ $MACHINE -eq "0" ]]; then
     export NCCL_SOCKET_IFNAME=eno2
@@ -50,7 +51,9 @@ fi
 VOCAB_FILE=../../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../../vocabs/gpt2-merges.txt
 
-# rm -rf logs_${TEST_NUM}
+if [ $RETRAIN -eq 1 ]; then
+    rm -rf logs_${TEST_NUM}
+fi
 mkdir -p logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}/profile_torch
 

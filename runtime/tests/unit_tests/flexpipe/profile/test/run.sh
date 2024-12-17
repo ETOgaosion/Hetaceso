@@ -39,7 +39,9 @@ TRAIN_ITERS=${2:-5}
 VOCAB_FILE=../../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../../vocabs/gpt2-merges.txt
 
-# rm -rf logs_${TEST_NUM}
+if [ $RETRAIN -eq 1 ]; then
+    rm -rf logs_${TEST_NUM}
+fi
 mkdir -p logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}/profile_torch
 

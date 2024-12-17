@@ -142,8 +142,8 @@ def realtime_results_parse_all(model_size_max):
         results["time"][model_size] = []
         results["mem"][model_size] = []
         for test_i in range(tests_num[i]):
-            time_res = realtime_result_times_parser(os.path.join(real_time_result_path, model_size, f'logs_{test_i}', 'times_iter5.log'))
-            mem_res = realtime_result_memory_parser(os.path.join(real_time_result_path, model_size, f'logs_{test_i}', 'memory_iter5_rank0.log'))
+            time_res = realtime_result_times_parser(os.path.join(real_time_result_path, model_size, f'logs_{test_i}', 'times_iter3.log'))
+            mem_res = realtime_result_memory_parser(os.path.join(real_time_result_path, model_size, f'logs_{test_i}', 'memory_iter3_rank0.log'))
             results["time"][model_size].append(time_res)
             results["mem"][model_size].append(mem_res)
         if model_size == model_size_max:
