@@ -25,8 +25,8 @@ tests_num = [8, 8, 8, 8, 8]
 config_parser = re.compile(r'gpu_configs/(?P<model_size>[\d\_\w]+)/gpt_mbs(?P<mbs>\d+)_tp(?P<tp>\d+)_usp(?P<usp>\d+)_rsp(?P<rsp>\d+)_dp(?P<dp>\d+)')
 
 estimate_result_total_time_parser = re.compile(r'total_time: (?P<total_time>\d.*\d)')
-estimate_result_fwd_time_parser = re.compile(r'fwd_time: (?P<fwd_time>\d.*\d)')
-estimate_result_bwd_time_parser = re.compile(r'bwd_time: (?P<bwd_time>\d.*\d)')
+estimate_result_fwd_time_parser = re.compile(r' fwd_time: (?P<fwd_time>\d.*\d)')
+estimate_result_bwd_time_parser = re.compile(r' bwd_time: (?P<bwd_time>\d.*\d)')
 estimate_result_embed_comp_fwd_time_parser = re.compile(r'embed_comp_fwd_time: (?P<embed_comp_fwd_time>\d.*\d)')
 estimate_result_embed_comp_bwd_time_parser = re.compile(r'embed_comp_bwd_time: (?P<embed_comp_bwd_time>\d.*\d)')
 estimate_result_attn_comp_fwd_time_parser = re.compile(r'attn_comp_fwd_time: (?P<attn_comp_fwd_time>\d.*\d)')
