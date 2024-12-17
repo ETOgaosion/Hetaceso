@@ -265,109 +265,8 @@ def reduce_scatter_single(args, data_size, world_size, torch_data_type, dp_group
     torch.cuda.empty_cache()
     return start.elapsed_time(end) / args.prof_repeat_times
 
-def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, torch_data_type):
-    args = parse_args()
-    init_method = "tcp://"
-    master_ip = os.getenv("MASTER_ADDR", "localhost")
-    master_port = os.getenv("MASTER_PORT", "6000")
-    init_method += master_ip + ":" + master_port
-    dist.init_process_group(
-        backend="nccl", world_size=world_size, rank=rank, init_method=init_method
-    )
-    print(f'rank {rank} initialized', flush=True)
-    initialized = False
-    for i in range(tp_size):
-        cp_group_start = i
-        cp_group_end = world_size
-        if rank in range(cp_group_start, cp_group_end, tp_size):
-            cp_group = dist.new_group(list(range(cp_group_start, cp_group_end, tp_size)), use_local_synchronization=True)
-            print(f'rank {rank} cp_ranks: {dist.get_process_group_ranks(cp_group)}', flush=True)
-            initialized = True
-            break
-    assert initialized, f'rank {rank} not initialized'
 
-    if os.path.exists(args.prof_cache_file):
-        cached_results = pickle.load(open(args.prof_cache_file, "rb"))
-        profiled_results = cached_results["profiled_results"]
-    else:
-        profiled_results = {}
-
-    torch.cuda.set_device(rank)
-    if torch_data_type == torch.float:
-        mb_per_item = 4 / (1024 * 1024)
-    elif torch_data_type == torch.half:
-        mb_per_item = 2 / (1024 * 1024)
-    else:
-        raise RuntimeError(f"type {torch_data_type} not support.")
-
-    if model == "gpt":
-        collectives = ["all_to_all"]
-    else:
-        raise RuntimeError(f"Model {model} is not supported.")
-
-    for collective_type in collectives:
-        avg_time_list = {}
-        print(
-            f"{dist.get_rank()} Start profiling {collective_type}... len(data_size_list) = {len(data_size_list)}", flush=True
-        )
-        for idx, data_size in enumerate(data_size_list):
-            data_size_in_mb = int(data_size * mb_per_item)
-            if collective_type in ["all_gather", "all_to_all"]:
-                full_data_size_in_mb = data_size_in_mb * world_size
-            elif collective_type in ["all_reduce", "reduce_scatter"]:
-                full_data_size_in_mb = data_size_in_mb
-
-            if data_size_in_mb not in avg_time_list:
-                print(
-                    f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} cp{cp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB) Progress: {idx / len(data_size_list)}\n", flush=True
-                )
-                # report_memory(f"{collective_type} {data_size_in_mb}")
-                hash_name = f"{collective_type}_tp{tp_size}_cp{cp_size}_{data_size_in_mb}_{torch_data_type}"
-                if hash_name in profiled_results:
-                    print(f"hit in cache!", flush=True)
-                    avg_time_list[data_size_in_mb] = profiled_results[hash_name]
-                elif full_data_size_in_mb > args.max_data_size:
-                    avg_time_list[data_size_in_mb] = 1000000000
-                else:
-                    dist.barrier()
-
-                    try:
-                        if collective_type == "all_to_all":
-                            avg_time_list[data_size_in_mb] = all_to_all_single(args, data_size, world_size, torch_data_type, cp_group)
-                            gc.collect()
-                            torch.cuda.empty_cache()
-                        else:
-                            raise RuntimeError(f"collective type {collective_type} not support.")
-                    except RuntimeError as e:
-                        print(e)
-
-                    assert data_size_in_mb in avg_time_list and avg_time_list[data_size_in_mb] is not None, f"rank {rank} {collective_type} {data_size_in_mb} profiling failed."
-                    profiled_results[hash_name] = avg_time_list[data_size_in_mb]
-        if rank == 0:
-            for data_size_in_mb in avg_time_list:
-                print(
-                    f"[{collective_type}] {data_size_in_mb} MB: {avg_time_list[data_size_in_mb]:.2f} ms", flush=True
-                )
-            result_title = ["data_size(MB)", "time(ms)"]
-            save_file_name = (
-                f"prim_{model}_{size}_tp{tp_size}_cp{cp_size}_{collective_type}.csv"
-            )
-            f_result = open(args.prof_path + save_file_name, "w")
-            f_csv = csv.writer(f_result)
-            f_csv.writerow(result_title)
-            for data_size_in_mb in avg_time_list:
-                tmp_row = [0, 0]
-                tmp_row[0] = "{:.0f}".format(data_size_in_mb)
-                tmp_row[1] = "{:.3f}".format(float(avg_time_list[data_size_in_mb]))
-                f_csv.writerow(tmp_row)
-
-    if rank == 0:
-        save_dict = {}
-        save_dict["profiled_results"] = profiled_results
-        pickle.dump(save_dict, open(args.prof_cache_file, "wb"))
-
-
-def profile_dp(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type):
+def profile(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type):
     args = parse_args()
     init_method = "tcp://"
     master_ip = os.getenv("MASTER_ADDR", "localhost")
@@ -378,16 +277,28 @@ def profile_dp(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size
     )
     print(f'rank {rank} initialized', flush=True)
     cp_size = usp_size * rsp_size
-    initialized = False
-    for i in range(tp_size * cp_size):
-        dp_group_start = i
-        dp_group_end = world_size
-        if rank in range(dp_group_start, dp_group_end, tp_size * cp_size):
-            dp_group = dist.new_group(list(range(dp_group_start, dp_group_end, tp_size * cp_size)), use_local_synchronization=True)
-            print(f'rank {rank} dp_ranks: {dist.get_process_group_ranks(dp_group)}', flush=True)
-            initialized = True
-            break
-    assert initialized, f'rank {rank} not initialized'
+    if usp_size > 1:
+        initialized = False
+        for i in range(tp_size):
+            usp_group_start = i
+            usp_group_end = world_size
+            if rank in range(usp_group_start, usp_group_end, tp_size):
+                usp_group = dist.new_group(list(range(usp_group_start, usp_group_end, tp_size)), use_local_synchronization=True)
+                print(f'rank {rank} cp_ranks: {dist.get_process_group_ranks(usp_group)}', flush=True)
+                initialized = True
+                break
+        assert initialized, f'rank {rank} usp_group not initialized'
+    if dp_size > 1:
+        initialized = False
+        for i in range(tp_size * cp_size):
+            dp_group_start = i
+            dp_group_end = world_size
+            if rank in range(dp_group_start, dp_group_end, tp_size * cp_size):
+                dp_group = dist.new_group(list(range(dp_group_start, dp_group_end, tp_size * cp_size)), use_local_synchronization=True)
+                print(f'rank {rank} dp_ranks: {dist.get_process_group_ranks(dp_group)}', flush=True)
+                initialized = True
+                break
+        assert initialized, f'rank {rank} dp_group not initialized'
 
     if os.path.exists(args.prof_cache_file):
         cached_results = pickle.load(open(args.prof_cache_file, "rb"))
@@ -404,7 +315,11 @@ def profile_dp(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size
         raise RuntimeError(f"type {torch_data_type} not support.")
 
     if model == "gpt":
-        collectives = ["all_reduce"]
+        collectives = []
+        if usp_size > 1:
+            collectives.append("all_to_all")
+        if dp_size > 1:
+            collectives.extend(["all_reduce"])
         # collectives = ["all_gather", "all_reduce", "reduce_scatter"]
     else:
         raise RuntimeError(f"Model {model} is not supported.")
@@ -438,6 +353,10 @@ def profile_dp(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size
                     try:
                         if collective_type == "all_reduce":
                             avg_time_list[data_size_in_mb] = all_reduce_single(args, data_size, torch_data_type, dp_group)
+                            gc.collect()
+                            torch.cuda.empty_cache()
+                        elif collective_type == "all_to_all":
+                            avg_time_list[data_size_in_mb] = all_to_all_single(args, data_size, world_size, torch_data_type, usp_group)
                             gc.collect()
                             torch.cuda.empty_cache()
                         else:
@@ -505,16 +424,9 @@ def run_profile(task):
         dp_size = configs["dp"][i]
         data_size_list = load_data_size_list(args, torch_data_type, tp_size, usp_size * rsp_size, dp_size, size, i)
         print(f"tp_size: {tp_size}, usp_size: {usp_size}, dp_size: {dp_size}")
-        if usp_size > 1:
+        if usp_size > 1 or dp_size > 1:
             torch.multiprocessing.spawn(
-                profile_cp,
-                args=(world_size, tp_size, usp_size, data_size_list, model, size, torch_data_type),
-                nprocs=world_size,
-                join=True,
-            )
-        if dp_size > 1:
-            torch.multiprocessing.spawn(
-                profile_dp,
+                profile,
                 args=(world_size, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type),
                 nprocs=world_size,
                 join=True,

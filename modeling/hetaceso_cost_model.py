@@ -221,7 +221,8 @@ class HetacesoPerformanceModel:
         - ring context parallel: all ring rank need p2p communication, like all-reduce but can possibly overlap with computation
         - data parallel: all ranks need all-reduce gradients
         '''
-        self.collective_time = {"all_reduce": {}, "all_gather": {}, "reduce_scatter": {}, "all_to_all": {}}
+        self.collective_time = {"all_reduce": {}, "all_to_all": {}}
+        # self.collective_time = {"all_reduce": {}, "all_gather": {}, "reduce_scatter": {}, "all_to_all": {}}
         comm_prim_map = {"tp": ["all_reduce", "all_gather", "reduce_scatter"], "usp": ["all_to_all"], "rsp": ["all_reduce"], "dp": ["all_reduce"]}
         for cfg_i in range(len(configs["tp"])):
             tp = configs["tp"][cfg_i]
@@ -229,26 +230,13 @@ class HetacesoPerformanceModel:
             rsp = configs["rsp"][cfg_i]
             dp = configs["dp"][cfg_i]
             for prim in self.collective_time.keys():
-                if prim == "all_to_all":
-                    if (tp, usp) not in self.collective_time[prim]:
-                        self.collective_time[prim][(tp, usp)] = {}
-                    if rank not in self.collective_time[prim][(tp, usp)]:
-                        self.collective_time[prim][(tp, usp)][rank] = {}
-                    src_data_file = f'{self.args.profiled_local_comm_path}rank{rank}/prim_{self.model_name}_{self.model_size}_tp{tp}_cp{usp}_{prim}.csv'
-                    with open(src_data_file) as f:
-                        src_data = csv.reader(f)
-                        line_index = 0
-                        for row in src_data:
-                            line_index += 1
-                            if line_index > 1:
-                                data_size = row[0]
-                                self.collective_time[prim][(tp, usp)][rank][data_size]= float(row[1])
-                else:
+                if usp > 1 or dp > 1:
                     if (tp, usp, rsp, dp) not in self.collective_time[prim]:
-                        self.collective_time[prim][(tp, rsp, usp, dp)] = {}
+                        self.collective_time[prim][(tp, usp, rsp, dp)] = {}
                     if rank not in self.collective_time[prim][(tp, usp, rsp, dp)]:
                         self.collective_time[prim][(tp, usp, rsp, dp)][rank] = {}
                     src_data_file = f'{self.args.profiled_local_comm_path}rank{rank}/prim_{self.model_name}_{self.model_size}_tp{tp}_usp{usp}_rsp{rsp}_dp{dp}_{prim}.csv'
+                    print(f'read {src_data_file}')
                     with open(src_data_file) as f:
                         src_data = csv.reader(f)
                         line_index = 0
@@ -347,8 +335,8 @@ class HetacesoPerformanceModel:
                 - Model Grad not overlappable: runtime/megatron/core/distributed/finalize_model_grads.py
                 '''
                 if dp > 1:
-                    assert cur_op_input_size in self.collective_time["all_reduce"][(tp, usp, dp)][rank], f'{op_name} {cur_op_input_size}'
-                    dp_comm += self.collective_time["all_reduce"][(tp, usp, dp)][rank][cur_op_input_size] * 2
+                    assert cur_op_input_size in self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank], f'{op_name} {cur_op_input_size}'
+                    dp_comm += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 2
             elif op_name == "dec-self-attention":
                 '''
                 Self attention
@@ -362,8 +350,9 @@ class HetacesoPerformanceModel:
                 - RSP: In most case rsp can overlap with calculation
                 '''
                 if usp > 1:
-                    assert cur_op_output_size in self.collective_time["all_to_all"][(tp, usp)][rank], f'{op_name} {cur_op_output_size}'
-                    usp_comm += self.collective_time["all_to_all"][(tp, usp)][rank][cur_op_output_size] * 4
+                    assert cur_op_output_size in self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank], f'{op_name} {cur_op_output_size} {(tp, usp, rsp, dp)} {self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank]}'
+                    # bandwidth unit is MB/s, thus need to multiply 1000
+                    usp_comm += (self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size]) * 1000 * 4
                 if rsp > 1:
                     rsp_comm += int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) // self.intra_node_band(rank, int(self.output_size[op_name][cur_mbs][cur_seqlen][tp])) * 2
             elif op_name == "dec-mlp":
@@ -472,16 +461,14 @@ class HetacesoPerformanceModel:
 
         ## fwd bwd time is in [us], comm time is in [ms].
         fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm = self.get_comp_comm_time(rank, self.machine_idx_rank_map[rank], ops, cur_mbs, cur_seqlen, cur_tp, cur_usp, cur_rsp, cur_dp, in_cross_node, out_cross_node)
-        sum_time = fwd_comp + bwd_comp + in_comm + out_comm + tp_comm + usp_comm + rsp_comm + dp_comm
 
         if print_detail:
             print(
-                f"Time(ms)=[{sum_time/1000 * num_micro_batches:.2f}]. fwd_compute = {fwd_comp * num_micro_batches / 1000 :.2f}, bwd_compute = {bwd_comp * num_micro_batches / 1000 :.2f}, in_comm_time = {in_comm * num_micro_batches :.2f}, out_comm_time = {out_comm * num_micro_batches :.2f}, tp_comm_time = {tp_comm * num_micro_batches :.2f}, usp_comm_time = {usp_comm * num_micro_batches :.2f}, rsp_comm_time = {rsp_comm * num_micro_batches :.2f}, dp_comm_time = {dp_comm * num_micro_batches :.2f}"
+                f"Time(ms)=[fwd_compute = {fwd_comp * num_micro_batches / 1000 :.2f}, bwd_compute = {bwd_comp * num_micro_batches / 1000 :.2f}, in_comm_time = {in_comm * num_micro_batches :.2f}, out_comm_time = {out_comm * num_micro_batches :.2f}, tp_comm_time = {tp_comm * num_micro_batches :.2f}, usp_comm_time = {usp_comm * num_micro_batches :.2f}, rsp_comm_time = {rsp_comm * num_micro_batches :.2f}, dp_comm_time = {dp_comm * num_micro_batches :.2f}]"
             )
 
         ## return [ms]
         return (
-            sum_time / 1000 * num_micro_batches,
             fwd_comp / 1000 * num_micro_batches,
             bwd_comp / 1000 * num_micro_batches,
             tp_comm * num_micro_batches,
@@ -546,13 +533,14 @@ class HetacesoPerformanceModel:
         micro_batch_size = self.config.micro_bs
         num_micro_batches = self.config.global_bs // micro_batch_size
 
-        total_time, fwd_time, bwd_time, tp_comm_time, usp_comm_time, rsp_comm_time, dp_comm_time = self.predict_stage_time(
+        fwd_time, bwd_time, tp_comm_time, usp_comm_time, rsp_comm_time, dp_comm_time = self.predict_stage_time(
             rank,
             num_micro_batches,
             in_cross_node,
             out_cross_node,
             print_detail,
         )
+        total_time = fwd_time + bwd_time + usp_comm_time + rsp_comm_time + dp_comm_time
         memory_ret = (
             self.predict_stage_memory(
                 rank, print_detail=print_detail, breakdown=True, with_reference=True

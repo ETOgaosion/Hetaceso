@@ -8,5 +8,5 @@ echo "========== test 2_6B ==========="
 ./scripts/estimate_2_6B.sh
 echo "========== test 6_7B ==========="
 ./scripts/estimate_6_7B.sh
-echo "========== test 13B ==========="
-./scripts/estimate_13B.sh
+# echo "========== test 13B ==========="
+# ./scripts/estimate_13B.sh

@@ -164,12 +164,11 @@ def write_to_excel_sheet(data, sheet_name, excel_file):
 def res_to_datas(res_estimate, res_realtime, max_model_size):
     datas = {}
     for model_size in model_sizes:
-        datas[model_size] = [["config", "type", "total_time_theoretical", "total_time", "fwd_time", "bwd_time", "memory_sum", "ref_total_memory"]]
+        datas[model_size] = [["config", "type", "total_time", "fwd_time", "bwd_time", "memory_sum", "ref_total_memory"]]
         for i in range(tests_num[model_sizes.index(model_size)]):
             datas[model_size].append([
                 f'mbs{res_estimate[model_size][i]["config"]["mbs"]}_tp{res_estimate[model_size][i]["config"]["tp"]}_usp{res_estimate[model_size][i]["config"]["usp"]}_rsp{res_estimate[model_size][i]["config"]["rsp"]}_dp{res_estimate[model_size][i]["config"]["dp"]}',
                 'modeling',
-                res_estimate[model_size][i]["data"]["fwd_time"] + res_estimate[model_size][i]["data"]["bwd_time"],
                 res_estimate[model_size][i]["data"]["total_time"],
                 res_estimate[model_size][i]["data"]["fwd_time"],
                 res_estimate[model_size][i]["data"]["bwd_time"],
@@ -179,7 +178,6 @@ def res_to_datas(res_estimate, res_realtime, max_model_size):
             datas[model_size].append([
                 f'mbs{res_estimate[model_size][i]["config"]["mbs"]}_tp{res_estimate[model_size][i]["config"]["tp"]}_usp{res_estimate[model_size][i]["config"]["usp"]}_rsp{res_estimate[model_size][i]["config"]["rsp"]}_dp{res_estimate[model_size][i]["config"]["dp"]}',
                 'realtime',
-                res_realtime["time"][model_size][i]["data"]["forward-compute"] + res_realtime["time"][model_size][i]["data"]["backward-compute"],
                 res_realtime["time"][model_size][i]["data"]["forward-backward"],
                 res_realtime["time"][model_size][i]["data"]["forward-compute"],
                 res_realtime["time"][model_size][i]["data"]["backward-compute"],
