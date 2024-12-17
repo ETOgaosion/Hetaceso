@@ -180,6 +180,7 @@ def all_to_all_single(args, data_size, world_size, torch_data_type, cp_group):
     del send_tensors, output_tensor, send_tensor
     gc.collect()
     torch.cuda.empty_cache()
+    print(start.elapsed_time(end), args.prof_repeat_times)
     return start.elapsed_time(end) / args.prof_repeat_times
 
 def all_gather_single(args, data_size, world_size, torch_data_type, dp_group):
@@ -328,26 +329,20 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
                 elif full_data_size_in_mb > args.max_data_size:
                     avg_time_list[data_size_in_mb] = 1000000000
                 else:
-                    time_list = []
                     dist.barrier()
 
                     try:
                         if collective_type == "all_to_all":
-                            time_list.append(all_to_all_single(args, data_size, world_size, torch_data_type, cp_group))
+                            avg_time_list[data_size_in_mb] = all_to_all_single(args, data_size, world_size, torch_data_type, cp_group)
                             gc.collect()
                             torch.cuda.empty_cache()
                         else:
                             raise RuntimeError(f"collective type {collective_type} not support.")
                     except RuntimeError as e:
                         print(e)
-                        time_list = [1000000 for _ in range(args.prof_repeat_times)]
 
-                    avg_time_list[data_size_in_mb] = (
-                        sum(time_list) / args.prof_repeat_times
-                    )
-                    profiled_results[hash_name] = (
-                        sum(time_list) / args.prof_repeat_times
-                    )
+                    assert data_size_in_mb in avg_time_list and avg_time_list[data_size_in_mb] is not None, f"rank {rank} {collective_type} {data_size_in_mb} profiling failed."
+                    profiled_results[hash_name] = avg_time_list[data_size_in_mb]
         if rank == 0:
             for data_size_in_mb in avg_time_list:
                 print(
@@ -438,26 +433,20 @@ def profile_dp(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size
                 elif full_data_size_in_mb > args.max_data_size:
                     avg_time_list[data_size_in_mb] = 1000000000
                 else:
-                    time_list = []
                     dist.barrier()
 
                     try:
                         if collective_type == "all_reduce":
-                            time_list.append(all_reduce_single(args, data_size, torch_data_type, dp_group))
+                            avg_time_list[data_size_in_mb] = all_reduce_single(args, data_size, torch_data_type, dp_group)
                             gc.collect()
                             torch.cuda.empty_cache()
                         else:
                             raise RuntimeError(f"collective {collective_type} not support.")
                     except RuntimeError as e:
                         print(e)
-                        time_list = [1000000 for _ in range(args.prof_repeat_times)]
 
-                    avg_time_list[data_size_in_mb] = (
-                        sum(time_list) / args.prof_repeat_times
-                    )
-                    profiled_results[hash_name] = (
-                        sum(time_list) / args.prof_repeat_times
-                    )
+                    assert data_size_in_mb in avg_time_list and avg_time_list[data_size_in_mb] is not None, f"rank {rank} {collective_type} {data_size_in_mb} profiling failed."
+                    profiled_results[hash_name] = avg_time_list[data_size_in_mb]
         if rank == 0:
             for data_size_in_mb in avg_time_list:
                 print(
