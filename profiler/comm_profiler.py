@@ -306,7 +306,6 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
 
     for collective_type in collectives:
         avg_time_list = {}
-        dist.barrier()
         print(
             f"{dist.get_rank()} Start profiling {collective_type}... len(data_size_list) = {len(data_size_list)}", flush=True
         )
@@ -330,6 +329,7 @@ def profile_cp(rank, world_size, tp_size, cp_size, data_size_list, model, size, 
                     avg_time_list[data_size_in_mb] = 1000000000
                 else:
                     time_list = []
+                    dist.barrier()
 
                     try:
                         if collective_type == "all_to_all":
@@ -419,7 +419,6 @@ def profile_dp(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size
         print(
             f"{dist.get_rank()} Start profiling {collective_type}... len(data_size_list) = {len(data_size_list)}", flush=True
         )
-        dist.barrier()
         for idx, data_size in enumerate(data_size_list):
             data_size_in_mb = int(data_size * mb_per_item)
             if collective_type in ["all_gather", "all_to_all"]:
@@ -440,6 +439,7 @@ def profile_dp(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size
                     avg_time_list[data_size_in_mb] = 1000000000
                 else:
                     time_list = []
+                    dist.barrier()
 
                     try:
                         if collective_type == "all_reduce":
