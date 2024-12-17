@@ -734,6 +734,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'TEAttnBwd',
         'TEFlashAttnFwd',
         "TEFlashAttnBwd",
+        "TERingAttnCoreLoopFwd",
         "RingAttnFwdWait",
         "RingAttnBwdWait",
         ]
