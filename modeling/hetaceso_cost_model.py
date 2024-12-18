@@ -562,9 +562,7 @@ class HetacesoPerformanceModel:
             out_cross_node,
             print_detail,
         )
-        total_time = fwd_time + bwd_time + usp_comm_time + rsp_comm_time + dp_comm_time
-        fwd_time += (tp_comm_time + usp_comm_time + rsp_comm_time + dp_comm_time) / 2
-        bwd_time += (tp_comm_time + usp_comm_time + rsp_comm_time + dp_comm_time) / 2
+        total_time = fwd_time + bwd_time
         memory_ret = (
             self.predict_stage_memory(
                 rank, print_detail=print_detail, breakdown=True, with_reference=True
