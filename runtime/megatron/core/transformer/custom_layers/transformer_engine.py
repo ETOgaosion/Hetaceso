@@ -517,7 +517,7 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
             core_attn_out = super().forward(query, key, value, attention_mask, **packed_seq_kwargs,)
 
         if self.config.timers:
-            self.config.timers("MegatronTEDotProductAttention-forward").stop
+            self.config.timers("MegatronTEDotProductAttention-forward").stop()
 
         if self.config.apply_rope_fusion and qkv_format == 'bshd':
             return core_attn_out.transpose(0, 1)
