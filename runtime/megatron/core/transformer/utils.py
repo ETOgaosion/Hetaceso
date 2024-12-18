@@ -17,10 +17,10 @@ from megatron.core.utils import (
 
 
 class OpHooks:
-    def __init__(self, opName: str, timers):
+    def __init__(self, opName: str, timers, log_level=1):
         self.opName = opName
-        self.fwd_timers = timers(opName + '-forward', log_level=1)
-        self.bwd_timers = timers(opName + '-backward', log_level=1)
+        self.fwd_timers = timers(opName + '-forward', log_level=log_level)
+        self.bwd_timers = timers(opName + '-backward', log_level=log_level)
         
     def pre_forward_hook(self, module, args):
         self.fwd_timers.start()

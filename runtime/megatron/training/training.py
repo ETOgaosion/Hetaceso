@@ -588,7 +588,7 @@ def train_step(forward_step_func, data_iterator,
 
     # All-reduce word_embeddings' grad across first and last stages to ensure
     # that word_embeddings parameters stay in sync.
-    timers('backward-embedding-all-reduce').start()
+    timers('backward-embedding-all-reduce', log_level=2).start()
     synchronize_shared_weights_grads(model)
     timers('backward-embedding-all-reduce').stop()
     

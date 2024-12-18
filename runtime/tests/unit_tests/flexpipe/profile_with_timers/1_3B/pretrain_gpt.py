@@ -147,7 +147,7 @@ def forward_step(data_iterator, model: FlexGPTModel, extra_tensors_):
     timers = get_timers()
 
     # Get the batch.
-    timers('batch-generator', log_level=0).start()
+    timers('batch-generator', log_level=2).start()
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
         data_iterator)
     input_tensors = {}

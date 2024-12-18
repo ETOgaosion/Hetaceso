@@ -187,7 +187,7 @@ class FlexEmbedding(FlexModule):
         }
         
         if self.config.timers:
-            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.hooks = OpHooks(self.op_name, self.config.timers, 0)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
             # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
@@ -316,7 +316,7 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         self.counter = 0
         
         if self.config.timers:
-            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.hooks = OpHooks(self.op_name, self.config.timers, 0)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
             # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
@@ -439,7 +439,7 @@ class FlexLayerNormMlpDropout(FlexModule):
         }
         
         if self.config.timers:
-            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.hooks = OpHooks(self.op_name, self.config.timers, 0)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
             # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
@@ -594,7 +594,7 @@ class FlexLayerNormPostProcess(FlexModule):
         }
         
         if self.config.timers:
-            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.hooks = OpHooks(self.op_name, self.config.timers, 0)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
             # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)

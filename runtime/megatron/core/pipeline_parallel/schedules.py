@@ -165,7 +165,7 @@ def forward_step(
 
     Returns output tensor."""
     if config.timers is not None:
-        config.timers('forward-compute-outside', log_level=2).start()
+        config.timers('forward-compute-outside', log_level=1).start()
 
     if is_first_microbatch and hasattr(model, 'set_is_first_microbatch'):
         model.set_is_first_microbatch()
@@ -184,7 +184,7 @@ def forward_step(
         context_manager = contextlib.nullcontext()
     with context_manager:
         if config.timers is not None:
-            config.timers('forward-compute', log_level=2).start()
+            config.timers('forward-compute', log_level=0).start()
         if checkpoint_activations_microbatch is None:
             output_tensor, output_extra_tensors, loss_func = forward_step_func(data_iterator, model, extra_tensors)
         else:
@@ -306,7 +306,7 @@ def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, c
     # connections.
 
     if config.timers is not None:
-        config.timers('backward-compute-outside', log_level=2).start()
+        config.timers('backward-compute-outside', log_level=1).start()
     
     output_extra_tensors = update_output_extra_tensors_grad(output_extra_tensors, output_extra_tensors_grad)
     output_tensor, output_tensor_grad = retain_input_tensors_grad_and_check_output_grad(input_tensor, extra_tensors, output_tensor, output_tensor_grad)
@@ -316,7 +316,7 @@ def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, c
         output_tensor = config.grad_scale_func(output_tensor)
     
     if config.timers is not None:
-        config.timers('backward-compute', log_level=2).start()
+        config.timers('backward-compute', log_level=0).start()
     torch.autograd.backward(output_tensor, grad_tensors=output_tensor_grad)
     if config.timers is not None:
         config.timers('backward-compute').stop()
@@ -370,7 +370,7 @@ def forward_backward_no_pipelining(
 
     config = get_model_config(model)
     if config.timers is not None:
-        config.timers('forward-backward', log_level=1).start(barrier=config.barrier_with_L1_time)
+        config.timers('forward-backward', log_level=0).start(barrier=config.barrier_with_L1_time)
 
     no_sync_func = config.no_sync_func
     if no_sync_func is None:
@@ -462,7 +462,7 @@ def forward_backward_pipelining_with_interleaving(
         output_extra_tensor_grads_list = [[] for _ in range(len(model))]
 
     if config.timers is not None:
-        config.timers('forward-backward', log_level=1).start(barrier=config.barrier_with_L1_time)
+        config.timers('forward-backward', log_level=0).start(barrier=config.barrier_with_L1_time)
 
     # Disable async grad reductions
     no_sync_func = config.no_sync_func
@@ -1186,7 +1186,7 @@ def forward_backward_pipelining_without_interleaving(
         )
 
     if config.timers is not None:
-        config.timers('forward-backward', log_level=1).start(barrier=config.barrier_with_L1_time)
+        config.timers('forward-backward', log_level=0).start(barrier=config.barrier_with_L1_time)
 
     # Disable async grad reductions
     no_sync_func = config.no_sync_func
