@@ -19,7 +19,6 @@ from megatron.core.utils import (
 class OpHooks:
     def __init__(self, opName: str, timers):
         self.opName = opName
-        print('hook ', opName + '-forward', opName + '-backward')
         self.fwd_timers = timers(opName + '-forward', log_level=1)
         self.bwd_timers = timers(opName + '-backward', log_level=1)
         
