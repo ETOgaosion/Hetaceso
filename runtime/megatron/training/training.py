@@ -729,7 +729,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'dec-post-process-forward',
         'dec-post-process-forward-outside',
         'dec-post-process-backward',
-        'MegatronTEDotProductAttention',
+        'MegatronTEDotProductAttention-forward',
         'FlashAttentionClassFwd',
         'TEAttnFwd',
         'TEAttnBwd',

@@ -445,8 +445,7 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
             ), f"Transformer-Engine version ({str(_te_version)}) must be >= 1.2.0 to support sliding window attention."
             extra_kwargs['window_size'] = config.window_size
         
-        if self.config.timers:
-            self.timer = self.config.timers("MegatronTEDotProductAttention-forward", log_level=2)
+        assert self.config.timers is not None, "Timers must be enabled for TE attention"
 
         super().__init__(
             num_attention_heads=self.config.num_attention_heads,
@@ -474,8 +473,8 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
         attn_mask_type: AttnMaskType,
         packed_seq_params: PackedSeqParams = None,
     ):
-        if self.timer:
-            self.timer.start()
+        if self.config.timers:
+            self.config.timers("MegatronTEDotProductAttention-forward", log_level=2).start()
         
         packed_seq_kwargs = (
             dataclasses.asdict(packed_seq_params) if packed_seq_params is not None else {}
@@ -517,8 +516,8 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
         else:
             core_attn_out = super().forward(query, key, value, attention_mask, **packed_seq_kwargs,)
 
-        if self.timer:
-            self.timer.stop()
+        if self.config.timers:
+            self.config.timers("MegatronTEDotProductAttention-forward").stop
 
         if self.config.apply_rope_fusion and qkv_format == 'bshd':
             return core_attn_out.transpose(0, 1)
