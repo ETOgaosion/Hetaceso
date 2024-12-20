@@ -59,13 +59,13 @@ class FlexModule(MegatronModule):
         self.weight_size = 0
 
         # shapes
-        self.seq_length = config.seq_length
-        self.micro_batch_size = config.micro_batch_size
+        self.seq_length = config.cur_seqlen
+        self.micro_batch_size = config.cur_micro_batch_size
         self.hidden_size = config.hidden_size
         # [s, b, h]
         self.hidden_state_size = [
-            config.seq_length,
-            config.micro_batch_size,
+            config.cur_seqlen,
+            config.cur_micro_batch_size,
             config.hidden_size,
         ]
 
@@ -301,10 +301,10 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         self.input_extra_tensors_info = {
             "attention_mask": {
                 "shape": [
-                    config.micro_batch_size // self.dp_size,
+                    self.micro_batch_size,
                     1,
-                    config.seq_length // self.cp_size,
-                    config.seq_length // self.cp_size,
+                    self.seq_length,
+                    self.seq_length,
                 ],
                 "tp_split_dim": -1,
                 "dp_split_dim": -1,
@@ -529,6 +529,7 @@ class FlexLayerNormPostProcess(FlexModule):
 
         self.parallel_output = parallel_output
         self.fp16_lm_cross_entropy = config.fp16_lm_cross_entropy
+        self.padded_vocab_size = config.padded_vocab_size
 
         self.output_layer = tensor_parallel.ColumnParallelLinear(
             config.hidden_size,
@@ -575,7 +576,7 @@ class FlexLayerNormPostProcess(FlexModule):
         }
         self.input_extra_tensors_info = {
             "labels": {
-                "shape": [config.micro_batch_size // self.dp_size, config.seq_length],
+                "shape": [self.micro_batch_size, self.seq_length],
                 "tp_split_dim": -1,
                 "dp_split_dim": 0,
                 "cp_split_dim": 1,
@@ -587,7 +588,7 @@ class FlexLayerNormPostProcess(FlexModule):
             "word_embeddings": {
                 "root": False,
                 "sharing_with_ops": [0],
-                "shape": [config.padded_vocab_size, config.hidden_size],
+                "shape": [self.padded_vocab_size, self.hidden_size],
                 "tp_split_dim": 0,
                 "dp_split_dim": -1,
             }

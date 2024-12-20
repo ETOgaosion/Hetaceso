@@ -33,8 +33,14 @@ class TransformerConfig(ModelParallelConfig):
     seq_length: int = 0
     """Sequence Length in total."""
     
+    cur_seqlen: int = 0
+    """Current sequence length."""
+    
     micro_batch_size: int = 0
     """Micro batch size for the model."""
+    
+    cur_micro_batch_size: int = 0
+    """Current micro batch size."""
 
     num_query_groups: int = None
     """Number of query groups for group query attention. If None, normal attention is used."""

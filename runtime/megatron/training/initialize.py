@@ -13,7 +13,7 @@ from datetime import timedelta
 
 from megatron.legacy import fused_kernels
 from megatron.training import get_adlr_autoresume
-from megatron.training import get_args
+from megatron.training import get_args, set_args
 from megatron.training import get_tensorboard_writer
 from megatron.core import mpu, tensor_parallel
 from megatron.training.arguments import parse_args, validate_args
@@ -288,6 +288,10 @@ def _initialize_distributed():
                     args.data_parallel_split_of_each_stage,
                     args.ring_context_parallel_split_of_each_stage
                 )
+                args.cur_seqlen = args.ring_context_parallel_split_of_each_stage[mpu.get_pipeline_model_parallel_rank()][mpu.get_ring_parallel_rank()] // args.ulysses_context_parallel_size_of_each_stage[mpu.get_pipeline_model_parallel_rank()]
+                args.cur_micro_batch_size = args.data_parallel_split_of_each_stage[mpu.get_pipeline_model_parallel_rank()][mpu.get_data_parallel_rank()]
+                print(f'rank {args.rank} cur_seqlen: {args.cur_seqlen}, cur_micro_batch_size: {args.cur_micro_batch_size}')
+                set_args(args)
             else:
                 raise NotImplementedError("Only FlexPipe is supported for now")
                 mpu.initialize_model_parallel(

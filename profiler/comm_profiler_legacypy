@@ -109,14 +109,13 @@ def get_num_item_per_mb(torch_data_type):
         raise RuntimeError(f"data type {torch_data_type} not support.")
     return num_item_per_mb
 
-def load_data_size_list(args, torch_data_type, tp, usp, rsp, dp, model_size, cfg_i):
+def load_data_size_list(args, torch_data_type, tp, cp, dp, model_size, cfg_i):
     data_size_list = []
-    cp = usp * rsp
     seq_len = gpt_configs[model_size][1] // cp
     mbs = configs["mbs"][model_size][cfg_i] // dp
     file_name = (
         args.prof_op_time_path
-        + f"{model}_{model_size}_mbs{mbs}_seqlen{seq_len}_tp{tp}_usp{usp}_rsp{rsp}.csv"
+        + f"{model}_{model_size}_mbs{mbs}_seqlen{seq_len}_tp{tp}.csv"
     )
     print(file_name)
     num_item_per_mb = get_num_item_per_mb(torch_data_type)
@@ -277,6 +276,17 @@ def profile(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_li
     )
     print(f'rank {rank} initialized', flush=True)
     cp_size = usp_size * rsp_size
+    if usp_size > 1:
+        initialized = False
+        for i in range(tp_size):
+            usp_group_start = i
+            usp_group_end = world_size
+            if rank in range(usp_group_start, usp_group_end, tp_size):
+                usp_group = dist.new_group(list(range(usp_group_start, usp_group_end, tp_size)), use_local_synchronization=True)
+                print(f'rank {rank} cp_ranks: {dist.get_process_group_ranks(usp_group)}', flush=True)
+                initialized = True
+                break
+        assert initialized, f'rank {rank} usp_group not initialized'
     if dp_size > 1:
         initialized = False
         for i in range(tp_size * cp_size):
@@ -305,6 +315,8 @@ def profile(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_li
 
     if model == "gpt":
         collectives = []
+        if usp_size > 1:
+            collectives.append("all_to_all")
         if dp_size > 1:
             collectives.extend(["all_reduce"])
         # collectives = ["all_gather", "all_reduce", "reduce_scatter"]
@@ -340,6 +352,10 @@ def profile(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_li
                     try:
                         if collective_type == "all_reduce":
                             avg_time_list[data_size_in_mb] = all_reduce_single(args, data_size, torch_data_type, dp_group)
+                            gc.collect()
+                            torch.cuda.empty_cache()
+                        elif collective_type == "all_to_all":
+                            avg_time_list[data_size_in_mb] = all_to_all_single(args, data_size, world_size, torch_data_type, usp_group)
                             gc.collect()
                             torch.cuda.empty_cache()
                         else:
@@ -407,7 +423,7 @@ def run_profile(task):
         dp_size = configs["dp"][i]
         data_size_list = load_data_size_list(args, torch_data_type, tp_size, usp_size * rsp_size, dp_size, size, i)
         print(f"tp_size: {tp_size}, usp_size: {usp_size}, dp_size: {dp_size}")
-        if dp_size > 1:
+        if usp_size > 1 or dp_size > 1:
             torch.multiprocessing.spawn(
                 profile,
                 args=(world_size, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type),

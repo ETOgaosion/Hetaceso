@@ -91,8 +91,8 @@ def validate_json_args(args):
         ), f"Data split by DP of stage {i} not equal to mbs"
         if (args.nproc_per_node < args.tensor_parallel_size_of_each_stage[i] * args.ulysses_context_parallel_size_of_each_stage[i]):
             print(f"[Warning] It's a common practice that TP and UCP happen within a node")
-        assert args.ring_context_parallel_size_of_each_stage[i] == len(args.ring_context_parallel_split_of_each_stage[i]), f'RCP size of stage {i} not equal to RCP split size'
-        assert args.seq_length == sum(args.ring_context_parallel_split_of_each_stage[i]), f"Sequence split by RCP of stage {i} not equal to sequence length"
+        assert args.ring_context_parallel_size_of_each_stage[i] == len(args.ring_context_parallel_split_of_each_stage[i]), f'RCP size of stage {i} not equal to RCP split size, {args.ring_context_parallel_size_of_each_stage[i]} != {len(args.ring_context_parallel_split_of_each_stage[i])}'
+        assert args.seq_length == sum(args.ring_context_parallel_split_of_each_stage[i]), f"Sequence split by RCP of stage {i} not equal to sequence length, {args.seq_length} != {sum(args.ring_context_parallel_split_of_each_stage[i])}"
         if args.transformer_impl != 'transformer_engine' and args.context_parallel_size_of_each_stage[i] != 1:
             raise ValueError(f"Only transformer_engine supports context parallelism > 1")
         sum_ops = 0
