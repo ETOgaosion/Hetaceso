@@ -283,7 +283,6 @@ class HetacesoPerformanceModel:
             index = int(math.log(data_size, 2))
             if index >= 1:
                 index -= 1
-                print(data_size, index, len(self.intra_band[rank]))
             if index >= len(self.intra_band[rank]):
                 return self.intra_band[rank][-1]
             else:
