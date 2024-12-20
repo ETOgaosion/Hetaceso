@@ -111,8 +111,7 @@ def get_num_item_per_mb(torch_data_type):
 
 def load_data_size_list(args, torch_data_type, tp, usp, rsp, dp, model_size, cfg_i):
     data_size_list = []
-    cp = usp * rsp
-    seq_len = gpt_configs[model_size][1] // cp
+    seq_len = gpt_configs[model_size][1]
     mbs = configs["mbs"][model_size][cfg_i] // dp
     file_name = (
         args.prof_op_time_path
@@ -405,7 +404,7 @@ def run_profile(task):
         usp_size = configs["usp"][i]
         rsp_size = configs["rsp"][i]
         dp_size = configs["dp"][i]
-        data_size_list = load_data_size_list(args, torch_data_type, tp_size, usp_size * rsp_size, dp_size, size, i)
+        data_size_list = load_data_size_list(args, torch_data_type, tp_size, usp_size, rsp_size, dp_size, size, i)
         print(f"tp_size: {tp_size}, usp_size: {usp_size}, dp_size: {dp_size}")
         if dp_size > 1:
             torch.multiprocessing.spawn(
