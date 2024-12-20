@@ -379,7 +379,7 @@ class HetacesoPerformanceModel:
                     if direct_comm > self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]:
                         rsp_comm += (direct_comm - self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp
                         bwd_comp += (direct_comm - self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp * 1000
-                    op_comp_time[op_name]["bwd"] += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp 
+                        op_comp_time[op_name]["bwd"] += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp 
             elif op_name == "dec-mlp":
                 '''
                 MLP
