@@ -26,12 +26,12 @@ NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 # fixed Model related configuration here, pls not overlap with json config
-HIDDEN_SIZE=2560
+HIDDEN_SIZE=4096
 NUM_ATTENTION_HEADS=32
 SEQ_LENGTH=2048
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 MICRO_BATCH_SIZE=8
-GLOBAL_BATCH_SIZE=1024
+GLOBAL_BATCH_SIZE=32
 
 TEST_NUM=${1:-0}
 MACHINE=${2:-0}
@@ -95,6 +95,15 @@ GPT_ARGS="
     --no-scatter-gather-tensors-in-pipeline \
 "
 
+PROFILE_ARGS="
+    --profile \
+    --profile-method torch \
+    --profile-step-start 1 \
+    --profile-step-end $TRAIN_ITERS \
+    --profile-ranks 0 1 2 3 \
+    --profile-output-dir logs_${TEST_NUM}/profile_torch \
+"
+
 FLEX_ARGS="
     --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
     --log-path ./logs_${TEST_NUM} \
@@ -110,6 +119,7 @@ export USE_FLASH_ATTN=1 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \
+    $PROFILE_ARGS \
     $FLEX_ARGS \
     $DATA_ARGS \
     --distributed-backend nccl \

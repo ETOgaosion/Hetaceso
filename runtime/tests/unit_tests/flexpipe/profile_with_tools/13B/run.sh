@@ -26,12 +26,12 @@ NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 # fixed Model related configuration here, pls not overlap with json config
-HIDDEN_SIZE=1024
-NUM_ATTENTION_HEADS=16
+HIDDEN_SIZE=5120
+NUM_ATTENTION_HEADS=40
 SEQ_LENGTH=2048
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
-MICRO_BATCH_SIZE=8
-GLOBAL_BATCH_SIZE=1024
+# MICRO_BATCH_SIZE=8
+GLOBAL_BATCH_SIZE=32
 
 TEST_NUM=${1:-0}
 MACHINE=${2:-0}
@@ -55,7 +55,7 @@ if [ $RETRAIN -eq 1 ]; then
     rm -rf logs_${TEST_NUM}
 fi
 mkdir -p logs_${TEST_NUM}
-mkdir -p logs_${TEST_NUM}/profile_nsys
+mkdir -p logs_${TEST_NUM}/profile_torch
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -78,7 +78,6 @@ GPT_ARGS="
     --num-attention-heads $NUM_ATTENTION_HEADS \
     --seq-length $SEQ_LENGTH \
     --max-position-embeddings $MAX_POSITION_EMBEDDINGS \
-    --micro-batch-size $MICRO_BATCH_SIZE \
     --global-batch-size $GLOBAL_BATCH_SIZE \
     --lr 0.00015 \
     --train-iters $TRAIN_ITERS \
@@ -95,61 +94,21 @@ GPT_ARGS="
     --no-scatter-gather-tensors-in-pipeline \
 "
 
-PROFILE_ARGS="
-    --profile \
-    --profile-method nsys \
-    --profile-step-start 1 \
-    --profile-step-end $TRAIN_ITERS \
-    --profile-ranks 0 1 2 3 \
-"
-
 FLEX_ARGS="
     --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
     --log-path ./logs_${TEST_NUM} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
-    --distributed-backend nccl \
 "
-
-NSIGHT_PROFILE_ARGS=(
-    # output
-    -w true
-    -o logs_${TEST_NUM}/profile_nsys/res
-    -f true
-    -x true
-    #  cuda                   os           python
-    -t cuda,nvtx,cudnn,cublas,osrt,syscall,python-gil
-    # GPU/CUDA
-    --capture-range=cudaProfilerApi --capture-range-end=stop
-    --cudabacktrace=all
-    --cuda-memory-usage=true
-    --python-backtrace=cuda
-    --gpuctxsw=true
-    --gpu-metrics-devices=all
-    --enable nvml_metrics # NVML Power and temperature
-    # --soc-metrics=true
-    # CPU
-    --cpuctxsw=process-tree
-    # Network
-    # NVSHMEM_NVTX=common
-    # NIC/IB metrics
-    --enable network_interface # Check Multiple --enable
-    # Python backtrace
-    --python-sampling=true
-    --python-functions-trace=/opt/nvidia/nsight-systems-cli/2024.7.1/target-linux-x64/PythonFunctionsTrace/annotations.json
-)
 
 mkdir -p logs
 mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
-export USE_FLASH_ATTN=1
-
-nsys profile \
-    ${NSIGHT_PROFILE_ARGS[@]} \
-    torchrun $DISTRIBUTED_ARGS \
+export USE_FLASH_ATTN=1 && \
+torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \
-    $PROFILE_ARGS \
     $FLEX_ARGS \
     $DATA_ARGS \
+    --distributed-backend nccl \
