@@ -11,7 +11,7 @@ def get_op_list(args):
     if op_list is None:
         op_list = []
         model_size = args.model_size
-        src_data_file = f'{args.profiled_gpt_path}rank0/{args.model_name}_{model_size}_mbs1_seqlen2048_tp1.csv'
+        src_data_file = f'{args.profiled_gpt_path}rank0/{args.model_name}_{model_size}_mbs1_seqlen2048_tp1_usp1_rsp1.csv'
         with open(src_data_file) as f:
             src_data = csv.reader(f)
             line_index = 0

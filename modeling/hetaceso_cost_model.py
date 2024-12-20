@@ -176,7 +176,7 @@ class HetacesoPerformanceModel:
                         comm_num_gpus_map_map["dp"][dp].append(rank)
         
         for rank, mbs, seqlen, tp, usp, rsp, dp in unique_config_list:
-            src_data_file = f'{self.args.profiled_gpt_path}rank{rank}/{self.model_name}_{self.model_size}_mbs{mbs}_seqlen{seqlen}_tp{tp}.csv'
+            src_data_file = f'{self.args.profiled_gpt_path}rank{rank}/{self.model_name}_{self.model_size}_mbs{mbs}_seqlen{seqlen * usp * rsp}_tp{tp}_usp{usp}_rsp{rsp}.csv'
             print(src_data_file)
             try:
                 with open(src_data_file) as f:
@@ -221,7 +221,7 @@ class HetacesoPerformanceModel:
         - ring context parallel: all ring rank need p2p communication, like all-reduce but can possibly overlap with computation
         - data parallel: all ranks need all-reduce gradients
         '''
-        self.collective_time = {"all_reduce": {}, "all_to_all": {}}
+        self.collective_time = {"all_reduce": {}}
         # self.collective_time = {"all_reduce": {}, "all_gather": {}, "reduce_scatter": {}, "all_to_all": {}}
         comm_prim_map = {"tp": ["all_reduce", "all_gather", "reduce_scatter"], "usp": ["all_to_all"], "rsp": ["all_reduce"], "dp": ["all_reduce"]}
         for cfg_i in range(len(configs["tp"])):
@@ -230,7 +230,7 @@ class HetacesoPerformanceModel:
             rsp = configs["rsp"][cfg_i]
             dp = configs["dp"][cfg_i]
             for prim in self.collective_time.keys():
-                if (prim == "all_to_all" and usp > 1) or (prim == "all_reduce" and dp > 1):
+                if prim == "all_reduce" and dp > 1:
                     if (tp, usp, rsp, dp) not in self.collective_time[prim]:
                         self.collective_time[prim][(tp, usp, rsp, dp)] = {}
                     if rank not in self.collective_time[prim][(tp, usp, rsp, dp)]:
@@ -340,7 +340,7 @@ class HetacesoPerformanceModel:
                 - Model Grad not overlappable: runtime/megatron/core/distributed/finalize_model_grads.py
                 '''
                 if dp > 1:
-                    assert cur_op_input_size in self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank], f'{op_name} {cur_op_input_size}'
+                    assert cur_op_input_size in self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank], f'{op_name} {cur_op_input_size} {(tp, usp, rsp, dp)} {self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank]}'
                     dp_comm += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 2
                     fwd_comp += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 1000
                     bwd_comp += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 1000
@@ -359,7 +359,7 @@ class HetacesoPerformanceModel:
                 - RSP: In most case rsp can overlap with calculation
                 '''
                 if usp > 1:
-                    assert cur_op_output_size in self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank], f'{op_name} {cur_op_output_size} {(tp, usp, rsp, dp)} {self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank]}'
+                    # assert cur_op_output_size in self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank], f'{op_name} {cur_op_output_size} {(tp, usp, rsp, dp)} {self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank]}'
                     '''
                     According to profile results, Q and K can overlap with each other, and V still need to wait for Q's output
                     a2a include QKV, and O
