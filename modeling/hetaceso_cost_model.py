@@ -360,11 +360,15 @@ class HetacesoPerformanceModel:
                 '''
                 if usp > 1:
                     assert cur_op_output_size in self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank], f'{op_name} {cur_op_output_size} {(tp, usp, rsp, dp)} {self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank]}'
-                    usp_comm += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 4
-                    fwd_comp += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 2 * 1000
-                    bwd_comp += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 2 * 1000
-                    op_comp_time[op_name]["fwd"] += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 2 * 1000
-                    op_comp_time[op_name]["bwd"] += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 2 * 1000
+                    '''
+                    According to profile results, Q and K can overlap with each other, and V still need to wait for Q's output
+                    a2a include QKV, and O
+                    '''
+                    usp_comm += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 6
+                    fwd_comp += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 3 * 1000
+                    bwd_comp += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 3 * 1000
+                    op_comp_time[op_name]["fwd"] += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 3 * 1000
+                    op_comp_time[op_name]["bwd"] += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 3 * 1000
                 if rsp > 1:
                     # ring KV, communication calculate where cannot overlap with computation
                     direct_comm = float(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) / self.intra_node_band(rank, self.output_size[op_name][cur_mbs][cur_seqlen][tp])
