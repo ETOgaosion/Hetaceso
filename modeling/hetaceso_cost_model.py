@@ -373,7 +373,7 @@ class HetacesoPerformanceModel:
                     if direct_comm > self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]:
                         rsp_comm += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp
                         fwd_comp += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp * 1000
-                    op_comp_time[op_name]["fwd"] += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp * 1000
+                        op_comp_time[op_name]["fwd"] += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp * 1000
                     bwd_comp += self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp] * (rsp - 1)
                     op_comp_time[op_name]["bwd"] += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp] * (rsp - 1)
                     if direct_comm > self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]:
