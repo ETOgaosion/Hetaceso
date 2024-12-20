@@ -110,8 +110,8 @@ do
             --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_op_profile.pkl \
             --prof-model-name $MODEL_NAME \
             --prof-model-size $MODEL_SIZE \
-            --prof-warmup-times 3 \
-            --prof-repeat-times 20 \
+            --prof-warmup-times 20 \
+            --prof-repeat-times 100 \
             2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_op_usp${usp_size}_rsp${rsp_size}_tp${tp_size}.log
 
         echo [TIME] after profiling usp $usp_size rsp $rsp_size tp_size $tp_size : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
