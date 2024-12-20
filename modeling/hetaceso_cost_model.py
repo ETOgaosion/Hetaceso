@@ -344,6 +344,8 @@ class HetacesoPerformanceModel:
                     dp_comm += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 2
                     fwd_comp += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 1000
                     bwd_comp += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 1000
+                    op_comp_time[op_name]["fwd"] += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 1000
+                    op_comp_time[op_name]["bwd"] += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 1000
             elif op_name == "dec-self-attention":
                 '''
                 Self attention
@@ -361,17 +363,23 @@ class HetacesoPerformanceModel:
                     usp_comm += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 4
                     fwd_comp += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 2 * 1000
                     bwd_comp += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 2 * 1000
+                    op_comp_time[op_name]["fwd"] += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 2 * 1000
+                    op_comp_time[op_name]["bwd"] += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 2 * 1000
                 if rsp > 1:
                     # ring KV, communication calculate where cannot overlap with computation
                     direct_comm = float(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) / self.intra_node_band(rank, self.output_size[op_name][cur_mbs][cur_seqlen][tp])
                     fwd_comp += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp] * (rsp - 1)
+                    op_comp_time[op_name]["fwd"] += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp] * (rsp - 1)
                     if direct_comm > self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]:
                         rsp_comm += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp
                         fwd_comp += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp * 1000
+                    op_comp_time[op_name]["fwd"] += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp * 1000
                     bwd_comp += self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp] * (rsp - 1)
+                    op_comp_time[op_name]["bwd"] += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp] * (rsp - 1)
                     if direct_comm > self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]:
                         rsp_comm += (direct_comm - self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp
                         bwd_comp += (direct_comm - self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp * 1000
+                    op_comp_time[op_name]["bwd"] += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp 
             elif op_name == "dec-mlp":
                 '''
                 MLP
