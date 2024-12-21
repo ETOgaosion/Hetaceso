@@ -547,7 +547,10 @@ class HetacesoPerformanceModel:
         
         if with_reference:
             self.args.data_parallel_size = cur_dp
+            self.args.tensor_model_parallel_size = cur_tp
+            self.args.pipeline_model_parallel_size = 1
             self.args.micro_batch_size = cur_mbs
+            self.args.seq_length = cur_seqlen
             weight_and_optimizer_memory, activation_memory, total_memory = report_theoretical_memory(self.args, cur_mbs)
         
         if print_detail:
