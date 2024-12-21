@@ -236,9 +236,16 @@ def write_to_csv(data, file):
         writer = csv.writer(csvfile)
         writer.writerows(data)
 
+first_write = True
+
 def write_to_excel_sheet(data, sheet_name, excel_file):
+    global first_write
     df = pandas.DataFrame(data)
-    writer = pandas.ExcelWriter(excel_file, engine='xlsxwriter')
+    if first_write:
+        writer = pandas.ExcelWriter(excel_file, engine="openpyxl")
+        first_write = False
+    else:
+        writer = pandas.ExcelWriter(excel_file, engine="openpyxl", mode='a')
     df.to_excel(writer, sheet_name=sheet_name, index=False)
     writer.close()
 
