@@ -270,7 +270,7 @@ def res_to_datas(res_estimate, res_realtime, max_model_size):
                 res_realtime["time"][model_size][i]["data"]["dec-self-attention-forward"],
                 res_realtime["time"][model_size][i]["data"]["dec-mlp-forward"],
                 res_realtime["time"][model_size][i]["data"]["dec-post-process-forward"],
-                res_realtime["mem"][model_size][i]["data"]["memory-max-allocated"],
+                res_realtime["mem"][model_size][i]["data"]["memory-max-reserved"],
                 res_realtime["mem"][model_size][i]["data"]["memory-max-reserved"],
             ])
         if model_size == max_model_size:
