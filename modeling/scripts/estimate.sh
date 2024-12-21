@@ -1,15 +1,23 @@
-MBS=${1:-8}
-TP=${2:-1}
-USP=${3:-1}
-RSP=${4:-1}
-DP=${5:-4}
+RANK=${1:-0}
+MODEL_SIZE=${2:-350M}
+MBS=${3:-8}
+TP=${4:-1}
+USP=${5:-1}
+RSP=${6:-1}
+DP=${7:-4}
 
 CONFIG_TEST=mbs${MBS}_tp${TP}_usp${USP}_rsp${RSP}_dp${DP}
+config=gpu_configs/${MODEL_SIZE}/gpt_${CONFIG_TEST}.json
+
+if [ ! -f $config ]; then
+    echo "Config file not found!"
+    exit 1
+fi
+
+TOPO_INDEX=${8:-0}
 TOPO_DIR=machine_topos
-TOPO_INDEX=${6:-0}
 TOPO_FILE=$TOPO_DIR/topo_$TOPO_INDEX.json
 
-config=single_gpu_configs/gpt_350M_${CONFIG_TEST}.json
 PROFILED_GPT_PATH=../results/profiled-gpt-hetaceso/
 PROFILED_DIST_P2P_PATH=../results/profiled-dist-p2p-hetaceso/
 PROFILED_LOCAL_P2P_PATH=../results/profiled-local-p2p-hetaceso/
@@ -29,4 +37,6 @@ python3 hetaceso_cost_model.py \
     --profiled-local-comm-path $PROFILED_LOCAL_COMM_PATH \
     --topo-file $TOPO_FILE \
     --save-to-csv $SAVE_TO_CSV \
-    --dist-optimizer
+    --dist-optimizer \
+    --rank ${RANK} \
+    --node-rank ${RANK}

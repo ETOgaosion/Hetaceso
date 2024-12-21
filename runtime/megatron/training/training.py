@@ -588,7 +588,7 @@ def train_step(forward_step_func, data_iterator,
 
     # All-reduce word_embeddings' grad across first and last stages to ensure
     # that word_embeddings parameters stay in sync.
-    timers('backward-embedding-all-reduce').start()
+    timers('backward-embedding-all-reduce', log_level=2).start()
     synchronize_shared_weights_grads(model)
     timers('backward-embedding-all-reduce').stop()
     
@@ -729,13 +729,18 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         'dec-post-process-forward',
         'dec-post-process-forward-outside',
         'dec-post-process-backward',
-        'TEA2A',
+        'MegatronTEDotProductAttention-forward',
+        'FlashAttentionClassFwd',
         'TEAttnFwd',
         'TEAttnBwd',
+        'TERingAttnCoreLoopFwd',
+        'TERingAttnCoreLoopInnerCalcFwd',
         'TEFlashAttnFwd',
-        "TEFlashAttnBwd",
-        "RingAttnFwdWait",
-        "RingAttnBwdWait",
+        'TEFlashAttnBwd',
+        'TERingAttnCoreLoopInnerStartP2PFwd',
+        'TEA2A',
+        'RingAttnFwdWait',
+        'RingAttnBwdWait',
         ]
 
     # Calculate batch size.
@@ -1050,7 +1055,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             sort_by="self_cuda_time_total", row_limit=-1))
         prof.export_chrome_trace(os.path.join(f'{args.profile_path}', f'rank{torch.distributed.get_rank()}', f'iter{prof.step_num}.json'))
 
-    def train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far, inside_torchprofile=False):
+    def train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far, torch_profile=False):
         if args.profile and args.profile_method == 'nsys' and \
            iteration == args.profile_step_start and \
            torch.distributed.get_rank() in args.profile_ranks:
@@ -1070,42 +1075,27 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                      num_floating_point_operations_so_far)
         num_microbatches = get_num_microbatches()
         update_num_microbatches(args.consumed_train_samples, consistency_check=True)
-        
-        print(f'num_microbatches: {num_microbatches}')
 
         args.curr_iteration = iteration
         
-        if inside_torchprofile and iteration == args.train_iters - 1:
-            if torch.distributed.get_rank() == 0:
-                prof = torch.profiler.profile(
-                    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                    # record_shapes=True, 
-                    profile_memory=True,
-                    with_stack=True,
-                    # with_modules=True, with_flops=True,
-                    experimental_config=torch._C._profiler._ExperimentalConfig(verbose=True),
-                    # on_trace_ready=torch.profiler.tensorboard_trace_handler(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}')),
-                )
-                prof.start()
-            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
-            train_step(forward_step_func,
-                    train_data_iterator,
-                    model,
-                    optimizer,
-                    opt_param_scheduler,
-                    config)
-            if torch.distributed.get_rank() == 0:
-                prof.stop()
-                prof.export_chrome_trace(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}', f'iter{iteration}-with-stack.json'))
-                del prof
-        else:
-            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
-            train_step(forward_step_func,
-                    train_data_iterator,
-                    model,
-                    optimizer,
-                    opt_param_scheduler,
-                    config)
+        if args.profile and args.profile_method == 'torch' and \
+            torch_profile:
+            p = profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                record_shapes=True, profile_memory=True, with_stack=True,
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}')),
+            )
+            p.start()
+        loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
+        train_step(forward_step_func,
+                train_data_iterator,
+                model,
+                optimizer,
+                opt_param_scheduler,
+                config)
+        if args.profile and args.profile_method == 'torch' and \
+            torch_profile:
+            p.stop()
         iteration += 1
         # [TOCHECK] whether need to multiply by 
         # batch_size = mpu.get_data_parallel_world_size() * \
@@ -1236,26 +1226,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         dir_name = os.path.join(args.profile_output_dir, f"rank{torch.distributed.get_rank()}")
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
-        if torch.distributed.get_rank() in args.profile_ranks:
-            prof = torch.profiler.profile(
-                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                schedule=torch.profiler.schedule(wait=args.train_iters - 2, warmup=1, active=1, repeat=1),
-                # record_shapes=True, 
-                profile_memory=True,
-                with_stack=True,
-                # with_modules=True, with_flops=True,
-                experimental_config=torch._C._profiler._ExperimentalConfig(verbose=True),
-                # on_trace_ready=torch.profiler.tensorboard_trace_handler(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}')),
-            )
-            prof.start()
         for iteration in range(args.iteration, args.train_iters):
-            if torch.distributed.get_rank() == 0:
-                prof.step()
-            _, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far, False)
-        if torch.distributed.get_rank() == 0:
-            prof.stop()
-            prof.export_chrome_trace(os.path.join(f'{args.profile_output_dir}', f'rank{torch.distributed.get_rank()}', f'iter{iteration}-with-stack.json'))
-            del prof
+            _, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far, iteration == args.train_iters - 1)
                     
     while (args.profile_method == 'nsys') and iteration < args.train_iters:
         iteration, num_microbatches, num_floating_point_operations_so_far, _exit = train_per_iter(iteration, num_microbatches, num_floating_point_operations_so_far)

@@ -30,34 +30,30 @@ def run(local_rank, global_rank):
         if global_rank == 0:
             for i in range(warmup_times):
                 dist.send(tensor, dst=1 - global_rank)
-            time_list = []
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
             for i in range(repeat_times):
-                torch.cuda.synchronize()
-                start = time.time()
-
                 dist.send(tensor, dst=1 - global_rank)
-                torch.cuda.synchronize()
-                end = time.time()
-                time_list.append((end - start) * 1000)
+            end.record()
+            torch.cuda.synchronize()
+            avg_time_result_in_ms = start.elapsed_time(end) / repeat_times
 
         elif global_rank == 1:
             for i in range(warmup_times):
                 dist.recv(tensor, src=1 - global_rank)
-            time_list = []
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
             for i in range(repeat_times):
-                torch.cuda.synchronize()
-                start = time.time()
                 dist.recv(tensor, src=1 - global_rank)
-                torch.cuda.synchronize()
-                end = time.time()
-                time_list.append((end - start) * 1000)
+            end.record()
+            torch.cuda.synchronize()
+            avg_time_result_in_ms = start.elapsed_time(end) / repeat_times
 
-        avg_time_result_in_ms = sum(time_list) / repeat_times
-        bandwidth_in_gb_per_second = (data_size_in_mb / 1024) / (
-            avg_time_result_in_ms / 1000
-        )
-        all_bandwidths.append(f"{bandwidth_in_gb_per_second:.2f}")
-        result_string = f"Rank {global_rank} | Time(averaged {repeat_times} times) = {avg_time_result_in_ms:.2f} ms, data_size = {data_size_in_mb:.2f} MB, bandwidth = {bandwidth_in_gb_per_second:.2f} GB/s"
+        bandwidth_in_mb_per_ms = data_size_in_mb / avg_time_result_in_ms
+        all_bandwidths.append(f"{bandwidth_in_mb_per_ms:.2f}")
+        result_string = f"Rank {global_rank} | Time(averaged {repeat_times} times) = {avg_time_result_in_ms:.2f} ms, data_size = {data_size_in_mb:.2f} MB, bandwidth = {bandwidth_in_mb_per_ms:.2f} MB/ms"
         print(result_string)
     if global_rank == 0:
         with open(result_file_name, "a+") as f:

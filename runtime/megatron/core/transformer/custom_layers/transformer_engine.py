@@ -24,7 +24,7 @@ from megatron.core.parallel_state import (
 from megatron.core.tensor_parallel import get_cuda_rng_tracker
 from megatron.core.transformer.enums import AttnMaskType
 from megatron.core.transformer.transformer_config import TransformerConfig
-from megatron.core.transformer.utils import make_sharded_tensors_for_checkpoint
+from megatron.core.transformer.utils import make_sharded_tensors_for_checkpoint, OpHooks
 
 _te_version = packaging.version.Version(version("transformer-engine"))
 
@@ -368,7 +368,6 @@ class TERowParallelLinear(TELinear):
             state_dict, prefix, {'weight': 1}, sharded_offsets
         )
 
-
 class TEDotProductAttention(te.pytorch.DotProductAttention):
     """
     Wrapper for the Transformer-Engine's `DotProductAttention` layer that also
@@ -472,6 +471,9 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
         attn_mask_type: AttnMaskType,
         packed_seq_params: PackedSeqParams = None,
     ):
+        if self.config.timers:
+            self.config.timers("MegatronTEDotProductAttention-forward", log_level=2).start()
+        
         packed_seq_kwargs = (
             dataclasses.asdict(packed_seq_params) if packed_seq_params is not None else {}
         )
@@ -511,6 +513,9 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
             )
         else:
             core_attn_out = super().forward(query, key, value, attention_mask, **packed_seq_kwargs,)
+
+        if self.config.timers:
+            self.config.timers("MegatronTEDotProductAttention-forward").stop()
 
         if self.config.apply_rope_fusion and qkv_format == 'bshd':
             return core_attn_out.transpose(0, 1)

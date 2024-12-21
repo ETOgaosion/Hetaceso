@@ -323,6 +323,7 @@ class Attention(MegatronModule, ABC):
         # ==================================
 
         if self.checkpoint_core_attention and self.training:
+            raise RuntimeError("Checkpointing is not supported during training")
             core_attn_out = self._checkpointed_attention_forward(
                 query,
                 key,

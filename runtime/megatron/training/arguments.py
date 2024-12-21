@@ -74,11 +74,11 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
         args.virtual_pipeline_model_parallel_size = 1
         args.tensor_parallel_size_of_each_stage = [args.prof_tp_size]
         args.data_parallel_size_of_each_stage = [1]
-        args.context_parallel_size_of_each_stage = [1]
-        args.ring_context_parallel_size_of_each_stage = [1]
-        args.ulysses_context_parallel_size_of_each_stage = [1]
+        args.context_parallel_size_of_each_stage = [args.prof_usp_size * args.prof_rsp_size]
+        args.ring_context_parallel_size_of_each_stage = [args.prof_rsp_size]
+        args.ulysses_context_parallel_size_of_each_stage = [args.prof_usp_size]
         args.data_parallel_split_of_each_stage = [[1]]
-        args.ring_context_parallel_split_of_each_stage = [[1024]]
+        args.ring_context_parallel_split_of_each_stage = [[args.seq_length // args.prof_rsp_size] * args.prof_rsp_size]
 
         if len(args.prof_repeat_times) > 1:
             assert args.prof_repeat_threshold is not None, "when args.prof_repeat_times is a list, a threshold is required."
@@ -249,8 +249,8 @@ def validate_args(args, defaults={}):
             setattr(args, key, defaults[key])
 
     # Batch size.
-    assert args.micro_batch_size is not None, '--micro-batch-size is needed in flexpipe'
-    assert args.micro_batch_size > 0
+    # assert args.micro_batch_size is not None, '--micro-batch-size is needed in flexpipe'
+    # assert args.micro_batch_size > 0
 
     assert args.global_batch_size is not None, '--global-batch-size is needed in flexpipe' 
     assert args.global_batch_size > 0
@@ -1668,6 +1668,8 @@ def _add_profiler_args(parser):
     group = parser.add_argument_group(title='flexpipe_profiler')
     group.add_argument('--prof-op', action='store_true', help='Profile operator or not')
     group.add_argument('--prof-tp-size', type=int, default=None, help='Profiler tp size.')
+    group.add_argument('--prof-usp-size', type=int, default=None, help='Profiler usp size.')
+    group.add_argument('--prof-rsp-size', type=int, default=None, help='Profiler rsp size.')
     group.add_argument('--prof-path', type=str, default=None, help='')
     group.add_argument('--prof-cache-file', type=str, default=None, help='')
     group.add_argument('--prof-model-name', type=str, default='all', help='')
@@ -1682,6 +1684,6 @@ def _add_profiler_args(parser):
     group.add_argument('--prof-num-nodes', type=int, default=None, help='')
     group.add_argument('--prof-node-rank', type=int, default=None, help='')
     group.add_argument('--prof-ref-data', type=str, default=None, help='')
-    group.add_argument('--prof-mbs-list', nargs='+', type=int, default=None, help='')
+    group.add_argument('--prof-mbs', nargs='+', type=int, default=None, help='')
 
     return parser

@@ -12,6 +12,13 @@ from megatron.training.theoretical_memory_usage import report_theoretical_memory
 from model_ops_info import get_op_list, get_full_op_list
 from hetaceso_utils import *
 
+configs = {
+    "tp": [1, 2, 1, 1, 2, 1, 1, 1],
+    "usp": [1, 1, 2, 1, 2, 2, 1, 4],
+    "rsp": [1, 1, 1, 2, 1, 2, 4, 1],
+    "dp": [4, 2, 2, 2, 1, 1, 1, 1],
+}
+
 class HetacesoPerformanceModel:
     def __init__(self, args, machine_topo, config, config_dict):
         self.args = args
@@ -167,9 +174,9 @@ class HetacesoPerformanceModel:
                         comm_num_gpus_map_map["dp"][dp] = [rank]
                     elif not homogeneous:
                         comm_num_gpus_map_map["dp"][dp].append(rank)
-
+        
         for rank, mbs, seqlen, tp, usp, rsp, dp in unique_config_list:
-            src_data_file = f'{self.args.profiled_gpt_path}rank{rank}/{self.model_name}_{self.model_size}_mbs{mbs}_seqlen{seqlen}_tp{tp}.csv'
+            src_data_file = f'{self.args.profiled_gpt_path}rank{rank}/{self.model_name}_{self.model_size}_mbs{mbs}_seqlen{seqlen * usp * rsp}_tp{tp}_usp{usp}_rsp{rsp}.csv'
             print(src_data_file)
             try:
                 with open(src_data_file) as f:
@@ -200,6 +207,12 @@ class HetacesoPerformanceModel:
                     f"file ({src_data_file}) not exist, or the file is not formatted as expected."
                 )
         
+        for op_name in self.compute_fwd_time:
+            for mbs in self.compute_fwd_time[op_name]:
+                for seqlen in self.compute_fwd_time[op_name][mbs]:
+                    for tp in self.compute_fwd_time[op_name][mbs][seqlen]:
+                        assert self.reserved_bwd[op_name][mbs][seqlen][tp] < 1000000, f'{self.model_size} {op_name} {mbs} {seqlen} {tp} is not valid'
+        
         '''
         Communications in Megatron:
         
@@ -208,28 +221,30 @@ class HetacesoPerformanceModel:
         - ring context parallel: all ring rank need p2p communication, like all-reduce but can possibly overlap with computation
         - data parallel: all ranks need all-reduce gradients
         '''
-        self.collective_time = {"all_reduce": {}, "all_gather": {}, "reduce_scatter": {}, "all_to_all": {}}
-        comm_prim_map = {"tp": ["all_reduce"], "usp": ["all_to_all"], "rsp": ["all_reduce"], "dp": ["all_reduce"]}
-        for parallel in comm_prim_map.keys():
-            for prim in comm_prim_map[parallel]:
-                for num_gpus in comm_num_gpus_list_map[parallel]:
-                    if num_gpus not in self.collective_time[prim]:
-                        self.collective_time[prim][num_gpus] = {}
-                        for rank in comm_num_gpus_map_map[parallel][num_gpus]:
-                            self.collective_time[prim][num_gpus][rank] = {}
-                    else:
-                        continue
-                    for rank in comm_num_gpus_map_map[parallel][num_gpus]:
-                        src_data_file = f'{self.args.profiled_local_comm_path}rank{rank}/prim_{self.model_name}_{self.model_size}_{prim}_{num_gpus}gpus.csv'
-                        
-                        with open(src_data_file) as f:
-                            src_data = csv.reader(f)
-                            line_index = 0
-                            for row in src_data:
-                                line_index += 1
-                                if line_index > 1:
-                                    data_size = row[0]
-                                    self.collective_time[prim][num_gpus][rank] [data_size]= float(row[1])
+        self.collective_time = {"all_reduce": {}}
+        # self.collective_time = {"all_reduce": {}, "all_gather": {}, "reduce_scatter": {}, "all_to_all": {}}
+        comm_prim_map = {"tp": ["all_reduce", "all_gather", "reduce_scatter"], "usp": ["all_to_all"], "rsp": ["all_reduce"], "dp": ["all_reduce"]}
+        for cfg_i in range(len(configs["tp"])):
+            tp = configs["tp"][cfg_i]
+            usp = configs["usp"][cfg_i]
+            rsp = configs["rsp"][cfg_i]
+            dp = configs["dp"][cfg_i]
+            for prim in self.collective_time.keys():
+                if prim == "all_reduce" and dp > 1:
+                    if (tp, usp, rsp, dp) not in self.collective_time[prim]:
+                        self.collective_time[prim][(tp, usp, rsp, dp)] = {}
+                    if rank not in self.collective_time[prim][(tp, usp, rsp, dp)]:
+                        self.collective_time[prim][(tp, usp, rsp, dp)][rank] = {}
+                    src_data_file = f'{self.args.profiled_local_comm_path}rank{rank}/prim_{self.model_name}_{self.model_size}_tp{tp}_usp{usp}_rsp{rsp}_dp{dp}_{prim}.csv'
+                    print(f'read {src_data_file}')
+                    with open(src_data_file) as f:
+                        src_data = csv.reader(f)
+                        line_index = 0
+                        for row in src_data:
+                            line_index += 1
+                            if line_index > 1:
+                                data_size = row[0]
+                                self.collective_time[prim][(tp, usp, rsp, dp)][rank][data_size]= float(row[1])
 
         for rank in range(total_gpus):
             self.intra_band_file = f'{self.args.profiled_local_p2p_path}rank{rank}/p2p_intra_node.csv'
@@ -269,9 +284,9 @@ class HetacesoPerformanceModel:
             if index >= 1:
                 index -= 1
             if index >= len(self.intra_band[rank]):
-                return self.intra_band[rank][-1] * 0.001
+                return self.intra_band[rank][-1]
             else:
-                return self.intra_band[rank][index] * 0.001
+                return self.intra_band[rank][index]
         else:
             return 1
 
@@ -281,9 +296,9 @@ class HetacesoPerformanceModel:
             if index >= 1:
                 index -= 1
             if index >= len(self.inter_band):
-                return self.inter_band[(cur_machine, other_machine)][-1] * 0.001
+                return self.inter_band[(cur_machine, other_machine)][-1]
             else:
-                return self.inter_band[(cur_machine, other_machine)][index] * 0.001
+                return self.inter_band[(cur_machine, other_machine)][index]
         else:
             return 1
 
@@ -291,6 +306,9 @@ class HetacesoPerformanceModel:
         if len(ops) == 0:
             return 0, 0, 0, 0, 0
         fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm = 0, 0, 0, 0, 0, 0, 0, 0
+        op_comp_time = {}
+        for op in get_op_list(self.args):
+            op_comp_time[op] = {"fwd": 0, "bwd": 0}
         
         '''
         TP communication refer to https://www.cnblogs.com/rossiXYZ/p/15871062.html
@@ -302,6 +320,8 @@ class HetacesoPerformanceModel:
             op_name = ops[i]
             fwd_comp += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]
             bwd_comp += self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]
+            op_comp_time[op_name]["fwd"] += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]
+            op_comp_time[op_name]["bwd"] += self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]
             cur_op_input_size = str(int(self.input_size[op_name][cur_mbs][cur_seqlen][tp]))
             cur_op_output_size = str(int(self.output_size[op_name][cur_mbs][cur_seqlen][tp]))
             if op_name == "dec-embedding":
@@ -309,24 +329,23 @@ class HetacesoPerformanceModel:
                 Embedding layer need all-reduce output 
                 runtime/megatron/core/tensor_parallel/layers.py: 228, VocabParallelEmbedding::forward
                 '''
-                if tp > 1:
-                    assert cur_op_output_size in self.collective_time["all_reduce"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    tp_comm += self.collective_time["all_reduce"][tp][rank][cur_op_output_size]
+                pass
             elif op_name == "dec-post-process":
                 '''
                 TP: In theory like above
                 '''
-                if tp > 1:
-                    assert cur_op_input_size in self.collective_time["all_reduce"][tp][rank], f'{op_name} {cur_op_input_size}'
-                    tp_comm += self.collective_time["all_reduce"][tp][rank][cur_op_input_size]
                 '''
                 DP: Need to allreduce gradients
                 - Grad Buffer Async and Overlappable: runtime/megatron/core/distributed/param_and_grad_buffer.py: 140, Bucket::start_gradient_sync
                 - Model Grad not overlappable: runtime/megatron/core/distributed/finalize_model_grads.py
                 '''
                 if dp > 1:
-                    assert cur_op_input_size in self.collective_time["all_reduce"][dp][rank], f'{op_name} {cur_op_input_size}'
-                    dp_comm += self.collective_time["all_reduce"][dp][rank][cur_op_input_size]
+                    assert cur_op_input_size in self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank], f'{op_name} {cur_op_input_size} {(tp, usp, rsp, dp)} {self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank]}'
+                    dp_comm += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 2
+                    fwd_comp += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 1000
+                    bwd_comp += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 1000
+                    op_comp_time[op_name]["fwd"] += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 1000
+                    op_comp_time[op_name]["bwd"] += self.collective_time["all_reduce"][(tp, usp, rsp, dp)][rank][cur_op_input_size] * 1000
             elif op_name == "dec-self-attention":
                 '''
                 Self attention
@@ -334,27 +353,45 @@ class HetacesoPerformanceModel:
                 runtime/megatron/core/tensor_parallel/layers.py: 826, ColumnParallelLinear::forward
                 - Dropout need 1 RowParallelLinear layer, thus forward: 1 all-reduce, backward: 1 all-gather
                 '''
-                if tp > 1:
-                    assert cur_op_output_size in self.collective_time["all_gather"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    assert cur_op_output_size in self.collective_time["all_reduce"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    tp_comm += (self.collective_time["all_gather"][tp][rank][cur_op_output_size] + self.collective_time["all_reduce"][tp][rank][cur_op_output_size]) * 4
                 '''
                 CP:
                 - USP: In TE's implementation, USP QKV communication can overlap with each other, thus only need to consider 1 all-to-all
                 - RSP: In most case rsp can overlap with calculation
                 '''
                 if usp > 1:
-                    assert cur_op_output_size in self.collective_time["all_to_all"][usp][rank], f'{op_name} {cur_op_output_size}'
-                    cp_comm += self.collective_time["all_to_all"][usp][rank][cur_op_output_size]
+                    # assert cur_op_output_size in self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank], f'{op_name} {cur_op_output_size} {(tp, usp, rsp, dp)} {self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank]}'
+                    '''
+                    According to profile results, Q and K can overlap with each other, and V still need to wait for Q's output
+                    a2a include QKV, and O
+                    '''
+                    # usp_comm += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 6
+                    # fwd_comp += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 3 * 1000
+                    # bwd_comp += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 3 * 1000
+                    # op_comp_time[op_name]["fwd"] += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 3 * 1000
+                    # op_comp_time[op_name]["bwd"] += self.collective_time["all_to_all"][(tp, usp, rsp, dp)][rank][cur_op_output_size] * 3 * 1000
+                    pass
+                if rsp > 1:
+                    # ring KV, communication calculate where cannot overlap with computation
+                    # direct_comm = float(self.output_size[op_name][cur_mbs][cur_seqlen][tp]) / self.intra_node_band(rank, self.output_size[op_name][cur_mbs][cur_seqlen][tp])
+                    # fwd_comp += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp] * (rsp - 1)
+                    # op_comp_time[op_name]["fwd"] += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp] * (rsp - 1)
+                    # if direct_comm > self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]:
+                    #     rsp_comm += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp
+                    #     fwd_comp += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp * 1000
+                    #     op_comp_time[op_name]["fwd"] += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp * 1000
+                    # bwd_comp += self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp] * (rsp - 1)
+                    # op_comp_time[op_name]["bwd"] += self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp] * (rsp - 1)
+                    # if direct_comm > self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]:
+                    #     rsp_comm += (direct_comm - self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp
+                    #     bwd_comp += (direct_comm - self.compute_bwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp * 1000
+                    #     op_comp_time[op_name]["bwd"] += (direct_comm - self.compute_fwd_time[op_name][cur_mbs][cur_seqlen][tp]) * rsp 
+                    pass
             elif op_name == "dec-mlp":
                 '''
                 MLP
                 MLP need 1 ColumnParallelLinear, 1 RowParallelLinear
                 '''
-                if tp > 1:
-                    assert cur_op_output_size in self.collective_time["all_gather"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    assert cur_op_output_size in self.collective_time["all_reduce"][tp][rank], f'{op_name} {cur_op_output_size}'
-                    tp_comm += (self.collective_time["all_gather"][tp][rank][cur_op_output_size] + self.collective_time["all_reduce"][tp][rank][cur_op_output_size]) * 2
+                pass
             else:
                 raise RuntimeError(f"unknown op_name {op_name}")
 
@@ -371,7 +408,7 @@ class HetacesoPerformanceModel:
         else:
             out_comm = output_comm_size / self.intra_node_band(rank, output_comm_size)
 
-        return fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm
+        return fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm, op_comp_time
 
 
     ## TODO: check if mbs is needed
@@ -453,20 +490,27 @@ class HetacesoPerformanceModel:
         
         ops = self.ops_in_each_stage[pp_rank]
 
-        ## all the time is in [us].
-        fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm = self.get_comp_comm_time(rank, self.machine_idx_rank_map[rank], ops, cur_mbs, cur_seqlen, cur_tp, cur_usp, cur_rsp, cur_dp, in_cross_node, out_cross_node)
-        sum_time = fwd_comp + bwd_comp + in_comm + out_comm + tp_comm + usp_comm + rsp_comm + dp_comm
+        ## fwd bwd time is in [us], comm time is in [ms].
+        fwd_comp, bwd_comp, in_comm, out_comm, tp_comm, usp_comm, rsp_comm, dp_comm, op_comp_time = self.get_comp_comm_time(rank, self.machine_idx_rank_map[rank], ops, cur_mbs, cur_seqlen, cur_tp, cur_usp, cur_rsp, cur_dp, in_cross_node, out_cross_node)
+        
+        for op in op_comp_time:
+            for fwd_bwd in op_comp_time[op]:
+                op_comp_time[op][fwd_bwd] = op_comp_time[op][fwd_bwd] / 1000 * num_micro_batches
 
         if print_detail:
             print(
-                f"Time(ms)=[{sum_time/1000 * num_micro_batches:.2f}]. fwd_compute = {fwd_comp * num_micro_batches / 1000 :.2f}, bwd_compute = {bwd_comp * num_micro_batches / 1000 :.2f}, in_comm_time = {in_comm * num_micro_batches / 1000 :.2f}, out_comm_time = {out_comm * num_micro_batches / 1000 :.2f}"
+                f"Time(ms)=[fwd_compute = {fwd_comp * num_micro_batches / 1000 :.2f}, bwd_compute = {bwd_comp * num_micro_batches / 1000 :.2f}, in_comm_time = {in_comm * num_micro_batches :.2f}, out_comm_time = {out_comm * num_micro_batches :.2f}, tp_comm_time = {tp_comm * num_micro_batches :.2f}, usp_comm_time = {usp_comm * num_micro_batches :.2f}, rsp_comm_time = {rsp_comm * num_micro_batches :.2f}, dp_comm_time = {dp_comm * num_micro_batches :.2f}]"
             )
 
         ## return [ms]
         return (
-            sum_time / 1000 * num_micro_batches,
             fwd_comp / 1000 * num_micro_batches,
             bwd_comp / 1000 * num_micro_batches,
+            tp_comm * num_micro_batches,
+            usp_comm * num_micro_batches,
+            rsp_comm * num_micro_batches,
+            dp_comm * num_micro_batches,
+            op_comp_time,
         )
 
     def predict_stage_memory(
@@ -503,7 +547,10 @@ class HetacesoPerformanceModel:
         
         if with_reference:
             self.args.data_parallel_size = cur_dp
+            self.args.tensor_model_parallel_size = cur_tp
+            self.args.pipeline_model_parallel_size = 1
             self.args.micro_batch_size = cur_mbs
+            self.args.seq_length = cur_seqlen
             weight_and_optimizer_memory, activation_memory, total_memory = report_theoretical_memory(self.args, cur_mbs)
         
         if print_detail:
@@ -525,13 +572,14 @@ class HetacesoPerformanceModel:
         micro_batch_size = self.config.micro_bs
         num_micro_batches = self.config.global_bs // micro_batch_size
 
-        total_time, fwd_time, bwd_time = self.predict_stage_time(
+        fwd_time, bwd_time, tp_comm_time, usp_comm_time, rsp_comm_time, dp_comm_time, op_comp_time = self.predict_stage_time(
             rank,
             num_micro_batches,
             in_cross_node,
             out_cross_node,
             print_detail,
         )
+        total_time = fwd_time + bwd_time
         memory_ret = (
             self.predict_stage_memory(
                 rank, print_detail=print_detail, breakdown=True, with_reference=True
@@ -542,6 +590,19 @@ class HetacesoPerformanceModel:
         self.config.time_list.append(total_time)
         self.config.fwd_time_list.append(fwd_time)
         self.config.bwd_time_list.append(bwd_time)
+        self.config.tp_comm_time_list.append(tp_comm_time)
+        self.config.usp_comm_time_list.append(usp_comm_time)
+        self.config.rsp_comm_time_list.append(rsp_comm_time)
+        self.config.dp_comm_time_list.append(dp_comm_time)
+        
+        self.config.embed_fwd_time_list.append(op_comp_time["dec-embedding"]["fwd"])
+        self.config.embed_bwd_time_list.append(op_comp_time["dec-embedding"]["bwd"])
+        self.config.attn_fwd_time_list.append(op_comp_time["dec-self-attention"]["fwd"])
+        self.config.attn_bwd_time_list.append(op_comp_time["dec-self-attention"]["bwd"])
+        self.config.mlp_fwd_time_list.append(op_comp_time["dec-mlp"]["fwd"])
+        self.config.mlp_bwd_time_list.append(op_comp_time["dec-mlp"]["bwd"])
+        self.config.post_fwd_time_list.append(op_comp_time["dec-post-process"]["fwd"])
+        self.config.post_bwd_time_list.append(op_comp_time["dec-post-process"]["bwd"])
         
         self.config.memory_list.append(memory_sum)
         self.config.weight_size_list.append(weight_size)
@@ -556,6 +617,18 @@ class HetacesoPerformanceModel:
                     total_time: {total_time}\n \
                     fwd_time: {fwd_time}\n \
                     bwd_time: {bwd_time}\n \
+                    tp_comm_time: {tp_comm_time}\n \
+                    usp_comm_time: {usp_comm_time}\n \
+                    rsp_comm_time: {rsp_comm_time}\n \
+                    dp_comm_time: {dp_comm_time}\n \
+                    embed_comp_fwd_time: {op_comp_time["dec-embedding"]["fwd"]}\n \
+                    embed_comp_bwd_time: {op_comp_time["dec-embedding"]["bwd"]}\n \
+                    attn_comp_fwd_time: {op_comp_time["dec-self-attention"]["fwd"]}\n \
+                    attn_comp_bwd_time: {op_comp_time["dec-self-attention"]["bwd"]}\n \
+                    mlp_comp_fwd_time: {op_comp_time["dec-mlp"]["fwd"]}\n \
+                    mlp_comp_bwd_time: {op_comp_time["dec-mlp"]["bwd"]}\n \
+                    post_comp_fwd_time: {op_comp_time["dec-post-process"]["fwd"]}\n \
+                    post_comp_bwd_time: {op_comp_time["dec-post-process"]["bwd"]}\n \
                     memory_sum: {memory_sum}\n \
                     memory_weight: {weight_size}\n \
                     memory_weight_no_embed: {weight_size_no_embedding}\n \
@@ -582,6 +655,10 @@ class HetacesoPerformanceModel:
             print(f'self.config.time_list = {self.config.time_list}\n \
                     self.config.fwd_time_list = {self.config.fwd_time_list}\n \
                     self.config.bwd_time_list = {self.config.bwd_time_list}\n \
+                    self.config.tp_comm_time_list = {self.config.tp_comm_time_list}\n \
+                    self.config.usp_comm_time_list = {self.config.usp_comm_time_list}\n \
+                    self.config.rsp_comm_time_list = {self.config.rsp_comm_time_list}\n \
+                    self.config.dp_comm_time_list = {self.config.dp_comm_time_list}\n \
                     self.config.memory_list = {self.config.memory_list}\n \
                     self.config.weight_size_list = {self.config.weight_size_list}\n \
                     self.config.weight_size_no_embed_list = {self.config.weight_size_no_embed_list}\n \
@@ -593,7 +670,7 @@ def main():
     args = parse_args()
     args, machine_topo = read_topo(args)
     config, config_dict = read_config_from_json(args, return_config_dict=True)
-    args = config_to_args(config, config_dict, args, 0)
+    args = config_to_args(config, config_dict, args)
     performance_model = HetacesoPerformanceModel(args, machine_topo, config, config_dict)
     performance_model.read_profiled()
     performance_model.predict_single_performance(0, False, False, True, True)

@@ -16,6 +16,24 @@ from megatron.core.utils import (
 )
 
 
+class OpHooks:
+    def __init__(self, opName: str, timers, log_level=1):
+        self.opName = opName
+        self.fwd_timers = timers(opName + '-forward', log_level=log_level)
+        self.bwd_timers = timers(opName + '-backward', log_level=log_level)
+        
+    def pre_forward_hook(self, module, args):
+        self.fwd_timers.start()
+    
+    def forward_hook(self, module, args, output):
+        self.fwd_timers.stop()
+    
+    def pre_backward_hook(self, module, grad_output):
+        self.bwd_timers.start()
+    
+    def backward_hook(self, module, grad_input, grad_output):
+        self.bwd_timers.stop()
+
 def get_linear_layer(rows, columns, init_method, perform_initialization=True):
     """Simple linear layer with weight initialization."""
     layer = torch.nn.Linear(rows, columns)

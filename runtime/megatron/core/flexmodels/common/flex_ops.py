@@ -11,6 +11,7 @@ from megatron.core import InferenceParams, parallel_state, tensor_parallel
 import torch
 from torch import Tensor
 from dataclasses import dataclass
+from megatron.core.transformer.utils import OpHooks
 from megatron.core.transformer.spec_utils import build_module, ModuleSpec
 from megatron.core.transformer.transformer_layer import (
     TransformerLayerSubmodules,
@@ -58,13 +59,13 @@ class FlexModule(MegatronModule):
         self.weight_size = 0
 
         # shapes
-        self.seq_length = config.seq_length
-        self.micro_batch_size = config.micro_batch_size
+        self.seq_length = config.cur_seqlen
+        self.micro_batch_size = config.cur_micro_batch_size
         self.hidden_size = config.hidden_size
         # [s, b, h]
         self.hidden_state_size = [
-            config.seq_length,
-            config.micro_batch_size,
+            config.cur_seqlen,
+            config.cur_micro_batch_size,
             config.hidden_size,
         ]
 
@@ -92,26 +93,6 @@ class FlexModule(MegatronModule):
                         self.embedding.word_embeddings.weight.main_grad = new_data[key][0]
                     else:
                         self.embedding.word_embeddings.weight.data = new_data[key][0]
-
-
-class OpHooks:
-    def __init__(self, opName: str, timers):
-        self.opName = opName
-        print('hook ', opName + '-forward', opName + '-backward')
-        self.fwd_timers = timers(opName + '-forward', log_level=1)
-        self.bwd_timers = timers(opName + '-backward', log_level=1)
-        
-    def pre_forward_hook(self, module, args):
-        self.fwd_timers.start()
-    
-    def forward_hook(self, module, args, output):
-        self.fwd_timers.stop()
-    
-    def pre_backward_hook(self, module, grad_output):
-        self.bwd_timers.start()
-    
-    def backward_hook(self, module, grad_input, grad_output):
-        self.bwd_timers.stop()
 
 @dataclass
 class OpInfo:
@@ -206,7 +187,7 @@ class FlexEmbedding(FlexModule):
         }
         
         if self.config.timers:
-            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.hooks = OpHooks(self.op_name, self.config.timers, 0)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
             # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
@@ -320,10 +301,10 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         self.input_extra_tensors_info = {
             "attention_mask": {
                 "shape": [
-                    config.micro_batch_size // self.dp_size,
+                    self.micro_batch_size,
                     1,
-                    config.seq_length // self.cp_size,
-                    config.seq_length // self.cp_size,
+                    self.seq_length,
+                    self.seq_length,
                 ],
                 "tp_split_dim": -1,
                 "dp_split_dim": -1,
@@ -332,8 +313,10 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             }
         }
         
+        self.counter = 0
+        
         if self.config.timers:
-            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.hooks = OpHooks(self.op_name, self.config.timers, 0)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
             # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
@@ -365,6 +348,7 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         input_layernorm_output = self.input_layernorm(hidden_states)
 
         # Self attention.
+        self.counter += 1
         attention_output_with_bias = self.self_attention(
             input_layernorm_output,
             attention_mask=attention_mask,
@@ -455,7 +439,7 @@ class FlexLayerNormMlpDropout(FlexModule):
         }
         
         if self.config.timers:
-            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.hooks = OpHooks(self.op_name, self.config.timers, 0)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
             # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
@@ -545,6 +529,7 @@ class FlexLayerNormPostProcess(FlexModule):
 
         self.parallel_output = parallel_output
         self.fp16_lm_cross_entropy = config.fp16_lm_cross_entropy
+        self.padded_vocab_size = config.padded_vocab_size
 
         self.output_layer = tensor_parallel.ColumnParallelLinear(
             config.hidden_size,
@@ -591,7 +576,7 @@ class FlexLayerNormPostProcess(FlexModule):
         }
         self.input_extra_tensors_info = {
             "labels": {
-                "shape": [config.micro_batch_size // self.dp_size, config.seq_length],
+                "shape": [self.micro_batch_size, self.seq_length],
                 "tp_split_dim": -1,
                 "dp_split_dim": 0,
                 "cp_split_dim": 1,
@@ -603,14 +588,14 @@ class FlexLayerNormPostProcess(FlexModule):
             "word_embeddings": {
                 "root": False,
                 "sharing_with_ops": [0],
-                "shape": [config.padded_vocab_size, config.hidden_size],
+                "shape": [self.padded_vocab_size, self.hidden_size],
                 "tp_split_dim": 0,
                 "dp_split_dim": -1,
             }
         }
         
         if self.config.timers:
-            self.hooks = OpHooks(self.op_name, self.config.timers)
+            self.hooks = OpHooks(self.op_name, self.config.timers, 0)
             self.register_forward_pre_hook(self.hooks.pre_forward_hook)
             self.register_forward_hook(self.hooks.forward_hook)
             # self.register_full_backward_pre_hook(self.hooks.pre_backward_hook)
