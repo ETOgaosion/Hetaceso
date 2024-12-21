@@ -137,5 +137,5 @@ def plot_error(key, data, data_types):
 
 data = collect_data_from_csv(["total_time", "fwd_time", "bwd_time", "embed_fwd_time", "attn_fwd_time", "mlp_fwd_time", "post_fwd_time", "memory_sum", "ref_total_memory"])
 for key, value in data.items():
-    # plot_data(key, value, ["total_time", "memory_sum", "ref_total_memory"])
+    plot_data(key, value, ["total_time", "memory_sum", "ref_total_memory"])
     plot_error(key, value, ["total_time", "fwd_time", "bwd_time", "embed_fwd_time", "attn_fwd_time", "mlp_fwd_time", "post_fwd_time", "memory_sum", "ref_total_memory"])
