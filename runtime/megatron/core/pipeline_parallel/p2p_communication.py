@@ -1363,7 +1363,7 @@ def synchronize_shared_weights_grads(models):
                         # sum up the grads from all sync-ops and this op.
                         current_grads = current_grads_dict[key]
                         recv_grads.append(current_grads)
-                        grads_dict[key] = [sum(recv_grads)]               
+                        grads_dict[key] = [sum(recv_grads).detach()]               
                     op.set_shared_tensor(grads_dict, grads=True)                    
                     # send sum of grads back to all the sync-ops.                  
                     send_shared_tensors(op, models, grads=True)                   
