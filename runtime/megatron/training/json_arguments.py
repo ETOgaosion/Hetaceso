@@ -22,8 +22,8 @@ def load_json_args(json_file, args):
             args.seq_length = config_dict["seq_length"]
         if config_dict.get("max_position_embeddings") is not None:
             args.max_position_embeddings = config_dict["max_position_embeddings"]
-        if config_dict.get("num_attention_head") is not None:
-            args.num_attention_heads = config_dict["num_attention_head"]
+        if config_dict.get("num_attention_heads") is not None:
+            args.num_attention_heads = config_dict["num_attention_heads"]
         if config_dict.get("hidden_size") is not None:
             args.hidden_size = config_dict["hidden_size"]
         if config_dict.get("global_batch_size") is not None:

@@ -1,0 +1,19 @@
+{
+    "comment": "Only include flexpipe related configurations",
+    "num_layers": 32,
+    "num_stages": 1,
+    "num_gpus": [
+        4
+    ],
+    "num_ops_in_each_stage": [
+        82
+    ],
+    "seq_length": 32768,
+    "tensor_parallel_size_of_each_stage":[1],
+    "data_parallel_size_of_each_stage": [1],
+    "context_parallel_size_of_each_stage": [16],
+    "ulysses_context_parallel_size_of_each_stage": [16],
+    "ring_context_parallel_size_of_each_stage": [1],
+    "data_parallel_split_of_each_stage": [[8]],
+    "ring_context_parallel_split_of_each_stage": [[32768]]
+}

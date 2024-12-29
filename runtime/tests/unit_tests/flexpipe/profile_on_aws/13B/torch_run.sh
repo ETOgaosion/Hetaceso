@@ -18,7 +18,7 @@ if [ -e export.sh ]; then
     source export.sh
 fi
 
-GPUS_PER_NODE=4
+GPUS_PER_NODE=16
 # Change for multinode config
 MASTER_ADDR=localhost
 MASTER_PORT=7000
@@ -35,19 +35,8 @@ MICRO_BATCH_SIZE=8
 GLOBAL_BATCH_SIZE=1024
 
 TEST_NUM=${1:-0}
-MACHINE=${2:-0}
-TRAIN_ITERS=${3:-3}
-RETRAIN=${4:-1}
-
-if [[ $MACHINE -eq "0" ]]; then
-    export NCCL_SOCKET_IFNAME=eno2
-    export CUDA_VISIBLE_DEVICES=3,4,5,7
-elif [[ $MACHINE -eq "1" ]]; then
-    export NCCL_SOCKET_IFNAME=eno1
-    export CUDA_VISIBLE_DEVICES=3,4,5,6
-elif [[ $MACHINE -eq "2" ]]; then
-    export NCCL_SOCKET_IFNAME=ens1f0
-fi
+TRAIN_ITERS=${2:-3}
+RETRAIN=${3:-1}
 
 VOCAB_FILE=../../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../../vocabs/gpt2-merges.txt
@@ -96,6 +85,15 @@ GPT_ARGS="
     --no-scatter-gather-tensors-in-pipeline \
 "
 
+PROFILE_ARGS="
+    --profile \
+    --profile-method torch \
+    --profile-step-start 1 \
+    --profile-step-end $TRAIN_ITERS \
+    --profile-ranks 0 1 2 3 \
+    --profile-output-dir logs_${TEST_NUM}/profile_torch \
+"
+
 FLEX_ARGS="
     --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
     --log-path ./logs_${TEST_NUM} \
@@ -107,11 +105,12 @@ mkdir -p logs
 mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
-export TIMERS_LOG_LEVEL=2 && \
+export TIMERS_LOG_LEVEL=0 && \
 export USE_FLASH_ATTN=1 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \
+    $PROFILE_ARGS \
     $FLEX_ARGS \
     $DATA_ARGS \
     --distributed-backend nccl \

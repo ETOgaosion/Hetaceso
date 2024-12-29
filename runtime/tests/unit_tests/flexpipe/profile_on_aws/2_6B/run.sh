@@ -18,7 +18,7 @@ if [ -e export.sh ]; then
     source export.sh
 fi
 
-GPUS_PER_NODE=4
+GPUS_PER_NODE=16
 # Change for multinode config
 MASTER_ADDR=localhost
 MASTER_PORT=7000
@@ -27,27 +27,16 @@ NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 # fixed Model related configuration here, pls not overlap with json config
-HIDDEN_SIZE=1024
-NUM_ATTENTION_HEADS=16
+HIDDEN_SIZE=2560
+NUM_ATTENTION_HEADS=32
 SEQ_LENGTH=2048
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 MICRO_BATCH_SIZE=8
 GLOBAL_BATCH_SIZE=1024
 
 TEST_NUM=${1:-0}
-MACHINE=${2:-0}
-TRAIN_ITERS=${3:-3}
-RETRAIN=${4:-1}
-
-if [[ $MACHINE -eq "0" ]]; then
-    export NCCL_SOCKET_IFNAME=eno2
-    export CUDA_VISIBLE_DEVICES=3,4,5,7
-elif [[ $MACHINE -eq "1" ]]; then
-    export NCCL_SOCKET_IFNAME=eno1
-    export CUDA_VISIBLE_DEVICES=3,4,5,6
-elif [[ $MACHINE -eq "2" ]]; then
-    export NCCL_SOCKET_IFNAME=ens1f0
-fi
+TRAIN_ITERS=${2:-3}
+RETRAIN=${3:-1}
 
 VOCAB_FILE=../../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../../vocabs/gpt2-merges.txt
