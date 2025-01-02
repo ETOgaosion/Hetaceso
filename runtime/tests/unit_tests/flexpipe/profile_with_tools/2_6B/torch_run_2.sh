@@ -19,7 +19,7 @@ if [ -e export.sh ]; then
     source export.sh
 fi
 
-GPUS_PER_NODE=4
+GPUS_PER_NODE=2
 # Change for multinode config
 MASTER_ADDR=localhost
 MASTER_PORT=7000
@@ -28,12 +28,12 @@ NODE_RANK=0
 WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 # fixed Model related configuration here, pls not overlap with json config
-HIDDEN_SIZE=1024
-NUM_ATTENTION_HEADS=16
-SEQ_LENGTH=2048
+HIDDEN_SIZE=2560
+NUM_ATTENTION_HEADS=32
+SEQ_LENGTH=8192
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 MICRO_BATCH_SIZE=8
-GLOBAL_BATCH_SIZE=1024
+GLOBAL_BATCH_SIZE=32
 
 TEST_NUM=${1:-0}
 MACHINE=${2:-0}
@@ -54,10 +54,10 @@ VOCAB_FILE=../../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../../vocabs/gpt2-merges.txt
 
 if [ $RETRAIN -eq 1 ]; then
-    rm -rf logs_${TEST_NUM}
+    rm -rf logs2_${TEST_NUM}
 fi
-mkdir -p logs_${TEST_NUM}
-mkdir -p logs_${TEST_NUM}/profile_torch
+mkdir -p logs2_${TEST_NUM}
+mkdir -p logs2_${TEST_NUM}/profile_torch
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -107,7 +107,7 @@ PROFILE_ARGS="
 
 FLEX_ARGS="
     --flexpipe-config ./prof_pretrain_${TEST_NUM}.json \
-    --log-path ./logs_${TEST_NUM} \
+    --log-path ./logs2_${TEST_NUM} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
 "

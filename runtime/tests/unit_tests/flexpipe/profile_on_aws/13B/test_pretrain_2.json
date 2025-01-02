@@ -9,6 +9,7 @@
         82
     ],
     "seq_length": 16384,
+    "max_position_embeddings:": 16384,
     "tensor_parallel_size_of_each_stage":[1],
     "data_parallel_size_of_each_stage": [1],
     "context_parallel_size_of_each_stage": [16],
