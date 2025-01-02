@@ -519,7 +519,8 @@ def setup_model_and_optimizer(model_provider_func,
         if hasattr(args, f.name):
             kwargs[f.name] = getattr(args, f.name)
     config = OptimizerConfig(**kwargs)
-    config.timers = timers
+    if not args.disable_all_timers:
+        config.timers = timers
     optimizer = get_megatron_optimizer(config, model, no_wd_decay_cond,
                                        scale_lr_cond, lr_mult)
     opt_param_scheduler = get_optimizer_param_scheduler(optimizer)
@@ -652,6 +653,9 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
                  grad_norm, params_norm, num_zeros_in_grad):
     """Log training information such as losses, timing, ...."""
     args = get_args()
+    if args.disable_all_timers:
+        return 0
+    
     timers = get_timers()
     writer = get_tensorboard_writer()
     wandb_writer = get_wandb_writer()
@@ -995,7 +999,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
     # Setup some training config params
     config.grad_scale_func = optimizer.scale_loss
-    config.timers = timers
+    if not args.disable_all_timers:
+        config.timers = timers
     if isinstance(model[0], DDP) and args.overlap_grad_reduce:
         assert config.no_sync_func is None, \
             ('When overlap_grad_reduce is True, config.no_sync_func must be None; '

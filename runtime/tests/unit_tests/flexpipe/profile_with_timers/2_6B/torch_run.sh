@@ -100,6 +100,7 @@ GPT_ARGS="
 "
 
 PROFILE_ARGS="
+    --disable-all-timers \
     --profile \
     --profile-method torch \
     --profile-ranks 0 1 2 3 \
@@ -119,6 +120,7 @@ mkdir -p logs/csv
 # export USE_FUSED_ATTN=1 && \
 export TIMERS_LOG_LEVEL=0 && \
 export USE_FLASH_ATTN=1 && \
+export TIMERS_LOG_LEVEL=0 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \
