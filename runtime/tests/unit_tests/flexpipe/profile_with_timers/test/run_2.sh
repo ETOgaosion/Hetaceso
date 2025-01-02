@@ -98,7 +98,7 @@ GPT_ARGS="
 
 FLEX_ARGS="
     --flexpipe-config ./test_pretrain2_${TEST_NUM}.json \
-    --log-path ./logs_${TEST_NUM} \
+    --log-path ./logs2_${TEST_NUM} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
 "
@@ -107,7 +107,7 @@ mkdir -p logs
 mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
-export TIMERS_LOG_LEVEL=2 && \
+export TIMERS_LOG_LEVEL=0 && \
 export USE_FLASH_ATTN=1 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \

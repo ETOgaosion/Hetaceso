@@ -4,7 +4,6 @@ export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export CUDA_BLOCKING_LAUNCH=1
 # export NCCL_DEBUG=TRACE
 # export NCCL_DEBUG_FILE=./nccl.log
 # export NCCL_DEBUG_SUBSYS=ALL
@@ -29,7 +28,7 @@ WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16
-SEQ_LENGTH=2048
+SEQ_LENGTH=4096
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 MICRO_BATCH_SIZE=8
 GLOBAL_BATCH_SIZE=1024
@@ -107,7 +106,8 @@ mkdir -p logs
 mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
-export TIMERS_LOG_LEVEL=2 && \
+export TIMERS_LOG_LEVEL=1 && \
+export NVTE_BATCH_MHA_P2P_COMM=1 && \
 export USE_FLASH_ATTN=1 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \

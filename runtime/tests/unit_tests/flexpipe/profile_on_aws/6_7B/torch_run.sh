@@ -5,6 +5,9 @@ export DEBUG_MPU=1
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export CUDA_BLOCKING_LAUNCH=1
+export PYTORCH_JIT=0
+export PYTORCH_NVFUSER_DISABLE=fallback
+export CUDA_BLOCKING_LAUNCH=1
 # export NCCL_DEBUG=TRACE
 # export NCCL_DEBUG_FILE=./nccl.log
 # export NCCL_DEBUG_SUBSYS=ALL
@@ -88,14 +91,12 @@ GPT_ARGS="
 PROFILE_ARGS="
     --profile \
     --profile-method torch \
-    --profile-step-start 1 \
-    --profile-step-end $TRAIN_ITERS \
     --profile-ranks 0 1 2 3 \
     --profile-output-dir logs_${TEST_NUM}/profile_torch \
 "
 
 FLEX_ARGS="
-    --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
+    --flexpipe-config ./prof_pretrain_${TEST_NUM}.json \
     --log-path ./logs_${TEST_NUM} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
