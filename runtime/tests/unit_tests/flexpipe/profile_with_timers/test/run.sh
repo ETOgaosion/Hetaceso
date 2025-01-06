@@ -4,7 +4,6 @@ export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export CUDA_BLOCKING_LAUNCH=1
 # export NCCL_DEBUG=TRACE
 # export NCCL_DEBUG_FILE=./nccl.log
 # export NCCL_DEBUG_SUBSYS=ALL
@@ -29,13 +28,25 @@ WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16
-SEQ_LENGTH=2048
+SEQ_LENGTH=4096
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 MICRO_BATCH_SIZE=8
 GLOBAL_BATCH_SIZE=1024
 
 TEST_NUM=${1:-0}
-TRAIN_ITERS=${2:-5}
+MACHINE=${2:-0}
+TRAIN_ITERS=${3:-3}
+RETRAIN=${4:-1}
+
+if [[ $MACHINE -eq "0" ]]; then
+    export NCCL_SOCKET_IFNAME=eno2
+    export CUDA_VISIBLE_DEVICES=3,4,5,7
+elif [[ $MACHINE -eq "1" ]]; then
+    export NCCL_SOCKET_IFNAME=eno1
+    export CUDA_VISIBLE_DEVICES=3,4,5,6
+elif [[ $MACHINE -eq "2" ]]; then
+    export NCCL_SOCKET_IFNAME=ens1f0
+fi
 
 VOCAB_FILE=../../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../../vocabs/gpt2-merges.txt
@@ -95,8 +106,10 @@ mkdir -p logs
 mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
-export TIMERS_LOG_LEVEL=2 && \
+export TIMERS_LOG_LEVEL=1 && \
 export USE_FLASH_ATTN=1 && \
+export NVTE_BATCH_MHA_P2P_COMM=1 && \
+export TIMERS_LOG_LEVEL=0 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \

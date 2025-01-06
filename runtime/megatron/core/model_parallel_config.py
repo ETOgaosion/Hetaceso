@@ -76,6 +76,8 @@ class ModelParallelConfig:
 
     timers: Callable = None
     """Timers object to call for various timing functions. See megatron.core.timers.Timers"""
+    
+    disable_all_timers: bool = False
 
     finalize_model_grads_func: Callable = None
     """Function that finalizes gradients on all workers. Could include ensuring that grads are

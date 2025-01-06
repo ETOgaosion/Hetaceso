@@ -4,7 +4,9 @@ export DEBUG_COMMUNICATE=1
 export DEBUG_MPU=1
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export CUDA_BLOCKING_LAUNCH=1
+# export CUDA_LAUNCH_BLOCKING=1
+export PYTORCH_JIT=0
+export PYTORCH_NVFUSER_DISABLE=fallback
 # export NCCL_DEBUG=TRACE
 # export NCCL_DEBUG_FILE=./nccl.log
 # export NCCL_DEBUG_SUBSYS=ALL
@@ -29,7 +31,7 @@ WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=2560
 NUM_ATTENTION_HEADS=32
-SEQ_LENGTH=2048
+SEQ_LENGTH=4096
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
 MICRO_BATCH_SIZE=8
 GLOBAL_BATCH_SIZE=32
@@ -37,7 +39,7 @@ GLOBAL_BATCH_SIZE=32
 TEST_NUM=${1:-0}
 MACHINE=${2:-0}
 TRAIN_ITERS=${3:-3}
-RETRAIN=${4:-1}
+RETRAIN=${4:-0}
 
 if [[ $MACHINE -eq "0" ]]; then
     export NCCL_SOCKET_IFNAME=eno2
@@ -97,16 +99,15 @@ GPT_ARGS="
 "
 
 PROFILE_ARGS="
+    --disable-all-timers \
     --profile \
     --profile-method torch \
-    --profile-step-start 1 \
-    --profile-step-end $TRAIN_ITERS \
     --profile-ranks 0 1 2 3 \
     --profile-output-dir logs_${TEST_NUM}/profile_torch \
 "
 
 FLEX_ARGS="
-    --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
+    --flexpipe-config ./prof_pretrain_${TEST_NUM}.json \
     --log-path ./logs_${TEST_NUM} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
@@ -117,6 +118,9 @@ mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
 export USE_FLASH_ATTN=1 && \
+# export NVTE_SYNC_P2P=1 && \
+export NVTE_BATCH_MHA_P2P_COMM=1 && \
+export TIMERS_LOG_LEVEL=0 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \

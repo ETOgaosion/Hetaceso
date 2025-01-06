@@ -1,0 +1,9 @@
+#!/bin/bash
+MACHINE=${1:-0}
+TRAIN_ITERS=${2:-3}
+RETRAIN=${3:-1}
+
+for i in {0..7}
+do
+    ./run.sh $i $MACHINE $TRAIN_ITERS $RETRAIN
+done

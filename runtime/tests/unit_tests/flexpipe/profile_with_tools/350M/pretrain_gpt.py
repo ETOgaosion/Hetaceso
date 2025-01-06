@@ -57,7 +57,8 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
         config = core_transformer_config_from_yaml(args, "language_model")
     else:
         config = core_transformer_config_from_args(args)
-    config.timers = timers
+    if not args.disable_all_timers:
+        config.timers = timers
 
     if args.use_mcore_models:
         if args.spec is not None:

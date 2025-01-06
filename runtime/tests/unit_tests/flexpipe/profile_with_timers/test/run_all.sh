@@ -1,5 +1,9 @@
 #!/bin/bash
-for i in {0..7}
+MACHINE=${1:-0}
+TRAIN_ITERS=${2:-3}
+RETRAIN=${3:-1}
+
+for i in {6..7}
 do
-    ./run.sh $i
+    ./run.sh $i $MACHINE $TRAIN_ITERS $RETRAIN
 done
