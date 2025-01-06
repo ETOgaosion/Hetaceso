@@ -32,8 +32,8 @@ HIDDEN_SIZE=2560
 NUM_ATTENTION_HEADS=32
 SEQ_LENGTH=8192
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
-MICRO_BATCH_SIZE=8
-GLOBAL_BATCH_SIZE=32
+MICRO_BATCH_SIZE=2
+GLOBAL_BATCH_SIZE=4
 
 TEST_NUM=${1:-0}
 MACHINE=${2:-0}
@@ -48,6 +48,7 @@ elif [[ $MACHINE -eq "1" ]]; then
     export CUDA_VISIBLE_DEVICES=3,4,5,6
 elif [[ $MACHINE -eq "2" ]]; then
     export NCCL_SOCKET_IFNAME=ens1f0
+    export CUDA_VISIBLE_DEVICES=2,3
 fi
 
 VOCAB_FILE=../../../../../vocabs/gpt2-vocab.json
@@ -106,7 +107,7 @@ PROFILE_ARGS="
 "
 
 FLEX_ARGS="
-    --flexpipe-config ./prof_pretrain_${TEST_NUM}.json \
+    --flexpipe-config ./prof_pretrain_${TEST_NUM}_2.json \
     --log-path ./logs2_${TEST_NUM} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
@@ -117,6 +118,7 @@ mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
 export USE_FLASH_ATTN=1 && \
+export NVTE_BATCH_MHA_P2P_COMM=1 && \
 export TIMERS_LOG_LEVEL=0 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \

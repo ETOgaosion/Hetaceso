@@ -97,6 +97,7 @@ mkdir -p logs/csv
 # export USE_FUSED_ATTN=1 && \
 export TIMERS_LOG_LEVEL=2 && \
 export USE_FLASH_ATTN=1 && \
+export NVTE_SYNC_P2P=1 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
     $GPT_ARGS \
