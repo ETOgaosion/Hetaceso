@@ -5,12 +5,13 @@ NNODES=2
 NODE_RANK=0
 
 MACHINE=${1:-0}
-REPROFILE=${2:-0}
+TP_SIZE=${2:-2}
+USP_SIZE=${3:-2}
+REPROFILE=${4:-0}
 
 RUNTIME_PATH=$(pwd)/../results/
 mkdir -p $RUNTIME_PATH
 PROFILING_PATH=${RUNTIME_PATH}profiled-local-comm-hetaceso/rank$NODE_RANK/
-PROFILING_OP_TIME_PATH=${RUNTIME_PATH}profiled-gpt-hetaceso/rank$NODE_RANK/
 
 if [ $REPROFILE -eq 1 ]; then
     rm -rf ${PROFILING_PATH}
@@ -40,12 +41,14 @@ echo [TIME] before profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m
 echo [TIME] before profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1 && \
-python3 comm_profiler.py \
+python3 comm_profiler_local.py \
     --prof-path $PROFILING_PATH \
+    --prof-fig-path $PROFILING_PATH/fig \
     --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_comm_profile.pkl \
-    --prof-op-time-path $PROFILING_OP_TIME_PATH \
     --prof-model-name $MODEL_NAME \
     --prof-model-size $MODEL_SIZE \
+    --prof-tp-size ${TP_SIZE} \
+    --prof-usp-size ${USP_SIZE} \
     --prof-warmup-times 20 \
     --prof-repeat-times 100 \
     --max-num-gpus $MAX_NUM_GPUS \

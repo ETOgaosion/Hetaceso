@@ -279,6 +279,7 @@ def profile(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_li
     if dp_size > 1:
         initialized = False
         for i in range(tp_size * cp_size):
+            # Here we assume that world_size = tp_size * cp_size * dp_size
             dp_group_start = i
             dp_group_end = world_size
             if rank in range(dp_group_start, dp_group_end, tp_size * cp_size):
