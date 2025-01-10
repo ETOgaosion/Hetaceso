@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import argparse
 import gc
 import dataclasses
+import pickle
+import csv
 
 from numpy import polyfit, polyval
 import numpy as np
@@ -52,8 +54,9 @@ def parse_args():
     parser.add_argument("--profile-times", type=int, default=100)
     parser.add_argument("--use-square_scope", action="store_true")
     parser.add_argument("--use-causal", action="store_true")
-    parser.add_argument('--output-dir', type=str, default='../results/profiled-flash-attn')
-    parser.add_argument('--output-fig-dir', type=str, default='../results/profiled-flash-attn/figs')
+    parser.add_argument('--output-dir', type=str, default='../results/profiled-flash-attn-hetaceso')
+    parser.add_argument('--output-fig-dir', type=str, default='../results/profiled-flash-attn-hetaceso/figs')
+    parser.add_argument('--cache-file', type=str, default='../results/profiled-flash-attn-hetaceso/cache.pkl')
     return parser.parse_args()
 
 args = parse_args()
@@ -93,11 +96,12 @@ def plot_profiled_flash_attn(results, suffix):
     times = [line[4] for line in results[1:]]
     ax.set_xlabel('Sequence Length')
     ax.set_ylabel('Time (ms)')
-    ax.plot(seqlens, times, 'rx', label='Flash Attention')
+    ax.plot(seqlens, times, '+', label='Flash Attention')
     coeff = polyfit(seqlens, times, 2)
     y_fit = polyval(coeff, seqlens)
-    ax.plot(seqlens, y_fit, 'g', label='Fit Curve')
+    ax.plot(seqlens, y_fit, 'g', label=f'Fit Curve (y = {coeff[0]:.2f}x^2 + {coeff[1]:.2f}x + {coeff[2]:.2f})')
     ax.set_title('Flash Attention Profiling')
+    ax.legend()
     plt.savefig(os.path.join(args.output_fig_dir, f'flash_attn_profiled{suffix}.png'), dpi=1000)
     # plt.show()
     mse = np.mean((times - y_fit) ** 2)
@@ -106,25 +110,44 @@ def plot_profiled_flash_attn(results, suffix):
         f.write(f'coeff: ' + str(coeff) + '\nmse: ' + str(mse))
 
 def profile_flash_attn_all():
+    profiled_results = {}
+    if os.path.exists(args.cache_file):
+        cached_results = pickle.load(open(args.cache_file, "rb"))
+        profiled_results = cached_results["profiled_results"]
     result = [['batch_size', 'seq_len', 'num_heads', 'head_size', 'time']]
     if args.use_square_scope:
         seqlen = args.basic_seqlen
         while seqlen <= args.max_seqlen:
+            if (args.batch_size, seqlen, args.num_heads, args.head_size) in profiled_results:
+                time = profiled_results[(args.batch_size, seqlen, args.num_heads, args.head_size)]
+                result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
+                continue
             inputs = generate_inputs([args.batch_size, seqlen, args.num_heads, args.head_size])
             time = profile_flash_attn_single(inputs, args.use_causal)
             result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
             print(f'finish profile [{args.batch_size}, {seqlen}, {args.num_heads}, {args.head_size}], Proccess: {seqlen}/{args.max_seqlen}')
+            profiled_results[(args.batch_size, seqlen, args.num_heads, args.head_size)] = time
             seqlen *= 2
     else:
         for seqlen in range(args.basic_seqlen, args.max_seqlen + 1, args.basic_seqlen):
+            if (args.batch_size, seqlen, args.num_heads, args.head_size) in profiled_results:
+                time = profiled_results[(args.batch_size, seqlen, args.num_heads, args.head_size)]
+                result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
+                continue
             inputs = generate_inputs([args.batch_size, seqlen, args.num_heads, args.head_size])
             time = profile_flash_attn_single(inputs, args.use_causal)
             result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
             print(f'finish profile [{args.batch_size}, {seqlen}, {args.num_heads}, {args.head_size}], Proccess: {seqlen}/{args.max_seqlen}')
+            profiled_results[(args.batch_size, seqlen, args.num_heads, args.head_size)] = time
     suffix = f'_{args.model_size}_batch_size{args.batch_size}_seqlen{args.basic_seqlen}'
-    suffix = '_causal' if args.use_causal else ''
+    if args.use_causal:
+        suffix += '_causal'
     with open(os.path.join(args.output_dir, f'flash_attn_profiled{suffix}.csv'), 'w') as f:
-        f.write('\n'.join(result))
+        csv_writer = csv.writer(f)
+        for line in result:
+            csv_writer.writerow(line)
+    with open(args.cache_file, "wb") as f:
+        pickle.dump({"profiled_results": profiled_results}, f)
     plot_profiled_flash_attn(result, suffix)
     
 profile_flash_attn_all()
