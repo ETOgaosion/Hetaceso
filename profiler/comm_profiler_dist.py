@@ -315,7 +315,6 @@ def profile(rank, world_size, parallel_type, tp_size, usp_size, rsp_size, dp_siz
     else:
         profiled_results = {}
 
-    torch.cuda.set_device(rank)
     if torch_data_type == torch.float:
         mb_per_item = 4 / (1024 * 1024)
     elif torch_data_type == torch.half or torch_data_type == torch.bfloat16:
