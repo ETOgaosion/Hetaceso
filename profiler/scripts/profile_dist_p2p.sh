@@ -3,7 +3,8 @@ MASTER_ADDR=10.156.154.20
 NODE_RANK=$1
 OTHER_NODE_RANK=$2
 
-REPROFILE=${3:-0}
+MACHINE=${3:-0}
+REPROFILE=${4:-0}
 
 RUNTIME_PATH=$(pwd)/../results/
 PROFILING_PATH=${RUNTIME_PATH}profiled-dist-p2p-hetaceso/${NODE_RANK}-${OTHER_NODE_RANK}
@@ -14,11 +15,11 @@ mkdir -p ${PROFILING_PATH}
 FILE_NAME=${PROFILING_PATH}p2p_inter_node.csv
 FIG_PATH=${PROFILING_PATH}/fig
 
-if [ "$NODE_RANK" -eq 0 ]; then
+if [ "$MACHINE" -eq 0 ]; then
     export NCCL_SOCKET_IFNAME=eno2
-elif [ "$NODE_RANK" -eq 1 ]; then
+elif [ "$MACHINE" -eq 1 ]; then
     export NCCL_SOCKET_IFNAME=eno1
-elif [ "$NODE_RANK" -eq 2 ]; then
+elif [ "$MACHINE" -eq 2 ]; then
     export NCCL_SOCKET_IFNAME=ens1f0
 fi
 
