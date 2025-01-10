@@ -6,6 +6,7 @@ import gc
 import dataclasses
 
 from numpy import polyfit, polyval
+import numpy as np
 
 from flash_attn.flash_attn_interface import flash_attn_func, flash_attn_varlen_func
 from flash_attn.flash_attn_interface import (
@@ -62,7 +63,7 @@ args.head_size = gpt_configs[args.model_size].hidden_size // gpt_configs[args.mo
 
 def generate_inputs(input_shape):
     b, s, h, d = input_shape
-    q, k, v = torch.randn([b,  s, h, d], device='cuda:0'), torch.randn([b, s, h, d], device='cuda:0'), torch.randn([b, s, h, d], device='cuda:0')
+    q, k, v = torch.randn([b, s, h, d], dtype=torch.bfloat16, device='cuda:0'), torch.randn([b, s, h, d], dtype=torch.bfloat16, device='cuda:0'), torch.randn([b, s, h, d], dtype=torch.bfloat16, device='cuda:0')
     return q, k, v
 
 def profile_flash_attn_single(inputs, causal=False):
@@ -86,13 +87,6 @@ def profile_flash_attn_single(inputs, causal=False):
     torch.cuda.empty_cache()
     return start.elapsed_time(end) / args.profile_times
 
-def calc_fit_curve(x, y, degree=2):
-    coeff = polyfit(x, y, degree)
-    print(coeff)
-    with open(os.path.join(args.output_dir, 'fit_curve.txt'), 'w') as f:
-        f.write(str(coeff))
-    return coeff
-
 def plot_profiled_flash_attn(results, suffix):
     fig, ax = plt.subplots()
     seqlens = [line[1] for line in results[1:]]
@@ -106,21 +100,27 @@ def plot_profiled_flash_attn(results, suffix):
     ax.set_title('Flash Attention Profiling')
     plt.savefig(os.path.join(args.output_fig_dir, f'flash_attn_profiled{suffix}.png'), dpi=1000)
     # plt.show()
+    mse = np.mean((times - y_fit) ** 2)
+    print(coeff, mse)
+    with open(os.path.join(args.output_fig_dir, f'fit_curve{suffix}.txt'), 'w') as f:
+        f.write(f'coeff: ' + str(coeff) + '\nmse: ' + str(mse))
 
 def profile_flash_attn_all():
     result = [['batch_size', 'seq_len', 'num_heads', 'head_size', 'time']]
     if args.use_square_scope:
         seqlen = args.basic_seqlen
-        while seqlen < args.max_seqlen:
+        while seqlen <= args.max_seqlen:
             inputs = generate_inputs([args.batch_size, seqlen, args.num_heads, args.head_size])
             time = profile_flash_attn_single(inputs, args.use_causal)
             result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
+            print(f'finish profile [{args.batch_size}, {seqlen}, {args.num_heads}, {args.head_size}], Proccess: {seqlen}/{args.max_seqlen}')
             seqlen *= 2
     else:
         for seqlen in range(args.basic_seqlen, args.max_seqlen + 1, args.basic_seqlen):
             inputs = generate_inputs([args.batch_size, seqlen, args.num_heads, args.head_size])
             time = profile_flash_attn_single(inputs, args.use_causal)
             result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
+            print(f'finish profile [{args.batch_size}, {seqlen}, {args.num_heads}, {args.head_size}], Proccess: {seqlen}/{args.max_seqlen}')
     suffix = f'_{args.model_size}_batch_size{args.batch_size}_seqlen{args.basic_seqlen}'
     suffix = '_causal' if args.use_causal else ''
     with open(os.path.join(args.output_dir, f'flash_attn_profiled{suffix}.csv'), 'w') as f:
