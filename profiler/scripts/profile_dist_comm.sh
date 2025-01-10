@@ -6,9 +6,11 @@ NODE_RANK=$1
 GPUS_PER_NODE=4
 
 MACHINE=${2:-0}
-RSP_SIZE=${3:-2}
-DP_SIZE=${4:-2}
-REPROFILE=${5:-0}
+TP_SIZE=${3:-2}
+USP_SIZE=${4:-2}
+RSP_SIZE=${5:-2}
+DP_SIZE=${6:-2}
+REPROFILE=${7:-0}
 
 RUNTIME_PATH=$(pwd)/../results/
 mkdir -p $RUNTIME_PATH
@@ -53,6 +55,8 @@ torchrun $DISTRIBUTED_ARGS \
     --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_comm_profile.pkl \
     --prof-model-name $MODEL_NAME \
     --prof-model-size $MODEL_SIZE \
+    --prof-tp-size ${TP_SIZE} \
+    --prof-usp-size ${USP_SIZE} \
     --prof-rsp-size ${RSP_SIZE} \
     --prof-dp-size ${DP_SIZE} \
     --prof-warmup-times 20 \
