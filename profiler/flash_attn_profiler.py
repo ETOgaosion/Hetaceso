@@ -100,7 +100,7 @@ def plot_profiled_flash_attn(results, suffix):
     ax.set_xlabel('Sequence Length')
     ax.set_ylabel('Time (ms)')
     ax.plot(seqlens, times, 'rx', label='Flash Attention')
-    coeff = calc_fit_curve(seqlens, times)
+    coeff = polyfit(seqlens, times, 2)
     y_fit = polyval(coeff, seqlens)
     ax.plot(seqlens, y_fit, 'g', label='Fit Curve')
     ax.set_title('Flash Attention Profiling')
@@ -121,6 +121,7 @@ def profile_flash_attn_all():
             inputs = generate_inputs([args.batch_size, seqlen, args.num_heads, args.head_size])
             time = profile_flash_attn_single(inputs, args.use_causal)
             result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
+    suffix = f'_{args.model_size}_batch_size{args.batch_size}_seqlen{args.basic_seqlen}'
     suffix = '_causal' if args.use_causal else ''
     with open(os.path.join(args.output_dir, f'flash_attn_profiled{suffix}.csv'), 'w') as f:
         f.write('\n'.join(result))

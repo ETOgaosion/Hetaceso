@@ -75,7 +75,7 @@ def parse_args():
     parser.add_argument("--prof-model-name", type=str, default="all", help="")
     parser.add_argument("--prof-model-size", type=str, default="all", help="")
     parser.add_argument("--prof-mbs-list", type=int, nargs='+', default=[2], help="")
-    parser.add_argument("--prof-basic-seqlen", type=int, default=1024, help="")
+    parser.add_argument("--prof-basic-seqlen", type=int, default=2048, help="")
     parser.add_argument("--use-square-scope", action='store_true')
     parser.add_argument("--prof-warmup-times", type=int, default=0, help="")
     parser.add_argument("--prof-repeat-times", type=int, default=1, help="")
