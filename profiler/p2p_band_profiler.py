@@ -46,8 +46,8 @@ def run(local_rank, global_rank):
     repeat_times = 50
     torch.cuda.set_device(local_rank)
 
-    for i in range(11):
-        data_size_in_mb = 2**i
+    for i in range(1, 2**6, 2**2):
+        data_size_in_mb = i
         all_data_sizes.append(data_size_in_mb)
         data_size = data_size_in_mb * 1024 * 1024 // 2
         tensor = torch.ones(data_size, dtype=torch.float16).cuda()
