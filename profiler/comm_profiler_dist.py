@@ -413,6 +413,7 @@ def run_profile(args, task):
     
     device = args.rank % torch.cuda.device_count()
     visible_devices = os.getenv("CUDA_VISIBLE_DEVICES", "").split(",")
+    print(f'device{device}, visible_devices: {visible_devices}')
     torch.cuda.set_device(int(visible_devices[device]))
     torch.distributed.init_process_group(backend="nccl", world_size=world_size, rank=args.rank)
     
