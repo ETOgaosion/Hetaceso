@@ -20,7 +20,7 @@ if [ $REPROFILE -eq 1 ]; then
     rm -rf ${PROFILING_PATH}
 fi
 mkdir -p ${PROFILING_PATH}
-MAX_NUM_GPUS=4
+MAX_NUM_GPUS=$((GPUS_PER_NODE * NNODES))
 MODEL_NAME=gpt
 MODEL_SIZE=all
 

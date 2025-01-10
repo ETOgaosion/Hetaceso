@@ -400,7 +400,7 @@ def profile(rank, world_size, parallel_type, tp_size, usp_size, rsp_size, dp_siz
 def run_profile(args, task):
     model = task["model"]
     size = task["size"]
-    world_size = torch.distributed.get_world_size()
+    world_size = args.max_num_gpus
 
     data_type = model_prof_configs[model]["dtype"]
     tp_size = args.prof_tp_size
