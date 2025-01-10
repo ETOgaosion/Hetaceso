@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 result_file_name = os.environ.get("FILE_NAME", "p2p_band.log")
 fig_path_name = os.environ.get("FIG_PATH", "p2p_band_fig")
-inter_nodes = (int(os.environ.get("NNODES", 1) > 1))
+inter_nodes = (int(os.environ.get("NNODES", '1')) > 1)
 
 def plot_profile_results(x, y):
     plt.plot(x, y, "+", label='P2P Bandwidth')
