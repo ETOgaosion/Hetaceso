@@ -13,6 +13,7 @@ import pickle
 import argparse
 import matplotlib.pyplot as plt
 from numpy import polyfit, polyval
+import numpy as np
 from model_configs import model_prof_configs
 
 @dataclasses.dataclass
@@ -73,7 +74,7 @@ def parse_args():
     parser.add_argument("--prof-cache-file", type=str, default=None, help="")
     parser.add_argument("--prof-model-name", type=str, default="all", help="")
     parser.add_argument("--prof-model-size", type=str, default="all", help="")
-    parser.add_argument("--prof-mbs-list", type=int, nargs='+', default=None, help="")
+    parser.add_argument("--prof-mbs-list", type=int, nargs='+', default=[2], help="")
     parser.add_argument("--prof-basic-seqlen", type=int, default=1024, help="")
     parser.add_argument("--use-square-scope", action='store_true')
     parser.add_argument("--prof-warmup-times", type=int, default=0, help="")
@@ -248,26 +249,24 @@ def reduce_scatter_single(args, data_size, world_size, torch_data_type, parallel
     torch.cuda.empty_cache()
     return start.elapsed_time(end) / args.prof_repeat_times
 
-def calc_fit_curve(x, y, degree=1):
-    coeff = polyfit(x, y, degree)
-    print(coeff)
-    with open(os.path.join(args.prof_path, 'fit_curve.txt'), 'w') as f:
-        f.write(str(coeff))
-    return coeff
-
 def plot_profile_results(args, model, size, tp_size, usp_size, rsp_size, dp_size, avg_time_list, collective_type, parallel_type):
-    x = avg_time_list.keys()
-    y = avg_time_list.values()
-    plt.plot(x, y, label=f"{model}_{size}_tp{tp_size}_usp_size{usp_size}_rsp_size{rsp_size}_dp_size{dp_size}_{collective_type}_{parallel_type}")
-    coeff = calc_fit_curve(x, y)
+    x = list(avg_time_list.keys())
+    y = list(avg_time_list.values())
+    plt.plot(x, y, 'x', label=f"{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}")
+    coeff = polyfit(x, y, 1)
     y_fit = polyval(coeff, x)
-    plt.plot(x, y_fit, 'g', label='Fit Curve')
+    plt.plot(x, y_fit, 'g', label='Fit Curve (y = %.2fx + %.2f)' % (coeff[0], coeff[1]))
     plt.xlabel("data size (MB)")
     plt.ylabel("time (ms)")
     plt.title(f"{model}_{size}_{collective_type}_{parallel_type}")
     plt.legend()
-    plt.savefig(f"{args.prof_fig_path}{model}_{size}_tp{tp_size}_usp_size{usp_size}_rsp_size{rsp_size}_dp_size{dp_size}_{collective_type}_{parallel_type}.png")
+    plt.savefig(os.path.join(args.prof_fig_path, f"{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}.png"))
     plt.close()
+    # record coeff and mse
+    mse = np.mean((y - y_fit) ** 2)
+    print(coeff, mse)
+    with open(os.path.join(args.prof_fig_path, f'fit_curve_{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}.txt'), 'w') as f:
+        f.write('coeff: ' + str(coeff) + '\nmse: ' + str(mse))
     
 
 def profile(rank, world_size, parallel_type, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type):
@@ -324,7 +323,7 @@ def profile(rank, world_size, parallel_type, tp_size, usp_size, rsp_size, dp_siz
     torch.cuda.set_device(rank)
     if torch_data_type == torch.float:
         mb_per_item = 4 / (1024 * 1024)
-    elif torch_data_type == torch.half:
+    elif torch_data_type == torch.half or torch_data_type == torch.bfloat16:
         mb_per_item = 2 / (1024 * 1024)
     else:
         raise RuntimeError(f"type {torch_data_type} not support.")

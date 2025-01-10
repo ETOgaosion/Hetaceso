@@ -25,16 +25,13 @@ if [[ $MACHINE -eq "0" ]]; then
     export CUDA_DEVICE_MAX_CONNECTIONS=1
     export NCCL_SOCKET_IFNAME=eno2
     export CUDA_VISIBLE_DEVICES=3,4,5,7
-    MAX_DATA_SIZE=4096
 elif [[ $MACHINE -eq "1" ]]; then
     export CUDA_DEVICE_MAX_CONNECTIONS=1
     export NCCL_SOCKET_IFNAME=eno1
     export CUDA_VISIBLE_DEVICES=3,4,5,6
-    MAX_DATA_SIZE=4096
 elif [[ $MACHINE -eq "2" ]]; then
     export CUDA_DEVICE_MAX_CONNECTIONS=1
     export NCCL_SOCKET_IFNAME=ens1f0
-    MAX_DATA_SIZE=16384
 fi
 
 echo [TIME] before profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m-%d-%H-%M-%S')
@@ -52,7 +49,6 @@ python3 comm_profiler_local.py \
     --prof-warmup-times 20 \
     --prof-repeat-times 100 \
     --max-num-gpus $MAX_NUM_GPUS \
-    --max-data-size $MAX_DATA_SIZE \
     2>&1 | tee ${PROFILING_PATH}profiling_${MODEL_NAME}_comm${MAX_NUM_GPUS}gpus.log
 
 echo [TIME] after profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m-%d-%H-%M-%S') >> ${PROFILING_PATH}profiling_${MODEL_NAME}.log
