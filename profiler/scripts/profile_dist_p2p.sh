@@ -12,7 +12,7 @@ if [ $REPROFILE -eq 1 ]; then
     rm -rf ${PROFILING_PATH}
 fi
 mkdir -p ${PROFILING_PATH}
-FILE_NAME=${PROFILING_PATH}p2p_inter_node.csv
+FILE_NAME=${PROFILING_PATH}/p2p_inter_node.csv
 FIG_PATH=${PROFILING_PATH}/fig
 
 if [ "$MACHINE" -eq 0 ]; then
