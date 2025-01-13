@@ -111,17 +111,19 @@ def calculate_data_size(data_shape, torch_data_type):
     return data_size * num_item_per_mb
 
 def load_data_size_list(args, tp, usp, rsp, dp, model_size):
-    data_size_list = []
+    seqlen_list, data_size_list = [], []
     for batch_size in args.prof_mbs_list:
         if args.use_square_scope:
             seqlen = args.prof_basic_seqlen
             while seqlen < gpt_configs[model_size].max_seqlen:
                 data_size_list.append(batch_size * (seqlen // (usp * rsp)) * gpt_configs[model_size].hidden_size // tp)
+                seqlen_list.append(seqlen)
                 seqlen *= 2
         else:
             for seqlen in range(args.prof_basic_seqlen, gpt_configs[model_size].max_seqlen + 1, args.prof_basic_seqlen):
                 data_size_list.append(batch_size * (seqlen // (usp * rsp)) * gpt_configs[model_size].hidden_size // tp)
-    return data_size_list
+                seqlen_list.append(seqlen)
+    return seqlen_list, data_size_list
 
 def all_to_all_single(args, data_size, torch_data_type, parallel_group):
     send_tensors = [torch.ones(
@@ -249,27 +251,29 @@ def reduce_scatter_single(args, data_size, world_size, torch_data_type, parallel
     torch.cuda.empty_cache()
     return start.elapsed_time(end) / args.prof_repeat_times
 
-def plot_profile_results(args, model, size, tp_size, usp_size, rsp_size, dp_size, avg_time_list, collective_type, parallel_type):
-    x = list(avg_time_list.keys())
+def plot_profile_results(args, model, size, tp_size, usp_size, rsp_size, dp_size, avg_time_list, collective_type, parallel_type, seqlen_list, batch_size):
+    x = seqlen_list
+    x_k = [i / 1000 for i in x]
     y = list(avg_time_list.values())
     plt.plot(x, y, 'x', label=f"{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}")
     coeff = polyfit(x, y, 1)
+    coeff_aligned = polyfit(x_k, y, 1)
     y_fit = polyval(coeff, x)
-    plt.plot(x, y_fit, 'g', label='Fit Curve (y = %.2fx + %.2f)' % (coeff[0], coeff[1]))
+    plt.plot(x, y_fit, 'g', label='Fit Curve (y = %.2fx + %.2f)' % (coeff_aligned[0], coeff_aligned[1]))
     plt.xlabel("data size (MB)")
     plt.ylabel("time (ms)")
-    plt.title(f"{model}_{size}_{collective_type}_{parallel_type}")
+    plt.title(f"{model}_{size}_{collective_type}_{parallel_type}_{batch_size}")
     plt.legend()
-    plt.savefig(os.path.join(args.prof_fig_path, f"{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}.png"))
+    plt.savefig(os.path.join(args.prof_fig_path, f"{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}_{batch_size}.png"))
     plt.close()
     # record coeff and mse
     mse = np.mean((y - y_fit) ** 2)
     print(coeff, mse)
-    with open(os.path.join(args.prof_fig_path, f'fit_curve_{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}.txt'), 'w') as f:
+    with open(os.path.join(args.prof_fig_path, f'fit_curve_{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}_{batch_size}.txt'), 'w') as f:
         f.write('coeff: ' + str(coeff) + '\nmse: ' + str(mse))
     
 
-def profile(rank, world_size, parallel_type, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type):
+def profile(rank, world_size, parallel_type, tp_size, usp_size, rsp_size, dp_size, data_size_list, seqlen_list, batch_size, model, size, torch_data_type):
     args = parse_args()
     init_method = "tcp://"
     master_ip = os.getenv("MASTER_ADDR", "localhost")
@@ -394,7 +398,7 @@ def profile(rank, world_size, parallel_type, tp_size, usp_size, rsp_size, dp_siz
                 tmp_row[1] = "{:.3f}".format(float(avg_time_list[data_size_in_mb]))
                 f_csv.writerow(tmp_row)
             f_result.close()
-            plot_profile_results(args, model, size, tp_size, usp_size, rsp_size, dp_size, avg_time_list, collective_type, parallel_type)
+            plot_profile_results(args, model, size, tp_size, usp_size, rsp_size, dp_size, avg_time_list, collective_type, parallel_type, seqlen_list, batch_size)
 
     if rank == 0:
         save_dict = {}
@@ -412,23 +416,24 @@ def run_profile(args, task):
     usp_size = args.prof_usp_size
     rsp_size = args.prof_rsp_size
     dp_size = args.prof_dp_size
-    data_size_list = load_data_size_list(args, tp_size, usp_size, rsp_size, dp_size, size)
+    seqlen_list, data_size_list = load_data_size_list(args, tp_size, usp_size, rsp_size, dp_size, size)
     print(f"tp_size: {tp_size}, usp_size: {usp_size}, dp_size: {dp_size}")
     # Here we profile only tp and usp, which are actually within nodes, rsp and dp will use cross-node results to estimate
-    if tp_size > 1:
-        torch.multiprocessing.spawn(
-            profile,
-            args=(tp_size, "tp", tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, data_type),
-            nprocs=tp_size,
-            join=True,
-        )
-    if usp_size > 1:
-        torch.multiprocessing.spawn(
-            profile,
-            args=(tp_size * usp_size, "usp", tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, data_type),
-            nprocs=tp_size * usp_size,
-            join=True,
-        )
+    for batch_size in args.prof_mbs_list:
+        if tp_size > 1:
+            torch.multiprocessing.spawn(
+                profile,
+                args=(tp_size, "tp", tp_size, usp_size, rsp_size, dp_size, data_size_list, seqlen_list, batch_size, model, size, data_type),
+                nprocs=tp_size,
+                join=True,
+            )
+        if usp_size > 1:
+            torch.multiprocessing.spawn(
+                profile,
+                args=(tp_size * usp_size, "usp", tp_size, usp_size, rsp_size, dp_size, data_size_list, seqlen_list, batch_size, model, size, data_type),
+                nprocs=tp_size * usp_size,
+                join=True,
+            )
     # if dp_size > 1:
     #     torch.multiprocessing.spawn(
     #         profile,

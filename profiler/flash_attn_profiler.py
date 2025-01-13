@@ -45,7 +45,7 @@ gpt_configs = {
 def parse_args():
     parser = argparse.ArgumentParser(description="Flash Attention Profiler")
     parser.add_argument("--model-size", type=str, default="350M")
-    parser.add_argument("--batch-size", type=int, default=2)
+    parser.add_argument("--prof-mbs-list", type=int, nargs='+', default=[2], help="")
     parser.add_argument("--basic-seqlen", type=int, default=1024)
     parser.add_argument("--max-seqlen", type=int, default=32768)
     parser.add_argument("--num-heads", type=int, default=16)
@@ -93,13 +93,15 @@ def profile_flash_attn_single(inputs, causal=False):
 def plot_profiled_flash_attn(results, suffix):
     fig, ax = plt.subplots()
     seqlens = [line[1] for line in results[1:]]
+    seqlens_k = [line[1] / 1000 for line in results[1:]]
     times = [line[4] for line in results[1:]]
     ax.set_xlabel('Sequence Length')
     ax.set_ylabel('Time (ms)')
     ax.plot(seqlens, times, '+', label='Flash Attention')
     coeff = polyfit(seqlens, times, 2)
+    coeff_aligned = polyfit(seqlens_k, times, 2)
     y_fit = polyval(coeff, seqlens)
-    ax.plot(seqlens, y_fit, 'g', label=f'Fit Curve (y = {coeff[0]:.2f}x^2 + {coeff[1]:.2f}x + {coeff[2]:.2f})')
+    ax.plot(seqlens, y_fit, 'g', label='Fit Curve x(k): (y = %.2fx^2 + %.2fx + %.2f)' % (coeff_aligned[0], coeff_aligned[1], coeff_aligned[2]))
     ax.set_title(f'Flash Attention Profiling {args.model_size}')
     ax.legend()
     plt.savefig(os.path.join(args.output_fig_dir, f'flash_attn_profiled{suffix}.png'), dpi=1000)
@@ -115,31 +117,32 @@ def profile_flash_attn_all():
         cached_results = pickle.load(open(args.cache_file, "rb"))
         profiled_results = cached_results["profiled_results"]
     result = [['batch_size', 'seq_len', 'num_heads', 'head_size', 'time']]
-    if args.use_square_scope:
-        seqlen = args.basic_seqlen
-        while seqlen <= args.max_seqlen:
-            if (args.batch_size, seqlen, args.num_heads, args.head_size) in profiled_results:
-                time = profiled_results[(args.batch_size, seqlen, args.num_heads, args.head_size)]
-                result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
-                continue
-            inputs = generate_inputs([args.batch_size, seqlen, args.num_heads, args.head_size])
-            time = profile_flash_attn_single(inputs, args.use_causal)
-            result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
-            print(f'finish profile [{args.batch_size}, {seqlen}, {args.num_heads}, {args.head_size}], Proccess: {seqlen}/{args.max_seqlen}')
-            profiled_results[(args.batch_size, seqlen, args.num_heads, args.head_size)] = time
-            seqlen *= 2
-    else:
-        for seqlen in range(args.basic_seqlen, args.max_seqlen + 1, args.basic_seqlen):
-            if (args.batch_size, seqlen, args.num_heads, args.head_size) in profiled_results:
-                time = profiled_results[(args.batch_size, seqlen, args.num_heads, args.head_size)]
-                result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
-                continue
-            inputs = generate_inputs([args.batch_size, seqlen, args.num_heads, args.head_size])
-            time = profile_flash_attn_single(inputs, args.use_causal)
-            result.append([args.batch_size, seqlen, args.num_heads, args.head_size, time])
-            print(f'finish profile [{args.batch_size}, {seqlen}, {args.num_heads}, {args.head_size}], Proccess: {seqlen}/{args.max_seqlen}')
-            profiled_results[(args.batch_size, seqlen, args.num_heads, args.head_size)] = time
-    suffix = f'_{args.model_size}_batch_size{args.batch_size}_seqlen{args.basic_seqlen}'
+    for batch_size in args.prof_mbs_list:
+        if args.use_square_scope:
+            seqlen = args.basic_seqlen
+            while seqlen <= args.max_seqlen:
+                if (batch_size, seqlen, args.num_heads, args.head_size) in profiled_results:
+                    time = profiled_results[(batch_size, seqlen, args.num_heads, args.head_size)]
+                    result.append([batch_size, seqlen, args.num_heads, args.head_size, time])
+                    continue
+                inputs = generate_inputs([batch_size, seqlen, args.num_heads, args.head_size])
+                time = profile_flash_attn_single(inputs, args.use_causal)
+                result.append([batch_size, seqlen, args.num_heads, args.head_size, time])
+                print(f'finish profile [{batch_size}, {seqlen}, {args.num_heads}, {args.head_size}], Proccess: {seqlen}/{args.max_seqlen}')
+                profiled_results[(batch_size, seqlen, args.num_heads, args.head_size)] = time
+                seqlen *= 2
+        else:
+            for seqlen in range(args.basic_seqlen, args.max_seqlen + 1, args.basic_seqlen):
+                if (batch_size, seqlen, args.num_heads, args.head_size) in profiled_results:
+                    time = profiled_results[(batch_size, seqlen, args.num_heads, args.head_size)]
+                    result.append([batch_size, seqlen, args.num_heads, args.head_size, time])
+                    continue
+                inputs = generate_inputs([batch_size, seqlen, args.num_heads, args.head_size])
+                time = profile_flash_attn_single(inputs, args.use_causal)
+                result.append([batch_size, seqlen, args.num_heads, args.head_size, time])
+                print(f'finish profile [{batch_size}, {seqlen}, {args.num_heads}, {args.head_size}], Proccess: {seqlen}/{args.max_seqlen}')
+                profiled_results[(batch_size, seqlen, args.num_heads, args.head_size)] = time
+    suffix = f'_{args.model_size}_batchsize{batch_size}_seqlen{args.basic_seqlen}'
     if args.use_causal:
         suffix += '_causal'
     with open(os.path.join(args.output_dir, f'flash_attn_profiled{suffix}.csv'), 'w') as f:
