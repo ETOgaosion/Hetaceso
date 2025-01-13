@@ -17,6 +17,8 @@ if [ $REPROFILE -eq 1 ]; then
     rm -rf ${PROFILING_PATH}
 fi
 mkdir -p ${PROFILING_PATH}
+FIG_PATH=$PROFILING_PATH/fig
+mkdir -p $FIG_PATH
 MAX_NUM_GPUS=4
 MODEL_NAME=gpt
 MODEL_SIZE=all
@@ -40,7 +42,7 @@ echo [TIME] before profiling communication ${MAX_NUM_GPUS}-gpus : $(date '+%Y-%m
 export CUDA_DEVICE_MAX_CONNECTIONS=1 && \
 python3 comm_profiler_local.py \
     --prof-path $PROFILING_PATH \
-    --prof-fig-path $PROFILING_PATH/fig \
+    --prof-fig-path $FIG_PATH \
     --prof-cache-file ${PROFILING_PATH}${MODEL_NAME}_comm_profile.pkl \
     --prof-model-name $MODEL_NAME \
     --prof-model-size $MODEL_SIZE \

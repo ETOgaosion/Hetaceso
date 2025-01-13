@@ -100,7 +100,7 @@ def plot_profiled_flash_attn(results, suffix):
     coeff = polyfit(seqlens, times, 2)
     y_fit = polyval(coeff, seqlens)
     ax.plot(seqlens, y_fit, 'g', label=f'Fit Curve (y = {coeff[0]:.2f}x^2 + {coeff[1]:.2f}x + {coeff[2]:.2f})')
-    ax.set_title('Flash Attention Profiling')
+    ax.set_title(f'Flash Attention Profiling {args.model_size}')
     ax.legend()
     plt.savefig(os.path.join(args.output_fig_dir, f'flash_attn_profiled{suffix}.png'), dpi=1000)
     # plt.show()

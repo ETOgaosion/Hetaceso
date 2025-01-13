@@ -12,6 +12,7 @@ fi
 mkdir -p ${PROFILING_PATH}
 FILE_NAME=${PROFILING_PATH}/p2p_intra_node.csv
 FIG_PATH=${PROFILING_PATH}/fig
+mkdir -p $FIG_PATH
 
 MASTER_ADDR=localhost \
 MASTER_PORT=7000 \
@@ -20,4 +21,5 @@ GPUS_PER_NODE=2 \
 NODE_RANK=$NODE_RANK \
 FILE_NAME=$FILE_NAME \
 FIG_PATH=$FIG_PATH \
+USE_LATER_HALF=1 \
 python3 p2p_band_profiler.py

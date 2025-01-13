@@ -15,10 +15,14 @@ import matplotlib.pyplot as plt
 result_file_name = os.environ.get("FILE_NAME", "p2p_band.log")
 fig_path_name = os.environ.get("FIG_PATH", "p2p_band_fig")
 inter_nodes = (int(os.environ.get("NNODES", '1')) > 1)
+use_later_half = (os.environ.get("USE_LATER_HALF", '0') == '1')
 
 def plot_profile_results(x, y):
     plt.plot(x, y, "+", label='P2P Bandwidth')
-    coeff = polyfit(x, y, 1)
+    if use_later_half:
+        coeff = polyfit(x[len(x)//2:], y[len(y)//2:], 1)
+    else:
+        coeff = polyfit(x, y, 1)
     y_fit = polyval(coeff, x)
     plt.plot(x, y_fit, 'g', label='Fit Curve (y = %.2fx + %.2f)' % (coeff[0], coeff[1]))
     plt.xlabel("data size (MB)")
