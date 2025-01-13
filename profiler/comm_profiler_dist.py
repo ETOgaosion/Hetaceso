@@ -5,35 +5,35 @@ import os
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as multiproc
+import dataclasses
 import time
 import csv
 import gc
 import pickle
 import argparse
+import matplotlib.pyplot as plt
+from numpy import polyfit, polyval
+import numpy as np
 from model_configs import model_prof_configs
 
-configs = {
-    "tp": [1, 2, 1, 1, 2, 1, 1, 1],
-    "usp": [1, 1, 2, 1, 2, 2, 1, 4],
-    "rsp": [1, 1, 1, 2, 1, 2, 4, 1],
-    "dp": [4, 2, 2, 2, 1, 1, 1, 1],
-    "mbs": {
-        "350M": [8, 8, 8, 8, 8, 8, 8, 8],
-        "1_3B": [8, 8, 8, 8, 8, 8, 8, 8],
-        "2_6B": [8, 8, 8, 8, 8, 8, 8, 8],
-        "6_7B": [8, 8, 8, 8, 4, 4, 4, 4],
-        "13B": [8, 4, 4, 4, 2, 2, 2, 2],
-    }
-}
+@dataclasses.dataclass
+class GPTConfig:
+    num_layers: int
+    max_seqlen: int
+    hidden_size: int
+    ffn_hidden_size: int
+    num_attention_heads: int
+    kv_channels: int
+    vocab_size: int
+    params_dtype: torch.dtype
 
-# model_size: (num_layers, total_seqlen, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype)
+# model_size: (num_layers, total max_seqlen, hidden_size, ffn_hidden_size, num_attention_heads, kv_channels, vocab_size, params_dtype)
 gpt_configs = {
-    "350M": (24, 2048, 1024, 1024 * 4, 16, 1024 // 16, 51200, "fp16"),
-    "1_3B": (24, 2048, 2048, 2048 * 4, 32, 2048 // 32, 51200, "fp16"),
-    "2_6B": (32, 2048, 2560, 2560 * 4, 32, 2560 // 32, 51200, "fp16"),
-    "6_7B": (32, 2048, 4096, 4096 * 4, 32, 4096 // 32, 51200, "fp16"),
-    "13B": (40, 2048, 5120, 5120 * 4, 40, 5120 // 40, 51200, "fp16"),
-    # "scale-layer": (1, 1024, 512, 512 * 4, 8, 512 // 8, 51200, "fp16"),
+    "350M": GPTConfig(24, 65546, 1024, 4096, 16, 64, 51200, torch.float16),
+    "1_3B": GPTConfig(24, 65546, 2048, 8192, 32, 64, 51200, torch.float16),
+    "2_6B": GPTConfig(32, 32768, 2560, 10240, 32, 80, 51200, torch.float16),
+    "6_7B": GPTConfig(32, 16384, 4096, 16384, 32, 128, 51200, torch.float16),
+    "13B": GPTConfig(40, 16384, 5120, 20480, 40, 128, 51200, torch.float16),
 }
 
 def report_memory(name):
@@ -58,27 +58,32 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--prof-tp-size", type=int, default=None, help="Profiler tp size."
+        "--prof-tp-size", type=int, default=1, help="Profiler tp size."
     )
     parser.add_argument(
-        "--prof-cp-size", type=int, default=None, help="Profiler cp size."
+        "--prof-usp-size", type=int, default=1, help="Profiler usp size."
     )
     parser.add_argument(
-        "--prof-dp-size", type=int, default=None, help="Profiler dp size."
+        "--prof-rsp-size", type=int, default=1, help="Profiler rsp size."
+    )
+    parser.add_argument(
+        "--prof-dp-size", type=int, default=1, help="Profiler dp size."
     )
     parser.add_argument("--prof-path", type=str, default=None, help="")
+    parser.add_argument("--prof-fig-path", type=str, default=None, help="")
     parser.add_argument("--prof-cache-file", type=str, default=None, help="")
     parser.add_argument("--prof-model-name", type=str, default="all", help="")
     parser.add_argument("--prof-model-size", type=str, default="all", help="")
+    parser.add_argument("--prof-mbs-list", type=int, nargs='+', default=[2], help="")
+    parser.add_argument("--prof-basic-seqlen", type=int, default=2048, help="")
+    parser.add_argument("--use-square-scope", action='store_true')
     parser.add_argument("--prof-warmup-times", type=int, default=0, help="")
     parser.add_argument("--prof-repeat-times", type=int, default=1, help="")
-    parser.add_argument("--prof-op-time-path", type=str, default=None, help="")
     parser.add_argument("--max-num-gpus", type=int, default=4, help="")
-    parser.add_argument("--max-data-size", type=int, default=4096, help="")
-    parser.add_argument("--prof-mbs-list", nargs="+", type=int, default=None, help="")
-    parser.add_argument("--prof-seqlen-list", nargs="+", type=int, default=None, help="")
 
     args = parser.parse_args()
+    args.rank = int(os.getenv('RANK', '0'))
+    args.world_size = int(os.getenv("WORLD_SIZE", '1'))
     return args
 
 
@@ -91,15 +96,6 @@ def print_cached_dicts(cached_dict):
     for item in cached_dict:
         print(f"{item}: {cached_dict[item]}")
 
-def get_torch_data_type(data_type):
-    if data_type == "fp16":
-        torch_data_type = torch.half
-    elif data_type == "fp32":
-        torch_data_type = torch.float
-    else:
-        raise RuntimeError(f"data type {data_type} not support.")
-    return torch_data_type
-
 def get_num_item_per_mb(torch_data_type):
     if torch_data_type == torch.half:
         num_item_per_mb = 1024 * 1024 / 2
@@ -109,39 +105,32 @@ def get_num_item_per_mb(torch_data_type):
         raise RuntimeError(f"data type {torch_data_type} not support.")
     return num_item_per_mb
 
-def load_data_size_list(args, torch_data_type, tp, usp, rsp, dp, model_size, cfg_i):
-    data_size_list = []
-    seq_len = gpt_configs[model_size][1]
-    mbs = configs["mbs"][model_size][cfg_i] // dp
-    file_name = (
-        args.prof_op_time_path
-        + f"{model}_{model_size}_mbs{mbs}_seqlen{seq_len}_tp{tp}_usp{usp}_rsp{rsp}.csv"
-    )
-    print(file_name)
+def calculate_data_size(data_shape, torch_data_type):
     num_item_per_mb = get_num_item_per_mb(torch_data_type)
-    if os.path.exists(file_name):
-        f_op_time = open(file_name, "r")
-        f_csv = csv.reader(f_op_time)
-        headers = next(f_csv)
-        for row in f_csv:
-            for index in [-3, -5]:
-                data_size = int(float(row[index]) * num_item_per_mb)
-                if data_size not in data_size_list and data_size > 0:
-                    data_size_list.append(data_size)
-    else:
-        print(f"file {file_name} not exist.")
-    return data_size_list
+    data_size = 1
+    for item in data_shape:
+        data_size *= item
+    return data_size * num_item_per_mb
 
-def all_to_all_single(args, data_size, world_size, torch_data_type, cp_group):
-    if data_size % world_size == 0:
-        send_tensors = [torch.ones(
-            data_size, dtype=torch_data_type
-        ).cuda()] * 3
-    else:
-        _data_size = (data_size // world_size) * world_size
-        send_tensors = [torch.ones(
-            _data_size, dtype=torch_data_type
-        ).cuda()] * 3
+def load_data_size_list(args, tp, usp, rsp, dp, model_size):
+    seqlen_list, data_size_list = [], []
+    for batch_size in args.prof_mbs_list:
+        if args.use_square_scope:
+            seqlen = args.prof_basic_seqlen
+            while seqlen < gpt_configs[model_size].max_seqlen:
+                data_size_list.append(batch_size * (seqlen // (usp * rsp)) * gpt_configs[model_size].hidden_size // tp)
+                seqlen_list.append(seqlen)
+                seqlen *= 2
+        else:
+            for seqlen in range(args.prof_basic_seqlen, gpt_configs[model_size].max_seqlen + 1, args.prof_basic_seqlen):
+                data_size_list.append(batch_size * (seqlen // (usp * rsp)) * gpt_configs[model_size].hidden_size // tp)
+                seqlen_list.append(seqlen)
+    return seqlen_list, data_size_list
+
+def all_to_all_single(args, data_size, torch_data_type, parallel_group):
+    send_tensors = [torch.ones(
+        data_size, dtype=torch_data_type
+    ).cuda()] * 3
     stream = torch.cuda.Stream()
     for _ in range(args.prof_warmup_times):
         a2a_reqs = [None] * 3
@@ -149,7 +138,7 @@ def all_to_all_single(args, data_size, world_size, torch_data_type, cp_group):
             if 0 <= i < 3:
                 send_tensor = send_tensors[i]
                 output_tensor = torch.empty_like(send_tensor)
-                a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=cp_group, async_op=True)
+                a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=parallel_group, async_op=True)
             if i > 0:
                 with torch.cuda.stream(stream):
                     if a2a_reqs[i - 1]:
@@ -166,7 +155,7 @@ def all_to_all_single(args, data_size, world_size, torch_data_type, cp_group):
             if 0 <= i < 3:
                 send_tensor = send_tensors[i]
                 output_tensor = torch.empty_like(send_tensor)
-                a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=cp_group, async_op=True)
+                a2a_reqs[i] = dist.all_to_all_single(output_tensor, send_tensor, group=parallel_group, async_op=True)
             if i > 0:
                 with torch.cuda.stream(stream):
                     a2a_reqs[i - 1].wait()
@@ -182,7 +171,7 @@ def all_to_all_single(args, data_size, world_size, torch_data_type, cp_group):
     torch.cuda.empty_cache()
     return start.elapsed_time(end) / args.prof_repeat_times
 
-def all_gather_single(args, data_size, world_size, torch_data_type, dp_group):
+def all_gather_single(args, data_size, world_size, torch_data_type, parallel_group):
     send_tensor = torch.ones(
         data_size, dtype=torch_data_type
     ).cuda()
@@ -191,12 +180,12 @@ def all_gather_single(args, data_size, world_size, torch_data_type, dp_group):
         for _ in range(world_size)
     ]
     for _ in range(args.prof_warmup_times):
-        dist.all_gather(tensor_list, send_tensor, group=dp_group)
+        dist.all_gather(tensor_list, send_tensor, group=parallel_group)
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
     start.record()
     for _ in range(args.prof_repeat_times):
-        dist.all_gather(tensor_list, send_tensor, group=dp_group)
+        dist.all_gather(tensor_list, send_tensor, group=parallel_group)
     end.record()
     torch.cuda.synchronize()
     send_tensor.cpu()
@@ -207,17 +196,17 @@ def all_gather_single(args, data_size, world_size, torch_data_type, dp_group):
     torch.cuda.empty_cache()
     return start.elapsed_time(end) / args.prof_repeat_times
 
-def all_reduce_single(args, data_size, torch_data_type, dp_group):
+def all_reduce_single(args, data_size, torch_data_type, parallel_group):
     send_tensor = torch.ones(
         data_size, dtype=torch_data_type
     ).cuda()
     for _ in range(args.prof_warmup_times):
-        dist.all_reduce(send_tensor, group=dp_group)
+        dist.all_reduce(send_tensor, group=parallel_group)
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
     start.record()
     for _ in range(args.prof_repeat_times):
-        dist.all_reduce(send_tensor, group=dp_group)
+        dist.all_reduce(send_tensor, group=parallel_group)
     end.record()
     torch.cuda.synchronize()
     send_tensor.cpu()
@@ -226,7 +215,7 @@ def all_reduce_single(args, data_size, torch_data_type, dp_group):
     torch.cuda.empty_cache()
     return start.elapsed_time(end) / args.prof_repeat_times
 
-def reduce_scatter_single(args, data_size, world_size, torch_data_type, dp_group, dp_size):
+def reduce_scatter_single(args, data_size, world_size, torch_data_type, parallel_group, parallel_size):
     if data_size % world_size == 0:
         send_tensor = torch.ones(
             data_size, dtype=torch_data_type
@@ -237,22 +226,22 @@ def reduce_scatter_single(args, data_size, world_size, torch_data_type, dp_group
             _data_size, dtype=torch_data_type
         ).cuda()
     for _ in range(args.prof_warmup_times):
-        input_list = list(send_tensor.chunk(dp_size, 0))
+        input_list = list(send_tensor.chunk(parallel_size, 0))
         for idx, tensor in enumerate(input_list):
             if not tensor.is_contiguous():
                 input_list[idx] = tensor.contiguous()
         new_input_ = torch.empty_like(input_list[0])
-        dist.reduce_scatter(new_input_, input_list, group=dp_group)
+        dist.reduce_scatter(new_input_, input_list, group=parallel_group)
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
     start.record()
     for _ in range(args.prof_repeat_times):
-        input_list = list(send_tensor.chunk(dp_size, 0))
+        input_list = list(send_tensor.chunk(parallel_size, 0))
         for idx, tensor in enumerate(input_list):
             if not tensor.is_contiguous():
                 input_list[idx] = tensor.contiguous()
         new_input_ = torch.empty_like(input_list[0])
-        dist.reduce_scatter(new_input_, input_list, group=dp_group)
+        dist.reduce_scatter(new_input_, input_list, group=parallel_group)
     end.record()
     torch.cuda.synchronize()
     send_tensor.cpu()
@@ -264,27 +253,63 @@ def reduce_scatter_single(args, data_size, world_size, torch_data_type, dp_group
     torch.cuda.empty_cache()
     return start.elapsed_time(end) / args.prof_repeat_times
 
+def plot_profile_results(args, model, size, tp_size, usp_size, rsp_size, dp_size, avg_time_list, collective_type, parallel_type, seqlen_list, batch_size):
+    x = seqlen_list
+    x_k = [i / 1000 for i in x]
+    y = list(avg_time_list.values())
+    plt.plot(x, y, label=f"{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}")
+    coeff = polyfit(x, y, 1)
+    coeff_aligned = polyfit(x_k, y, 1)
+    y_fit = polyval(coeff, x)
+    plt.plot(x, y_fit, 'g', label='Fit Curve x(k): (y = %.2fx + %.2f' % (coeff_aligned[0], coeff_aligned[1]))
+    plt.xlabel("data size (MB)")
+    plt.ylabel("time (ms)")
+    plt.title(f"{model}_{size}_{collective_type}_{parallel_type}_{batch_size}")
+    plt.legend()
+    plt.savefig(os.path.join(args.prof_fig_path, f"{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}_{batch_size}.png"))
+    plt.close()
+    # record coeff and mse
+    mse = np.mean((y - y_fit) ** 2)
+    print(coeff, mse)
+    with open(os.path.join(args.prof_path, f'fit_curve_{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}_{batch_size}.txt'), 'w') as f:
+        f.write('coeff: ' + str(coeff))
+        f.write('mse: ' + str(mse))
+    
 
-def profile(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type):
+def profile(rank, world_size, parallel_type, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type, batch_size, seqlen_list):
     args = parse_args()
-    init_method = "tcp://"
-    master_ip = os.getenv("MASTER_ADDR", "localhost")
-    master_port = os.getenv("MASTER_PORT", "6000")
-    init_method += master_ip + ":" + master_port
-    dist.init_process_group(
-        backend="nccl", world_size=world_size, rank=rank, init_method=init_method
-    )
-    print(f'rank {rank} initialized', flush=True)
+    parallel_size = 1
+    parallel_group = None
+    # We only use all first group of actual parallel groups to profile
+    if tp_size > 1 and parallel_type == "tp":
+        if rank in range(tp_size):
+            tp_group = dist.new_group(list(range(tp_size)), use_local_synchronization=True)
+            initialized = True
+            parallel_group = tp_group
+            parallel_size = tp_size
+            print(f'rank {rank} tp_ranks: {dist.get_process_group_ranks(tp_group)}', flush=True)
+    if usp_size > 1 and parallel_type == "usp":
+        for i in range(tp_size):
+            usp_group_start = i
+            usp_group_end = usp_group_start + tp_size * usp_size
+            if rank in range(usp_group_start, usp_group_end, tp_size):
+                usp_group = dist.new_group(list(range(usp_group_start, usp_group_end, tp_size)), use_local_synchronization=True)
+                parallel_group = usp_group
+                parallel_size = usp_size
+                print(f'rank {rank} usp_ranks: {dist.get_process_group_ranks(usp_group)}', flush=True)
+                break
     cp_size = usp_size * rsp_size
-    if dp_size > 1:
+    if dp_size > 1 and parallel_type == "dp":
         initialized = False
         for i in range(tp_size * cp_size):
             dp_group_start = i
             dp_group_end = world_size
             if rank in range(dp_group_start, dp_group_end, tp_size * cp_size):
                 dp_group = dist.new_group(list(range(dp_group_start, dp_group_end, tp_size * cp_size)), use_local_synchronization=True)
-                print(f'rank {rank} dp_ranks: {dist.get_process_group_ranks(dp_group)}', flush=True)
+                parallel_group = dp_group
+                parallel_size = dp_size
                 initialized = True
+                print(f'rank {rank} dp_ranks: {dist.get_process_group_ranks(dp_group)}', flush=True)
                 break
         assert initialized, f'rank {rank} dp_group not initialized'
 
@@ -294,60 +319,61 @@ def profile(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_li
     else:
         profiled_results = {}
 
-    torch.cuda.set_device(rank)
     if torch_data_type == torch.float:
         mb_per_item = 4 / (1024 * 1024)
-    elif torch_data_type == torch.half:
+    elif torch_data_type == torch.half or torch_data_type == torch.bfloat16:
         mb_per_item = 2 / (1024 * 1024)
     else:
         raise RuntimeError(f"type {torch_data_type} not support.")
 
-    if model == "gpt":
-        collectives = []
-        if dp_size > 1:
-            collectives.extend(["all_reduce"])
-        # collectives = ["all_gather", "all_reduce", "reduce_scatter"]
-    else:
-        raise RuntimeError(f"Model {model} is not supported.")
-
+    collectives = []
+    if tp_size > 1 and parallel_type == "tp":
+        collectives.extend(["all_gather", "reduce_scatter", "all_reduce"])
+    if usp_size > 1 and parallel_type == "usp":
+        collectives.extend(["all_to_all"])
+    # if rsp_size > 1:
+    if dp_size > 1 and parallel_type == "dp":
+        collectives.extend(["all_reduce", "reduce_scatter"])
+    
     for collective_type in collectives:
         avg_time_list = {}
         print(
-            f"{dist.get_rank()} Start profiling {collective_type}... len(data_size_list) = {len(data_size_list)}", flush=True
+            f"{dist.get_rank()} Start profiling {parallel_type} {collective_type}... len(data_size_list) = {len(data_size_list)}", flush=True
         )
         for idx, data_size in enumerate(data_size_list):
             data_size_in_mb = int(data_size * mb_per_item)
-            if collective_type in ["all_gather", "all_to_all"]:
-                full_data_size_in_mb = data_size_in_mb * world_size
-            elif collective_type in ["all_reduce", "reduce_scatter"]:
-                full_data_size_in_mb = data_size_in_mb
 
             if data_size_in_mb not in avg_time_list:
                 print(
-                    f"[rank {rank}] {model}_{size} profiling {collective_type} tp{tp_size} usp{usp_size} rsp{rsp_size} dp{dp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB) Progress: {idx / len(data_size_list)}\n", flush=True
+                    f"[rank {rank}] {model}_{size} profiling {parallel_type} {collective_type} tp{tp_size} usp{usp_size} rsp{rsp_size} dp{dp_size} ({world_size}GPUs) ({data_size} = {data_size_in_mb} MB) Progress: {idx / len(data_size_list)}\n", flush=True
                 )
                 # report_memory(f"{collective_type} {data_size_in_mb}")
-                hash_name = f"{collective_type}_tp{tp_size}_up{usp_size}_rsp{rsp_size}_dp{dp_size}_{data_size_in_mb}_{torch_data_type}"
+                hash_name = f"{parallel_type}_{collective_type}_tp{tp_size}_up{usp_size}_rsp{rsp_size}_dp{dp_size}_{data_size_in_mb}_{torch_data_type}"
                 if hash_name in profiled_results:
                     print_rank0(f"hit in cache!")
                     avg_time_list[data_size_in_mb] = profiled_results[hash_name]
-                elif full_data_size_in_mb > args.max_data_size:
-                    avg_time_list[data_size_in_mb] = 1000000000
                 else:
                     dist.barrier()
 
                     try:
                         if collective_type == "all_reduce":
-                            avg_time_list[data_size_in_mb] = all_reduce_single(args, data_size, torch_data_type, dp_group)
-                            gc.collect()
-                            torch.cuda.empty_cache()
+                            avg_time_list[data_size_in_mb] = all_reduce_single(args, data_size, torch_data_type, parallel_group)
+                        elif collective_type == "reduce_scatter":
+                            avg_time_list[data_size_in_mb] = reduce_scatter_single(args, data_size, world_size, torch_data_type, parallel_group, parallel_size)
+                        elif collective_type == "all_gather":
+                            avg_time_list[data_size_in_mb] = all_gather_single(args, data_size, world_size, torch_data_type, parallel_group)
+                        elif collective_type == "all_to_all":
+                            avg_time_list[data_size_in_mb] = all_to_all_single(args, data_size, torch_data_type, parallel_group)
                         else:
                             raise RuntimeError(f"collective {collective_type} not support.")
+                        gc.collect()
+                        torch.cuda.empty_cache()
                     except RuntimeError as e:
                         print(e)
 
                     assert data_size_in_mb in avg_time_list and avg_time_list[data_size_in_mb] is not None, f"rank {rank} {collective_type} {data_size_in_mb} profiling failed."
                     profiled_results[hash_name] = avg_time_list[data_size_in_mb]
+        avg_time_list = dict(sorted(avg_time_list.items()))
         if rank == 0:
             for data_size_in_mb in avg_time_list:
                 print(
@@ -355,7 +381,7 @@ def profile(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_li
                 )
             result_title = ["data_size(MB)", "time(ms)"]
             save_file_name = (
-                f"prim_{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}.csv"
+                f"prim_{model}_{size}_tp{tp_size}_usp{usp_size}_rsp{rsp_size}_dp{dp_size}_{collective_type}_{parallel_type}.csv"
             )
             f_result = open(args.prof_path + save_file_name, "w")
             f_csv = csv.writer(f_result)
@@ -365,6 +391,8 @@ def profile(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_li
                 tmp_row[0] = "{:.0f}".format(data_size_in_mb)
                 tmp_row[1] = "{:.3f}".format(float(avg_time_list[data_size_in_mb]))
                 f_csv.writerow(tmp_row)
+            f_result.close()
+            plot_profile_results(args, model, size, tp_size, usp_size, rsp_size, dp_size, avg_time_list, collective_type, parallel_type, seqlen_list, batch_size)
 
     if rank == 0:
         save_dict = {}
@@ -372,47 +400,25 @@ def profile(rank, world_size, tp_size, usp_size, rsp_size, dp_size, data_size_li
         pickle.dump(save_dict, open(args.prof_cache_file, "wb"))
 
 
-def run_profile(task):
+def run_profile(args, task):
     model = task["model"]
     size = task["size"]
     world_size = args.max_num_gpus
-    if args.prof_mbs_list is None:
-        if isinstance(model_prof_configs[model]["mbs"], dict):
-            mbs_list = model_prof_configs[model]["mbs"][size]
-        else:
-            mbs_list = model_prof_configs[model]["mbs"]
-    else:
-        mbs_list = args.prof_mbs_list
-    if model_prof_configs[model].get("seqlen") is not None:
-        if isinstance(model_prof_configs[model]["seqlen"], dict):
-            seqlen_list = model_prof_configs[model]["seqlen"][size]
-        else:
-            seqlen_list = model_prof_configs[model]["seqlen"]
 
     data_type = model_prof_configs[model]["dtype"]
-    tp_size_list = []
-    for tp in configs["tp"]:
-        if tp not in tp_size_list:
-            tp_size_list.append(tp)
+    tp_size = args.prof_tp_size
+    usp_size = args.prof_usp_size
+    rsp_size = args.prof_rsp_size
+    dp_size = args.prof_dp_size
+    seqlen_list, data_size_list = load_data_size_list(args, tp_size, usp_size, rsp_size, dp_size, size)
+    print(f"tp_size: {tp_size}, usp_size: {usp_size}, dp_size: {dp_size}")
+    # Here we profile dp only, which will cross-nodes
     
-    print(f'mbs_list: {mbs_list}, seqlen_list: {seqlen_list}, tp_size_list: {tp_size_list}')
-
-    torch_data_type = get_torch_data_type(data_type)
-
-    for i in range(len(configs["tp"])):
-        tp_size = configs["tp"][i]
-        usp_size = configs["usp"][i]
-        rsp_size = configs["rsp"][i]
-        dp_size = configs["dp"][i]
-        data_size_list = load_data_size_list(args, torch_data_type, tp_size, usp_size, rsp_size, dp_size, size, i)
-        print(f"tp_size: {tp_size}, usp_size: {usp_size}, dp_size: {dp_size}")
-        if dp_size > 1:
-            torch.multiprocessing.spawn(
-                profile,
-                args=(world_size, tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, torch_data_type),
-                nprocs=world_size,
-                join=True,
-            )
+    torch.distributed.init_process_group(backend="nccl", world_size=world_size, rank=args.rank)
+    
+    if dp_size > 1:
+        for batch_size in args.prof_mbs_list:
+            profile(args.rank, world_size, "dp", tp_size, usp_size, rsp_size, dp_size, data_size_list, model, size, data_type, batch_size, seqlen_list)
 
 
 if __name__ == "__main__":
@@ -423,9 +429,7 @@ if __name__ == "__main__":
     ## get profiling tasks
     ## "task"s are defined by unique {model, size} pairs
     all_prof_tasks = []
-    model_names = (
-        ["resnet", "gpt"] if args.prof_model_name == "all" else [args.prof_model_name]
-    )
+    model_names = (["gpt"])
     for model in model_names:
         model_sizes = (
             model_prof_configs[model]["model_size"]
@@ -440,7 +444,7 @@ if __name__ == "__main__":
 
     ## run profiling tasks
     for prof_task in all_prof_tasks:
-        run_profile(prof_task)
+        run_profile(args, prof_task)
 
     end_profiling_time = time.time()
     print(f"[TOTAL PROFILING TIME] {end_profiling_time - start_profiling_time:2f} s")

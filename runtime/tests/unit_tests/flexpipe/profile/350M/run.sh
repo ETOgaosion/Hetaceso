@@ -35,7 +35,7 @@ GLOBAL_BATCH_SIZE=1024
 
 TEST_NUM=${1:-0}
 MACHINE=${2:-0}
-TRAIN_ITERS=${3:-3}
+TRAIN_ITERS=${3:-1}
 RETRAIN=${4:-1}
 
 if [[ $MACHINE -eq "0" ]]; then

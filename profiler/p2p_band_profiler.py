@@ -8,21 +8,50 @@ import torch.multiprocessing as multiproc
 import time
 import csv
 import torch.nn.functional as F
+from numpy import polyfit, polyval
+import numpy as np
+import matplotlib.pyplot as plt
 
 result_file_name = os.environ.get("FILE_NAME", "p2p_band.log")
+fig_path_name = os.environ.get("FIG_PATH", "p2p_band_fig")
+inter_nodes = (int(os.environ.get("NNODES", '1')) > 1)
+use_later_half = (os.environ.get("USE_LATER_HALF", '0') == '1')
 
+def plot_profile_results(x, y):
+    plt.plot(x, y, "+", label='P2P Bandwidth')
+    if use_later_half:
+        coeff = polyfit(x[len(x)//2:], y[len(y)//2:], 1)
+    else:
+        coeff = polyfit(x, y, 1)
+    y_fit = polyval(coeff, x)
+    plt.plot(x, y_fit, 'g', label='Fit Curve (y = %.2fx + %.2f)' % (coeff[0], coeff[1]))
+    plt.xlabel("data size (MB)")
+    plt.ylabel("time (ms)")
+    plt.title(f"P2P Bandwidth Profiling")
+    plt.legend()
+    suffix = "_intra_nodes"
+    if inter_nodes:
+        suffix = "_inter_nodes"
+    plt.savefig(os.path.join(fig_path_name, f"p2p{suffix}.png"), dpi=1000)
+    plt.close()
+    # record coeff and mse
+    mse = np.mean((y - y_fit) ** 2)
+    print(coeff, mse)
+    with open(os.path.join(fig_path_name, f'fit_curve{suffix}.txt'), 'w') as f:
+        f.write('coeff: ' + str(coeff) + '\nmse: ' + str(mse))
 
 def run(local_rank, global_rank):
     """Simple collective communication."""
     global result_file_name
     all_data_sizes = []
     all_bandwidths = []
+    all_bandwidths_str = []
     warmup_times = 20
     repeat_times = 50
     torch.cuda.set_device(local_rank)
 
-    for i in range(11):
-        data_size_in_mb = 2**i
+    for i in range(1, 2**6, 2**2):
+        data_size_in_mb = i
         all_data_sizes.append(data_size_in_mb)
         data_size = data_size_in_mb * 1024 * 1024 // 2
         tensor = torch.ones(data_size, dtype=torch.float16).cuda()
@@ -52,14 +81,16 @@ def run(local_rank, global_rank):
             avg_time_result_in_ms = start.elapsed_time(end) / repeat_times
 
         bandwidth_in_mb_per_ms = data_size_in_mb / avg_time_result_in_ms
-        all_bandwidths.append(f"{bandwidth_in_mb_per_ms:.2f}")
+        all_bandwidths.append(bandwidth_in_mb_per_ms)
+        all_bandwidths_str.append(f"{bandwidth_in_mb_per_ms:.2f}")
         result_string = f"Rank {global_rank} | Time(averaged {repeat_times} times) = {avg_time_result_in_ms:.2f} ms, data_size = {data_size_in_mb:.2f} MB, bandwidth = {bandwidth_in_mb_per_ms:.2f} MB/ms"
         print(result_string)
     if global_rank == 0:
         with open(result_file_name, "a+") as f:
             f_csv = csv.writer(f)
             f_csv.writerow(all_data_sizes)
-            f_csv.writerow(all_bandwidths)
+            f_csv.writerow(all_bandwidths_str)
+        plot_profile_results(all_data_sizes, all_bandwidths)
 
 
 def init_process(local_rank, global_rank, world_size, fn, backend="nccl"):

@@ -252,7 +252,7 @@ def apply_rotary_pos_emb(
     t: Tensor, freqs: Tensor, config: TransformerConfig, cu_seqlens: Optional[Tensor] = None,
 ):
     """
-    Allpy ROPE to tensor t.
+    Apply ROPE to tensor t.
     Reroute to the appropriate apply_rotary_pos_emb function depending on
     fused/unfused kernels, or bshd (conventional) / thd (packed seq) format
     """
