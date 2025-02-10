@@ -1,3 +1,6 @@
+import sys
+sys.path.append("../../../../../../runtime/")
+
 # Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
 """Pretrain GPT."""
 
@@ -29,6 +32,7 @@ from megatron.core.models.gpt.gpt_layer_specs import (
     get_gpt_layer_local_spec,
     get_gpt_layer_with_transformer_engine_spec,
 )
+from megatron.core.flexmodels.gpt.flex_gpt import FlexGPTModel
 
 def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megatron.legacy.model.GPTModel]:
     """Builds the model.
@@ -44,6 +48,7 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
         Union[GPTModel, megatron.legacy.model.GPTModel]: The returned model
     """
     args = get_args()
+    timers = get_timers()
     use_te = args.transformer_impl == "transformer_engine"
 
     print_rank_0('building GPT model ...')
@@ -52,6 +57,8 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
         config = core_transformer_config_from_yaml(args, "language_model")
     else:
         config = core_transformer_config_from_args(args)
+    if not args.disable_all_timers:
+        config.timers = timers
 
     if args.use_mcore_models:
         if args.spec is not None:
@@ -62,22 +69,16 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
             else:
                 transformer_layer_spec = get_gpt_layer_local_spec(args.num_experts, args.moe_grouped_gemm)
 
-        model = GPTModel(
+        model = FlexGPTModel(
             config=config,
             transformer_layer_spec=transformer_layer_spec,
-            vocab_size=args.padded_vocab_size,
-            max_sequence_length=args.max_position_embeddings,
             pre_process=pre_process,
             post_process=post_process,
-            fp16_lm_cross_entropy=args.fp16_lm_cross_entropy,
             parallel_output=True,
-            share_embeddings_and_output_weights=not args.untie_embeddings_and_output_weights,
-            position_embedding_type=args.position_embedding_type,
-            rotary_percent=args.rotary_percent,
         )
     else:
         assert(args.context_parallel_size == 1), "Context parallelism is only supported with Megatron Core!"
-
+        assert False, "Not support legacy model"
         model = megatron.legacy.model.GPTModel(
             config,
             num_tokentypes=0,
@@ -113,7 +114,7 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):
     """
     args = get_args()
 
-    losses = output_tensor.float()
+    losses = output_tensor['output'].float()
     loss_mask = loss_mask.view(-1).float()
     if args.context_parallel_size > 1:
         loss = torch.cat([torch.sum(losses.view(-1) * loss_mask).view(1), loss_mask.sum().view(1)])
@@ -124,7 +125,7 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):
 
     # Check individual rank losses are not NaN prior to DP all-reduce.
     if args.check_for_nan_in_loss_and_grad:
-        global_rank = args.rank
+        global_rank = torch.distributed.get_rank()
         assert not loss.isnan(), (
             f'Rank {global_rank}: found NaN in local forward loss calculation. '
             f'Device: {torch.cuda.current_device()}, node: {os.uname()[1]}'
@@ -136,7 +137,7 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):
     return loss * args.context_parallel_size, {'lm loss': averaged_loss[0]}
 
 
-def forward_step(data_iterator, model: GPTModel):
+def forward_step(data_iterator, model: FlexGPTModel, extra_tensors_):
     """Forward training step.
 
     Args:
@@ -150,12 +151,17 @@ def forward_step(data_iterator, model: GPTModel):
     timers('batch-generator', log_level=2).start()
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
         data_iterator)
+    input_tensors = {}
+    input_tensors['input_ids'] = tokens
+    input_tensors['position_ids'] = position_ids
+    input_extra_tensors = {}
+    input_extra_tensors['labels'] = labels
+    input_extra_tensors['attention_mask'] = attention_mask
     timers('batch-generator').stop()
 
-    output_tensor = model(tokens, position_ids, attention_mask,
-                          labels=labels)
+    output_tensor, output_extra_tensors = model(input_tensors, input_extra_tensors)
 
-    return output_tensor, partial(loss_func, loss_mask)
+    return output_tensor, output_extra_tensors, partial(loss_func, loss_mask)
 
 
 def is_dataset_built_on_rank():

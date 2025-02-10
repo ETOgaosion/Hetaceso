@@ -244,15 +244,6 @@ def _initialize_distributed():
         if args.rank == 0:
             print("> initializing torch distributed ...", flush=True)
         # Manually set the device ids.
-        if device_count > 0:
-            device = args.rank % device_count
-            if args.local_rank is not None:
-                assert (
-                    args.local_rank == device
-                ), "expected local-rank to be the same as rank % device-count."
-            else:
-                args.local_rank = device
-            torch.cuda.set_device(device)
         # Call the init process
         torch.distributed.init_process_group(
             backend=args.distributed_backend,
@@ -260,7 +251,7 @@ def _initialize_distributed():
             rank=args.rank,
             timeout=timedelta(minutes=args.distributed_timeout_minutes),
         )
-        print(f'rank {args.rank} initialized process group')
+        print(f'rank {args.rank} initialized process group, torch rank: {torch.distributed.get_rank()}, device: {torch.cuda.current_device()}')
 
     # Set the tensor model-parallel, pipeline model-parallel, and
     # data-parallel communicators.
@@ -304,15 +295,15 @@ def _initialize_distributed():
                     distributed_timeout_minutes=args.distributed_timeout_minutes,
                     nccl_communicator_config_path=args.nccl_communicator_config_path,
                 )
-            if args.rank == 0:
-                print(
-                    f"> initialized tensor model parallel with size "
-                    f"{mpu.get_tensor_model_parallel_world_size()}"
-                )
-                print(
-                    f"> initialized pipeline model parallel with size "
-                    f"{mpu.get_pipeline_model_parallel_world_size()}"
-                )
+            # if args.rank == 0:
+            print(
+                f"> {args.rank} initialized tensor model parallel with size "
+                f"{mpu.get_tensor_model_parallel_world_size()}"
+            )
+            print(
+                f"> {args.rank} initialized pipeline model parallel with size "
+                f"{mpu.get_pipeline_model_parallel_world_size()}"
+            )
 
 
 def _init_autoresume():

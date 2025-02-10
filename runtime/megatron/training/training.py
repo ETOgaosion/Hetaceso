@@ -215,15 +215,14 @@ def pretrain(train_valid_test_dataset_provider,
     start_time_tensor = torch.tensor([_TRAIN_START_TIME],
                                      dtype=torch.double,
                                      device='cuda')
+    print(f'{torch.distributed.get_rank()} [DEBUG] start all_reduce: {start_time_tensor}')
     torch.distributed.all_reduce(start_time_tensor,
                                  op=torch.distributed.ReduceOp.MIN)
+    print(f'{torch.distributed.get_rank()} [DEBUG] start_time_tensor: {start_time_tensor}')
     _TRAIN_START_TIME = start_time_tensor.item()
-    print_rank_0('time to initialize megatron (seconds): {:.3f}'.format(
+    print(torch.distributed.get_rank(), 'time to initialize megatron (seconds): {:.3f}'.format(
         time.time() - _TRAIN_START_TIME))
     print_datetime('after megatron is initialized')
-
-    args = get_args()
-    timers = get_timers()
 
     one_logger = get_one_logger()
     if one_logger:

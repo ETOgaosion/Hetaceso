@@ -60,6 +60,14 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
 
     # Args from environment
     args.rank = int(os.getenv('RANK', '0'))
+    device_count = torch.cuda.device_count()
+    if device_count > 0:
+        device = args.rank % device_count
+        if args.local_rank is None:
+            args.local_rank = device
+        torch.cuda.set_device(device)
+    if args.preset_ranks is not None:
+        args.rank = args.preset_ranks[args.local_rank]
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
 
     args.overlap_p2p_comm = False
@@ -1292,6 +1300,8 @@ def _add_mixed_precision_args(parser):
 def _add_distributed_args(parser):
     group = parser.add_argument_group(title='distributed')
 
+    group.add_argument('--preset-ranks', type=int, nargs='+', default=None,
+                       help='List of ranks to use for distributed training.')
     group.add_argument('--tensor-model-parallel-size', type=int, default=1,
                        help='Degree of tensor model parallelism.')
     group.add_argument('--pipeline-model-parallel-size', type=int, default=1,
