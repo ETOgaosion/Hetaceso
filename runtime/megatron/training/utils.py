@@ -100,10 +100,11 @@ def average_losses_across_data_parallel_group(losses):
     """Reduce a tensor of losses across all GPUs."""
     averaged_losses = torch.cat(
         [loss.clone().detach().view(1) for loss in losses])
-    torch.distributed.all_reduce(averaged_losses,
+    if mpu.get_data_parallel_world_size() > 1:
+        torch.distributed.all_reduce(averaged_losses,
                                  group=mpu.get_data_parallel_group())
-    averaged_losses = averaged_losses / \
-        torch.distributed.get_world_size(group=mpu.get_data_parallel_group())
+        averaged_losses = averaged_losses / \
+            torch.distributed.get_world_size(group=mpu.get_data_parallel_group())
 
     return averaged_losses
 
@@ -331,12 +332,12 @@ def get_batch_on_this_tp_rank(data_iterator):
             'attention_mask': None if "attention_mask" not in data else data["attention_mask"].cuda(non_blocking = True),
             'position_ids': data["position_ids"].cuda(non_blocking = True)
         }
-        if mpu.is_pipeline_first_stage():
+        if mpu.is_pipeline_first_stage() and mpu.get_tensor_model_parallel_world_size() > 1:
             _broadcast(batch['tokens'])
             _broadcast(batch['attention_mask'])
             _broadcast(batch['position_ids'])
 
-        if mpu.is_pipeline_last_stage():
+        if mpu.is_pipeline_last_stage() and mpu.get_tensor_model_parallel_world_size() > 1:
             _broadcast(batch['labels'])
             _broadcast(batch['loss_mask'])
             _broadcast(batch['attention_mask'])

@@ -182,6 +182,7 @@ def forward_step(
         context_manager = torch.autocast("cuda", dtype=config.autocast_dtype)
     else:
         context_manager = contextlib.nullcontext()
+    
     with context_manager:
         if config.timers is not None:
             config.timers('forward-compute', log_level=0).start()

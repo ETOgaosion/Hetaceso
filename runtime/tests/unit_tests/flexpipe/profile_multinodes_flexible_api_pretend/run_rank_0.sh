@@ -1,14 +1,14 @@
 #!/bin/bash
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-# export DEBUG_COMMUNICATE=1
+export DEBUG_COMMUNICATE=1
 export DEBUG_PARALLEL_STATES=1
 
 export NCCL_DEBUG=TRACE
 export NCCL_DEBUG_FILE=./nccl.log
 export NCCL_DEBUG_SUBSYS=ALL
 
-GPUS_PER_NODE=4
+GPUS_PER_NODE=2
 # Change for multinode config
 MASTER_ADDR=10.156.154.20
 MASTER_PORT=6000
@@ -18,13 +18,11 @@ WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 MACHINE=${1:-0}
 
 if [[ $MACHINE -eq "0" ]]; then
-    export NCCL_SOCKET_IFNAME=eno2
-    export CUDA_VISIBLE_DEVICES=3,4,5,7
+    export NCCL_SOCKET_IFNAME=eno1
+    export CUDA_VISIBLE_DEVICES=3,4
 elif [[ $MACHINE -eq "1" ]]; then
     export NCCL_SOCKET_IFNAME=eno1
-    export CUDA_VISIBLE_DEVICES=3,4,5,6
-elif [[ $MACHINE -eq "2" ]]; then
-    export NCCL_SOCKET_IFNAME=ens1f0
+    export CUDA_VISIBLE_DEVICES=5,6
 fi
 
 TEST_NUM=${2:-0}
@@ -90,14 +88,11 @@ FLEX_ARGS="
 mkdir -p logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}/csv
 
-PRESET_RANKS=(0 1 2 3)
-
 # export USE_FUSED_ATTN=1 && \
 export USE_FLASH_ATTN=1 && \
 export NVTE_SYNC_P2P=1 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
-    --preset-ranks ${PRESET_RANKS[@]} \
     $GPT_ARGS \
     $FLEX_ARGS \
     $DATA_ARGS \

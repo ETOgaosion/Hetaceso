@@ -82,13 +82,13 @@ GPT_ARGS="
 
 FLEX_ARGS="
     --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
-    --log-path ./logs \
+    --log-path ./logs_${TEST_NUM} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
 "
 
-mkdir -p logs
-mkdir -p logs/csv
+mkdir -p logs_${TEST_NUM}
+mkdir -p logs_${TEST_NUM}/csv
 
 PRESET_RANKS=(4 5 6 7)
 
