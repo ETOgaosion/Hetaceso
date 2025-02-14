@@ -13,7 +13,7 @@ import copy
 from megatron.core.utils import ensure_divisibility
 from .utils import GlobalMemoryBuffer
 
-DEBUG_MPU = os.environ.get("DEBUG_MPU", '0') == '1'
+DEBUG_PARALLEL_STATES = os.environ.get("DEBUG_PARALLEL_STATES", '0') == '1'
 
 class DataSlice:
     def __init__(self, bs: tuple[int] = None, seqlen: tuple[int] = None) -> None:
@@ -653,8 +653,8 @@ def initialize_model_parallel_flexpipe2(
             ulysses_context_parallel_size_of_each_stage
         )
     
-    if DEBUG_MPU:
-        with open(f"./logs/debug_mpu_{rank}.log", "w") as f:
+    if DEBUG_PARALLEL_STATES:
+        with open(f"./logs/DEBUG_PARALLEL_STATES_{rank}.log", "w") as f:
             f.write(f'[DEBUG]|rank {torch.distributed.get_rank()}|\n\
     RANK_INFOS: {_RANK_INFOS}|\n\
     FWD_RESHARD: {_FWD_RESHARD}|\n\
@@ -2362,8 +2362,8 @@ def set_comm_info(bwd_send_info, fwd_recv_info, fwd_send_info, bwd_recv_info):
     _FWD_RECV_INFO = fwd_recv_info
     _FWD_SEND_INFO = fwd_send_info
     _BWD_RECV_INFO = bwd_recv_info
-    if DEBUG_MPU:
-        with open(f"./logs/debug_mpu_{torch.distributed.get_rank()}.log", "a+") as f:
+    if DEBUG_PARALLEL_STATES:
+        with open(f"./logs/DEBUG_PARALLEL_STATES_{torch.distributed.get_rank()}.log", "a+") as f:
             f.write(f"FWD_SEND_INFO: {_FWD_SEND_INFO}\n" +
                     f"BWD_SEND_INFO: {_BWD_SEND_INFO}\n" +
                     f"FWD_RECV_INFO: {_FWD_RECV_INFO}\n" +
