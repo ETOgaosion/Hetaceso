@@ -90,7 +90,7 @@ FLEX_ARGS="
 mkdir -p logs
 mkdir -p logs/csv
 
-PRESET_RANKS=(1 3 5 7)
+PRESET_RANKS=(4 5 6 7)
 
 # export USE_FUSED_ATTN=1 && \
 export USE_FLASH_ATTN=1 && \
