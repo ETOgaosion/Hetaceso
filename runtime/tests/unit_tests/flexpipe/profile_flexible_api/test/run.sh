@@ -99,6 +99,7 @@ export NVTE_BATCH_MHA_P2P_COMM=1 && \
 export TIMERS_LOG_LEVEL=0 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
+    --preset-ranks ${PRESET_RANKS[@]} \
     $GPT_ARGS \
     $FLEX_ARGS \
     $DATA_ARGS \
