@@ -60,12 +60,9 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
 
     # Args from environment
     args.rank = int(os.getenv('RANK', '0'))
-    device_count = torch.cuda.device_count()
-    if device_count > 0:
-        device = args.rank % device_count
-        if args.local_rank is None:
-            args.local_rank = device
-        torch.cuda.set_device(device)
+    args.local_rank = int(os.getenv('LOCAL_RANK', '0'))
+    device = args.local_rank
+    torch.cuda.set_device(device)
     if args.preset_ranks is not None:
         args.rank = args.preset_ranks[args.local_rank]
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))

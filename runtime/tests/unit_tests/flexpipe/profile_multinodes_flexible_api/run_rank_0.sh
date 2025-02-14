@@ -4,9 +4,9 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export DEBUG_COMMUNICATE=1
 export DEBUG_PARALLEL_STATES=1
 
-# export NCCL_DEBUG=TRACE
-# export NCCL_DEBUG_FILE=./nccl.log
-# export NCCL_DEBUG_SUBSYS=ALL
+export NCCL_DEBUG=TRACE
+export NCCL_DEBUG_FILE=./nccl.log
+export NCCL_DEBUG_SUBSYS=ALL
 
 GPUS_PER_NODE=4
 # Change for multinode config
@@ -90,7 +90,7 @@ FLEX_ARGS="
 mkdir -p logs
 mkdir -p logs/csv
 
-PRESET_RANKS=(0 2 4 6)
+PRESET_RANKS=(0 1 2 3)
 
 # export USE_FUSED_ATTN=1 && \
 export USE_FLASH_ATTN=1 && \
