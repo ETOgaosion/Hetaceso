@@ -387,12 +387,14 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
         layer_number: int,
         attn_mask_type: AttnMaskType,
         attention_type: str,
+        checkpoint_core_attention: bool,
         attention_dropout: float = None,
     ):
         self.config = config
         self.te_forward_mask_type = False
         self.qkv_format: str = 'sbhd'
-
+        self.checkpoint_core_attention = checkpoint_core_attention
+        
         if self.config.apply_query_key_layer_scaling != bool(
             int(os.getenv('NVTE_APPLY_QK_LAYER_SCALING', '0'))
         ):
@@ -497,7 +499,6 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
             # We unify them to the first one to pass the stride check in TE
             if value.shape == key.shape and value.shape[0] == 1 and value.stride() != key.stride():
                 value = value.as_strided(value.shape, key.stride())
-
         if self.te_forward_mask_type:
             core_attn_out = super().forward(
                 query,
@@ -505,12 +506,12 @@ class TEDotProductAttention(te.pytorch.DotProductAttention):
                 value,
                 attention_mask,
                 attn_mask_type=attn_mask_type.name,
-                # checkpoint_core_attention=(self.config.recompute_granularity == 'selective'),
-                checkpoint_core_attention=False,
+                checkpoint_core_attention=self.checkpoint_core_attention,
+                
                 **packed_seq_kwargs,
             )
         else:
-            core_attn_out = super().forward(query, key, value, attention_mask, **packed_seq_kwargs,)
+            core_attn_out = super().forward(query, key, value, attention_mask, checkpoint_core_attention=self.checkpoint_core_attention, **packed_seq_kwargs,)
 
         if self.config.apply_rope_fusion and qkv_format == 'bshd':
             return core_attn_out.transpose(0, 1)

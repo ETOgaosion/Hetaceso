@@ -264,6 +264,7 @@ class ModelParallelConfig:
             See https://docs.python.org/3/library/dataclasses.html#post-init-processing for more details.
         """
         if self.sequence_parallel:
+            
             if self.tensor_model_parallel_size <= 1:
                 raise ValueError("Can not use sequence paralllelism without tensor parallelism")
             if self.async_tensor_model_parallel_allreduce:

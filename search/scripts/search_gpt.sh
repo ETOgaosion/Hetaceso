@@ -14,7 +14,7 @@ global_batch_size=1024
 
 #### Hardware info ####
 num_nodes=1
-gpus_per_node=1
+gpus_per_node=8
 memory_limit=28000
 
 #### Search algo parameters ####
@@ -23,7 +23,7 @@ max_num_hops=7
 init_config=balance
 
 #### Paths ####
-DATABASE_PATH=../profiler/profiled-time-eurosys/
+DATABASE_PATH=../profiler/profiled-time-miniset/
 RESULT_PATH=../test_eval_logs_4/
 
 LOG_PATH=${RESULT_PATH}search/${model_name}/${model_size}/
@@ -48,5 +48,6 @@ python3 aceso_search.py \
     --max-num-hops $max_num_hops \
     --time-budget-total $budget \
     --initial-point $init_config \
+    --max-tp 8 \
     2>&1 | tee ${LOG_PATH}log_${model_name}_${model_size}_budget${budget}_${CURRENT_TIME}.log
  

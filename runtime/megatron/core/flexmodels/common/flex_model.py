@@ -15,7 +15,7 @@ from megatron.core.pipeline_parallel.schedules import (
     reset_checkpointed_activations_memory_buffer,
 )
 from megatron.core.tensor_parallel.random import checkpoint
-
+import copy
 NUM_BATCHES = 0
 DEBUG_OUTPUT = os.environ.get("DEBUG_OUTPUT", "0") == "1"
 
@@ -540,6 +540,7 @@ def get_flex_model(
     pre_process=True,
     post_process=True,
 ):
+    
     language_model = FlexPipeModel(
         config,
         full_model_op_list,

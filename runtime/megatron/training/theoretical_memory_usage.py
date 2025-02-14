@@ -46,10 +46,10 @@ def compute_weight_and_optimizer_memory(args, verbose=False):
     # Most loaded model shard has (1/pp_size transformer layers + 1 embedding layer) / tp_size.
     num_parameters_on_most_loaded_model_shard = (
         (num_parameters_in_transformer_layers / args.pipeline_model_parallel_size) + embedding_size
-    ) / args.tensor_model_parallel_size
+    ) / args.tensor_parallel_size_of_each_stage[0]
     if args.untie_embeddings_and_output_weights and args.pipeline_model_parallel_size == 1:
         num_parameters_on_most_loaded_model_shard += (
-            embedding_size / args.tensor_model_parallel_size
+            embedding_size / args.tensor_parallel_size_of_each_stage[0]
         )
     if verbose:
         print(
@@ -59,7 +59,7 @@ def compute_weight_and_optimizer_memory(args, verbose=False):
     if args.pipeline_model_parallel_size > 1:
         # Other shards just have (1/pp_size transformer layers) / tp_size.
         num_parameters_on_other_model_shards = num_parameters_in_transformer_layers / (
-            args.pipeline_model_parallel_size * args.tensor_model_parallel_size
+            args.pipeline_model_parallel_size * args.tensor_parallel_size_of_each_stage[0]
         )
         if verbose:
             print(
@@ -88,7 +88,7 @@ def compute_activation_memory(args, num_microbatches, verbose=False):
     if verbose:
         print(
             f"Activation memory footprint per transformer layer: "
-            f"{activation_memory / NUM_BYTES_IN_MEGABYTE / args.tensor_model_parallel_size:.1f} MB"
+            f"{activation_memory / NUM_BYTES_IN_MEGABYTE / args.tensor_parallel_size_of_each_stage[0]:.1f} MB"
         )
     activation_memory *= args.num_layers
 
@@ -144,7 +144,7 @@ def compute_activation_memory(args, num_microbatches, verbose=False):
         )
 
     # Activation memory is partitioned by TP size due to tensor and sequence model parallelism.
-    return activation_memory / args.tensor_model_parallel_size
+    return activation_memory / args.tensor_parallel_size_of_each_stage[0]
 
 
 def report_theoretical_memory(args, num_microbatches=None, verbose=False):

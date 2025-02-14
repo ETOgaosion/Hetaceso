@@ -18,6 +18,11 @@ def load_json_args(json_file, args):
         args.ring_context_parallel_size_of_each_stage = config_dict["ring_context_parallel_size_of_each_stage"]
         args.data_parallel_split_of_each_stage = config_dict["data_parallel_split_of_each_stage"]
         args.ulysses_context_parallel_split_of_each_stage = config_dict["ulysses_context_parallel_split_of_each_stage"]
+        # use selective for all ops in default
+        if "recompute_ops" not in config_dict:
+            args.recompute_ops = [[True] * sum(args.num_ops_in_each_stage)]
+        else:
+            args.recompute_ops = config_dict["recompute_ops"]
     return args
 
 def validate_json_args(args):

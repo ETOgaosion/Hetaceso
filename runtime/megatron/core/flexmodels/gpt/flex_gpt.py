@@ -19,7 +19,7 @@ from megatron.core.flexmodels.common.flex_ops import (
 )
 from megatron.core.flexmodels.common.flex_ops import gen_op
 from megatron.core.flexmodels.common.flex_model import get_flex_model
-
+import copy
 
 class FlexGPTModel(LanguageModule):
     def __init__(
@@ -101,6 +101,8 @@ class FlexGPTModel(LanguageModule):
         prev_name = "dec-embedding"
         num_ops_per_transformer = 2
         for i in range(self.config.num_layers):
+            # for per op selective recompute
+
             op_list.extend(
                 [
                     FlexLayerNormSelfAttentionDropoutInfo(

@@ -32,7 +32,6 @@ from megatron.core.pipeline_parallel.p2p_communication import (
 
 from megatron.training.utils import unwrap_model
 
-from transformer_engine.pytorch.attention import test_ulysses
 
 ENABLE_WEIGHT_SHARE = os.environ.get("ENABLE_WEIGHT_SHARE", '1') == '1'
 

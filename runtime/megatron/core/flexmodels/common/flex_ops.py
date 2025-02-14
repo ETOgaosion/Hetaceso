@@ -170,7 +170,7 @@ class FlexEmbedding(FlexModule):
         self.output_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
-                "tp_split_dim": -1,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
                 "dp_split_dim": 1,
                 "cp_split_dim": 0
             }
@@ -274,10 +274,12 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
             hidden_size=self.config.hidden_size,
             eps=self.config.layernorm_epsilon,
         )
+  
         self.self_attention = build_module(
             submodules.self_attention,
             config=self.config,
             layer_number=layer_number,
+            checkpoint_core_attention=self.config.recompute_ops[op_index]
         )
         self.self_attn_bda = build_module(submodules.self_attn_bda)
 
@@ -298,7 +300,7 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         self.input_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
-                "tp_split_dim": -1,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
                 "dp_split_dim": 1,
                 "cp_split_dim": 0,
             }
@@ -306,7 +308,7 @@ class FlexLayerNormSelfAttentionDropout(FlexModule):
         self.output_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
-                "tp_split_dim": -1,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
                 "dp_split_dim": 1,
                 "cp_split_dim": 0
             }
@@ -425,7 +427,7 @@ class FlexLayerNormMlpDropout(FlexModule):
         self.input_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
-                "tp_split_dim": -1,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
                 "dp_split_dim": 1,
                 "cp_split_dim": 0,
             }
@@ -433,7 +435,7 @@ class FlexLayerNormMlpDropout(FlexModule):
         self.output_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
-                "tp_split_dim": -1,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
                 "dp_split_dim": 1,
                 "cp_split_dim": 0
             }
@@ -553,7 +555,7 @@ class FlexLayerNormPostProcess(FlexModule):
         self.input_tensors_info = {
             "hidden_states": {
                 "shape": self.hidden_state_size,
-                "tp_split_dim": -1,
+                "tp_split_dim": -1 if not config.sequence_parallel else 0,
                 "dp_split_dim": 1,
                 "cp_split_dim": 0,
             }

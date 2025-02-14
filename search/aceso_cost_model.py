@@ -36,7 +36,6 @@ def read_profiled_time(model_name, model_size, time_path):
         max_tp_size = min(args.max_tp, 4)
     else:
         max_tp_size = min(args.max_tp, 8)
-
     tp_size_list = []
     tp = 1
     while tp <= max_tp_size:
@@ -372,11 +371,19 @@ def get_recompute_time_v3(ops, recompute_ops, mbs, tp, algo):
 
     return fwd_comp
 
+# {'dec-embedding': [[[0.008, 0.008], [0.008, 0.008], [0.008, 0.008]], [[0.008, 0.008], [0.008, 0.008], [0.008, 0.008]], [[0.016, 0.016], [0.016, 0.016], [0.016, 0.016]], [[0.031, 0.031], [0.031, 0.031], [0.031, 0.031]]], 'dec-self-attention': [[[4.0, 4.0], [4.0, 4.0], [4.0, 4.0]], [[4.0, 4.0], [4.0, 4.0], [4.0, 4.0]], [[8.0, 8.0], [8.0, 8.0], [8.0, 8.0]], [[16.0, 16.0], [16.0, 16.0], [16.0, 16.0]]], 'dec-mlp': [[[4.0, 4.0], [4.0, 4.0], [4.0, 4.0]], [[4.0, 4.0], [4.0, 4.0], [4.0, 4.0]], [[8.0, 8.0], [8.0, 8.0], [8.0, 8.0]], [[16.0, 16.0], [16.0, 16.0], [16.0, 16.0]]], 'dec-post-process': [[[4.0, 4.0], [4.0, 4.0], [4.0, 4.0]], [[4.0, 4.0], [4.0, 4.0], [4.0, 4.0]], [[8.0, 8.0], [8.0, 8.0], [8.0, 8.0]], [[16.0, 16.0], [16.0, 16.0], [16.0, 16.0]]]}
+
 def get_memory_v3(ops, mbs, tp, algo):
     global input_size, output_size, weights  
     in_mbs_index = get_mbs_index(mbs[0])
     in_tp_index = int(math.log(tp[0], 2))      
-    inputs = input_size[ops[0]][in_mbs_index][in_tp_index][algo[0]]
+
+    try:
+        inputs = input_size[ops[0]][in_mbs_index][in_tp_index][algo[0]]
+    except:
+        print(f"input_size: {input_size}. op: {ops[0]}. in_mbs_index: {in_mbs_index}. in_tp_index: {in_tp_index}. algo: {algo[0]}")
+        # raise Exception(e)
+        
     _activations = 0  
     _weights = 0     
     for i in range(len(ops)):

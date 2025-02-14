@@ -80,6 +80,7 @@ class Attention(MegatronModule, ABC):
         layer_number: int,
         attn_mask_type: AttnMaskType,
         attention_type: str,
+        checkpoint_core_attention: bool,
     ):
         super().__init__(config=config)
 
@@ -100,6 +101,7 @@ class Attention(MegatronModule, ABC):
         )
         self.num_attention_heads_per_partition = divide(self.config.num_attention_heads, world_size)
         self.num_query_groups_per_partition = divide(self.config.num_query_groups, world_size)
+        self.checkpoint_core_attention = checkpoint_core_attention
 
         self.core_attention = build_module(
             submodules.core_attention,
@@ -107,10 +109,10 @@ class Attention(MegatronModule, ABC):
             layer_number=self.layer_number,
             attn_mask_type=self.attn_mask_type,
             attention_type=self.attention_type,
+            checkpoint_core_attention=self.checkpoint_core_attention
         )
-
-        self.checkpoint_core_attention = self.config.recompute_granularity == 'selective'
-
+        
+        # self.checkpoint_core_attention = self.config.recompute_granularity == 'selective'
         # Output.
         self.linear_proj = build_module(
             submodules.linear_proj,
@@ -369,6 +371,7 @@ class SelfAttention(Attention):
         config: TransformerConfig,
         submodules: SelfAttentionSubmodules,
         layer_number: int,
+        checkpoint_core_attention: bool,
         attn_mask_type=AttnMaskType.padding,
     ):
         super().__init__(
@@ -377,6 +380,7 @@ class SelfAttention(Attention):
             layer_number=layer_number,
             attn_mask_type=attn_mask_type,
             attention_type="self",
+            checkpoint_core_attention=checkpoint_core_attention,
         )
 
         self.linear_qkv = build_module(
@@ -389,7 +393,7 @@ class SelfAttention(Attention):
             bias=self.config.add_bias_linear or self.config.add_qkv_bias,
             skip_bias_add=False,
             is_expert=False,
-            tp_comm_buffer_name='qkv',
+            tp_comm_buffer_name='qkv'
         )
 
         if submodules.q_layernorm is not None:
@@ -544,6 +548,7 @@ class CrossAttention(Attention):
         config: TransformerConfig,
         submodules: CrossAttentionSubmodules,
         layer_number: int,
+        checkpoint_core_attention: bool,
         attn_mask_type=AttnMaskType.padding,
     ):
         super().__init__(
@@ -552,6 +557,7 @@ class CrossAttention(Attention):
             layer_number=layer_number,
             attn_mask_type=attn_mask_type,
             attention_type="cross",
+            checkpoint_core_attention=checkpoint_core_attention
         )
 
         if self.config.num_query_groups != self.config.num_attention_heads:

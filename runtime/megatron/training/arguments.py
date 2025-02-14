@@ -192,7 +192,9 @@ def validate_args(args, defaults={}):
     assert args.tensor_model_parallel_size == 1, '--tensor-model-parallel-size not used in flexpipe'
     del args.tensor_model_parallel_size
     assert args.pipeline_model_parallel_size == 1, '--pipeline-model-parallel-size not used in flexpipe'
-    del args.pipeline_model_parallel_size
+    args.pipeline_model_parallel_size = args.num_stages
+    
+    
     assert args.pipeline_model_parallel_split_rank is None, '--pipeline-model-parallel-split-rank not used in flexpipe'
     del args.pipeline_model_parallel_split_rank
     assert args.context_parallel_size == 1, '--context-parallel-size not implemented in flexpipe now' 
@@ -233,7 +235,7 @@ def validate_args(args, defaults={}):
     if args.recompute_activations:
         args.recompute_granularity = 'selective'
     del args.recompute_activations
-
+    assert args.recompute_granularity == 'selective', 'flexpipe now use selective checkpoint. But the layer whether use selective or not, depends on args.recompute_ops[]. In default, all layers use selective checkpoint'
     # Set input defaults.
     for key in defaults:
         # For default to be valid, it should not be provided in the
@@ -458,7 +460,7 @@ def validate_args(args, defaults={}):
     # to avoid change in numerics when
     # sequence_parallelism is enabled.
     
-    assert args.sequence_parallel == False, '--sequence-parallel is not implemented in flexpipe'
+    # assert args.sequence_parallel == False, '--sequence-parallel is not implemented in flexpipe'
     assert args.async_tensor_model_parallel_allreduce == False, '--async-tensor-model-parallel-allreduce is not implemented in flexpipe'
     # if args.tensor_model_parallel_size == 1:
     #     args.sequence_parallel = False
@@ -603,7 +605,7 @@ def core_transformer_config_from_args(args, config_class=None):
         kw_args['num_query_groups'] = args.num_query_groups
     else:
         kw_args['num_query_groups'] = None
-
+    kw_args['recompute_ops'] = args.recompute_ops
     # Return config.
     return config_class(**kw_args)
 
