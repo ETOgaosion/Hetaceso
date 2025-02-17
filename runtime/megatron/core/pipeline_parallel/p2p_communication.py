@@ -377,8 +377,6 @@ def _communicate_flexpipe(
                     print(
                         f"[rank {torch.distributed.get_rank()}] trying to send to prev, tensor name = {key}. send_info = {send_info['tensors']}"
                     )
-            if DEBUG_COMMUNICATE:
-                print(f'{torch.distributed.get_rank()} tensor_partitioned: {tensor_partitioned}')
             for send_to_rank in sorted(tensor_partitioned.keys()):
                 send_prev_op = torch.distributed.P2POp(torch.distributed.isend, tensor_partitioned[send_to_rank], send_to_rank)
                 ops.append(send_prev_op)
