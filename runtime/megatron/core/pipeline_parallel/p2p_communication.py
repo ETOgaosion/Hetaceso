@@ -30,7 +30,7 @@ import time
 import inspect
 from megatron.core.parallel_state import DataSlice
 import pdb
-DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '1') == '1'
+DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '0') == '1'
 EXTRA_TENSOR_TRANSFER = os.environ.get("EXTRA_TENSOR_TRANSFER", '1') == '1'
 
 def get_debug_file() -> str:
