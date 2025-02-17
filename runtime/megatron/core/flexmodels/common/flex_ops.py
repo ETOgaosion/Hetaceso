@@ -154,7 +154,7 @@ class FlexEmbedding(FlexModule):
                 "shape": [self.micro_batch_size, self.seq_length],
                 "tp_split_dim": -1,
                 "dp_split_dim": -1,
-                "cp_split_dim": -1,
+                "cp_split_dim": 1,
             },
             "position_ids": {
                 "shape": [
@@ -163,7 +163,7 @@ class FlexEmbedding(FlexModule):
                 ],
                 "tp_split_dim": -1,
                 "dp_split_dim": -1,
-                "cp_split_dim": -1,
+                "cp_split_dim": 1,
             },
         }
 
