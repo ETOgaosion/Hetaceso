@@ -451,7 +451,7 @@ class FlexLayerNormMlpDropout(FlexModule):
         input_extra_tensors: Dict,
         output_extra_tensors: Dict,
         profiling=False,
-    ):        
+    ):
         output_tensors = {}
         if type(input_tensors) is list:
             input_tensors = input_tensors[0]
@@ -607,7 +607,7 @@ class FlexLayerNormPostProcess(FlexModule):
         input_extra_tensors: Dict,
         output_extra_tensors: Dict,
         profiling=False,
-    ):        
+    ):
         output_tensors = {}
 
         if type(input_tensors) is list:

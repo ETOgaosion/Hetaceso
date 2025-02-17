@@ -13,7 +13,7 @@ import copy
 from megatron.core.utils import ensure_divisibility
 from .utils import GlobalMemoryBuffer
 
-DEBUG_MPU = os.environ.get("DEBUG_MPU", '0') == '1'
+DEBUG_PARALLEL_STATES = os.environ.get("DEBUG_PARALLEL_STATES", '0') == '1'
 
 class DataSlice:
     def __init__(self, bs: tuple[int] = None, seqlen: tuple[int] = None) -> None:
@@ -653,8 +653,8 @@ def initialize_model_parallel_flexpipe2(
             ulysses_context_parallel_size_of_each_stage
         )
     
-    if DEBUG_MPU:
-        with open(f"./logs/debug_mpu_{rank}.log", "w") as f:
+    if DEBUG_PARALLEL_STATES:
+        with open(f"./logs/DEBUG_PARALLEL_STATES_{rank}.log", "w") as f:
             f.write(f'[DEBUG]|rank {torch.distributed.get_rank()}|\n\
     RANK_INFOS: {_RANK_INFOS}|\n\
     FWD_RESHARD: {_FWD_RESHARD}|\n\
@@ -724,29 +724,28 @@ def fwd_reshard_stage(
     prev_stage_split_load_balance: dict[DataSlice, int] = {}
     batch_start = 0
     for i in data_parallel_split_of_each_stage[idx - 1]:
-        j = ring_context_parallel_split_of_each_stage[idx - 1] // ulysses_context_parallel_size_of_each_stage[idx - 1]
         seq_start = 0
-        for k in range(ulysses_context_parallel_size_of_each_stage[idx - 1]):
-            prev_stage_split[
-                DataSlice(
-                    (batch_start, batch_start + i),
-                    (seq_start, seq_start + j),
-                )
-            ] = []
-            seq_start += j
+        for j in ring_context_parallel_split_of_each_stage[idx - 1]:
+            each_k_seqlen = j // ulysses_context_parallel_size_of_each_stage[idx - 1]
+            for k in range(ulysses_context_parallel_size_of_each_stage[idx - 1]):
+                prev_stage_split[
+                    DataSlice((batch_start, batch_start + i), (seq_start, seq_start + each_k_seqlen))
+                ] = []
+                seq_start += each_k_seqlen
         batch_start += i
 
     # DataSlice -> rank
     curr_stage_split: dict[DataSlice, list[int]] = {}
     batch_start = 0
     for i in data_parallel_split_of_each_stage[idx]:
-        j = ring_context_parallel_split_of_each_stage[idx] // ulysses_context_parallel_size_of_each_stage[idx]
         seq_start = 0
-        for k in range(ulysses_context_parallel_size_of_each_stage[idx]):
-            curr_stage_split[
-                DataSlice((batch_start, batch_start + i), (seq_start, seq_start + j))
-            ] = []
-            seq_start += j
+        for j in ring_context_parallel_split_of_each_stage[idx]:
+            each_k_seqlen = j // ulysses_context_parallel_size_of_each_stage[idx]
+            for k in range(ulysses_context_parallel_size_of_each_stage[idx]):
+                curr_stage_split[
+                    DataSlice((batch_start, batch_start + i), (seq_start, seq_start + each_k_seqlen))
+                ] = []
+                seq_start += each_k_seqlen
         batch_start += i
 
     for rank in _ALL_PP_STAGE_RANKS[idx - 1]:
@@ -857,8 +856,8 @@ def fwd_reshard_stage(
 def bwd_reshard_stage(
     idx: int,
     data_parallel_split_of_each_stage: list[list[int]],
-    context_parallel_split_of_each_stage: list[list[int]],
-    context_parallel_size_of_each_stage: list[int],
+    ring_context_parallel_split_of_each_stage: list[list[int]],
+    ulysses_context_parallel_size_of_each_stage: list[int],
 ):
     '''
     
@@ -870,28 +869,28 @@ def bwd_reshard_stage(
     next_stage_split_load_balance: dict[DataSlice, int] = {}
     batch_start = 0
     for i in data_parallel_split_of_each_stage[idx + 1]:
-        for j in context_parallel_split_of_each_stage[idx + 1]:
-            seq_start = 0
-            for l in j:
-                for k in range(context_parallel_size_of_each_stage[idx + 1]):
-                    next_stage_split[
-                        DataSlice((batch_start, batch_start + i), (seq_start, seq_start + l))
-                    ] = []
-                    seq_start += l
+        seq_start = 0
+        for j in ring_context_parallel_split_of_each_stage[idx + 1]:
+            each_k_seqlen = j // ulysses_context_parallel_size_of_each_stage[idx + 1]
+            for k in range(ulysses_context_parallel_size_of_each_stage[idx + 1]):
+                next_stage_split[
+                    DataSlice((batch_start, batch_start + i), (seq_start, seq_start + each_k_seqlen))
+                ] = []
+                seq_start += each_k_seqlen
         batch_start += i
 
     # DataSlice -> rank
     curr_stage_split: dict[DataSlice, list[int]] = {}
     batch_start = 0
     for i in data_parallel_split_of_each_stage[idx]:
-        for j in context_parallel_split_of_each_stage[idx]:
-            seq_start = 0
-            for l in j:
-                for k in range(context_parallel_size_of_each_stage[idx]):
-                    curr_stage_split[
-                        DataSlice((batch_start, batch_start + i), (seq_start, seq_start + l))
-                    ] = []
-                    seq_start += l
+        seq_start = 0
+        for j in ring_context_parallel_split_of_each_stage[idx]:
+            each_k_seqlen = j // ulysses_context_parallel_size_of_each_stage[idx]
+            for k in range(ulysses_context_parallel_size_of_each_stage[idx]):
+                curr_stage_split[
+                    DataSlice((batch_start, batch_start + i), (seq_start, seq_start + each_k_seqlen))
+                ] = []
+                seq_start += each_k_seqlen
         batch_start += i
 
     for rank in _ALL_PP_STAGE_RANKS[idx + 1]:
@@ -2363,8 +2362,8 @@ def set_comm_info(bwd_send_info, fwd_recv_info, fwd_send_info, bwd_recv_info):
     _FWD_RECV_INFO = fwd_recv_info
     _FWD_SEND_INFO = fwd_send_info
     _BWD_RECV_INFO = bwd_recv_info
-    if DEBUG_MPU:
-        with open(f"./logs/debug_mpu_{torch.distributed.get_rank()}.log", "a+") as f:
+    if DEBUG_PARALLEL_STATES:
+        with open(f"./logs/DEBUG_PARALLEL_STATES_{torch.distributed.get_rank()}.log", "a+") as f:
             f.write(f"FWD_SEND_INFO: {_FWD_SEND_INFO}\n" +
                     f"BWD_SEND_INFO: {_BWD_SEND_INFO}\n" +
                     f"FWD_RECV_INFO: {_FWD_RECV_INFO}\n" +

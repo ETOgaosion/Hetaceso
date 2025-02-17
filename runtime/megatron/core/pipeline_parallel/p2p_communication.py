@@ -30,7 +30,7 @@ import time
 import inspect
 from megatron.core.parallel_state import DataSlice
 import pdb
-DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '1') == '1'
+DEBUG_COMMUNICATE = os.environ.get("DEBUG_COMMUNICATE", '0') == '1'
 EXTRA_TENSOR_TRANSFER = os.environ.get("EXTRA_TENSOR_TRANSFER", '1') == '1'
 
 def get_debug_file() -> str:
@@ -358,6 +358,8 @@ def _communicate_flexpipe(
         if DEBUG_COMMUNICATE:
             print(f'{torch.distributed.get_rank()} send_info["tensors"]: {send_info["tensors"]}')
         for key in sorted(send_info["tensors"]):
+            if DEBUG_COMMUNICATE:
+                print(f'{torch.distributed.get_rank()} send_info["tensors"][key]: {send_info["tensors"][key]}')
             ops = []
             with torch.no_grad():
                 if key in tensor_send_prev:
@@ -408,6 +410,8 @@ def _communicate_flexpipe(
         if DEBUG_COMMUNICATE:
             print(f'{torch.distributed.get_rank()} recv_info["tensors"]: {recv_info["tensors"]}')
         for key in sorted(recv_info["tensors"]): 
+            if DEBUG_COMMUNICATE:
+                print(f'{torch.distributed.get_rank()} recv_info["tensors"][key]: {recv_info["tensors"][key]}')
             if recv_info["tensors"][key]["extra_tensor"] and not EXTRA_TENSOR_TRANSFER:
                 continue
             ops = []    
@@ -433,6 +437,8 @@ def _communicate_flexpipe(
         if DEBUG_COMMUNICATE:
             print(f'{torch.distributed.get_rank()} send_info["tensors"]: {send_info["tensors"]}')
         for key in sorted(send_info["tensors"]):
+            if DEBUG_COMMUNICATE:
+                print(f'{torch.distributed.get_rank()} send_info["tensors"][key]: {send_info["tensors"][key]} {len(send_info["tensors"])}')
             ops = []
             with torch.no_grad():
                 if key in tensor_send_next:

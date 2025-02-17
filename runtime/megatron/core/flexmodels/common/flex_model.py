@@ -524,6 +524,7 @@ class FlexPipeModel(MegatronModule):
 
         for index in range(self.num_ops):
             op = self.ops[index]
+            print(f'rank {torch.distributed.get_rank()} op {op.op_name} index {index}')
             if self.config.timers:
                 self.config.timers(f"{op.op_name}-forward-outside", log_level=1).start()
             hidden_states = op(

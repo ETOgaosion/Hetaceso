@@ -1,0 +1,104 @@
+#!/bin/bash
+
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+# export DEBUG_COMMUNICATE=1
+export DEBUG_PARALLEL_STATES=1
+
+# export NCCL_DEBUG=TRACE
+# export NCCL_DEBUG_FILE=./nccl.log
+# export NCCL_DEBUG_SUBSYS=ALL
+
+GPUS_PER_NODE=4
+# Change for multinode config
+MASTER_ADDR=10.156.154.20
+MASTER_PORT=6000
+NNODES=2
+NODE_RANK=1
+WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
+MACHINE=${1:-0}
+
+if [[ $MACHINE -eq "0" ]]; then
+    export NCCL_SOCKET_IFNAME=eno2
+    export CUDA_VISIBLE_DEVICES=3,4,5,7
+elif [[ $MACHINE -eq "1" ]]; then
+    export NCCL_SOCKET_IFNAME=eno1
+    export CUDA_VISIBLE_DEVICES=3,4,5,6
+elif [[ $MACHINE -eq "2" ]]; then
+    export NCCL_SOCKET_IFNAME=ens1f0
+fi
+
+TEST_NUM=${2:-0}
+
+# fixed Model related configuration here, pls not overlap with json config
+HIDDEN_SIZE=1024
+NUM_ATTENTION_HEADS=16
+SEQ_LENGTH=1024
+MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
+MICRO_BATCH_SIZE=4
+GLOBAL_BATCH_SIZE=16
+
+
+VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
+MERGE_FILE=../../../../vocabs/gpt2-merges.txt
+
+
+DISTRIBUTED_ARGS="
+    --nproc_per_node $GPUS_PER_NODE \
+    --nnodes $NNODES \
+    --node_rank $NODE_RANK \
+    --master_addr $MASTER_ADDR \
+    --master_port $MASTER_PORT
+"
+
+DATA_ARGS="
+    --vocab-file $VOCAB_FILE \
+    --merge-file $MERGE_FILE \
+    --mock-data \
+"
+
+# Model related configuration here, pls not overlap with json config
+GPT_ARGS="
+    --no-async-tensor-model-parallel-allreduce \
+    --hidden-size $HIDDEN_SIZE \
+    --num-attention-heads $NUM_ATTENTION_HEADS \
+    --seq-length $SEQ_LENGTH \
+    --max-position-embeddings $MAX_POSITION_EMBEDDINGS \
+    --micro-batch-size $MICRO_BATCH_SIZE \
+    --global-batch-size $GLOBAL_BATCH_SIZE \
+    --lr 0.00015 \
+    --train-iters 5 \
+    --lr-decay-iters 320000 \
+    --lr-decay-style cosine \
+    --min-lr 1.0e-5 \
+    --weight-decay 1e-2 \
+    --lr-warmup-fraction .01 \
+    --clip-grad 1.0 \
+    --fp16 \
+    --tokenizer-type GPT2BPETokenizer \
+    --use-mcore-models \
+    --transformer-impl transformer_engine \
+    --no-scatter-gather-tensors-in-pipeline \
+"
+
+FLEX_ARGS="
+    --flexpipe-config ./test_pretrain_${TEST_NUM}.json \
+    --log-path ./logs_${TEST_NUM} \
+    --nproc-per-node $GPUS_PER_NODE \
+    --nnodes $NNODES \
+"
+
+mkdir -p logs_${TEST_NUM}
+mkdir -p logs_${TEST_NUM}/csv
+
+PRESET_RANKS=(4 5 6 7)
+
+# export USE_FUSED_ATTN=1 && \
+export USE_FLASH_ATTN=1 && \
+export NVTE_SYNC_P2P=1 && \
+torchrun $DISTRIBUTED_ARGS \
+    pretrain_gpt.py \
+    --preset-ranks ${PRESET_RANKS[@]} \
+    $GPT_ARGS \
+    $FLEX_ARGS \
+    $DATA_ARGS \
+    --distributed-backend nccl \

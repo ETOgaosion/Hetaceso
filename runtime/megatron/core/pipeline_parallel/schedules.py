@@ -164,6 +164,7 @@ def forward_step(
     passed-in input_tensor is used.
 
     Returns output tensor."""
+    print(f'rank {torch.distributed.get_rank()} enter forward_step')
     if config.timers is not None:
         config.timers('forward-compute-outside', log_level=1).start()
 
@@ -182,6 +183,8 @@ def forward_step(
         context_manager = torch.autocast("cuda", dtype=config.autocast_dtype)
     else:
         context_manager = contextlib.nullcontext()
+    
+    print(f'rank {torch.distributed.get_rank()} start forward_step')
     with context_manager:
         if config.timers is not None:
             config.timers('forward-compute', log_level=0).start()
@@ -193,6 +196,7 @@ def forward_step(
             )
         if config.timers is not None:
             config.timers('forward-compute').stop()
+    print(f'rank {torch.distributed.get_rank()} end forward_step')
 
     if parallel_state.is_pipeline_last_stage():
         if not collect_non_loss_data:
@@ -1262,6 +1266,7 @@ def forward_backward_pipelining_without_interleaving(
             checkpoint_activations_microbatch = None
 
         input_tensor, extra_tensors = p2p_communication.recv_forward(config)
+        print(f'rank {torch.distributed.get_rank()} received input tensor')
         output_tensor, output_extra_tensors = forward_step(
             forward_step_func,
             data_iterator,
@@ -1275,6 +1280,7 @@ def forward_backward_pipelining_without_interleaving(
             check_first_val_step(first_val_step, forward_only, i == 0),
             extra_tensors=extra_tensors,
         )
+        print(f'rank {torch.distributed.get_rank()} finish forward step')
         p2p_communication.send_forward(output_tensor, config, output_extra_tensors=output_extra_tensors)
 
         if not forward_only:

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export DEBUG_COMMUNICATE=1
-export DEBUG_MPU=1
+export DEBUG_PARALLEL_STATES=1
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export PYTORCH_JIT=0
