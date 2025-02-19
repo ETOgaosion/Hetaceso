@@ -1,0 +1,21 @@
+{
+    "comment": "GPT2-6B with 32768 sequence length",
+    "num_layers": 32,
+    "num_stages": 2,
+    "num_gpus": [
+        16,
+        16
+    ],
+    "num_ops_in_each_stage": [
+        5,
+        61
+    ],
+    "data_parallel_size_of_each_stage": [8, 8],
+    "tensor_parallel_size_of_each_stage":[2, 2],
+    "context_parallel_size_of_each_stage": [1, 1],
+    "ring_context_parallel_size_of_each_stage": [1, 1],
+    "ulysses_context_parallel_size_of_each_stage": [1, 1],
+    "data_parallel_split_of_each_stage": [[4, 4, 4 ,4, 4, 4, 4, 4], 
+                                          [4, 4, 4 ,4, 4, 4, 4, 4]],
+    "ring_context_parallel_split_of_each_stage": [[32768], [32768]]
+}
