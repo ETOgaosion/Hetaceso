@@ -282,6 +282,7 @@ def _initialize_distributed():
                 )
                 args.cur_seqlen = args.ring_context_parallel_split_of_each_stage[mpu.get_pipeline_model_parallel_rank()][mpu.get_ring_parallel_rank()] // args.ulysses_context_parallel_size_of_each_stage[mpu.get_pipeline_model_parallel_rank()]
                 args.cur_micro_batch_size = args.data_parallel_split_of_each_stage[mpu.get_pipeline_model_parallel_rank()][mpu.get_data_parallel_rank()]
+                args.group_seqlens = args.ring_context_parallel_split_of_each_stage[mpu.get_pipeline_model_parallel_rank()]
                 print(f'rank {args.rank} cur_seqlen: {args.cur_seqlen}, cur_micro_batch_size: {args.cur_micro_batch_size}')
                 set_args(args)
             else:

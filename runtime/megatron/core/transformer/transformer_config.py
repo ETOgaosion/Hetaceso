@@ -33,6 +33,8 @@ class TransformerConfig(ModelParallelConfig):
     seq_length: int = 0
     """Sequence Length in total."""
     
+    group_seqlens: list[int] = None
+    
     cur_seqlen: int = 0
     """Current sequence length."""
     
