@@ -18,11 +18,11 @@ WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 MACHINE=${1:-0}
 
 if [[ $MACHINE -eq "0" ]]; then
-    export NCCL_SOCKET_IFNAME=eno2
-    export CUDA_VISIBLE_DEVICES=3,4,5,7
-elif [[ $MACHINE -eq "1" ]]; then
     export NCCL_SOCKET_IFNAME=eno1
     export CUDA_VISIBLE_DEVICES=3,4,5,6
+elif [[ $MACHINE -eq "1" ]]; then
+    export NCCL_SOCKET_IFNAME=eno2
+    export CUDA_VISIBLE_DEVICES=3,4,5,7
 elif [[ $MACHINE -eq "2" ]]; then
     export NCCL_SOCKET_IFNAME=ens1f0
 fi
@@ -87,6 +87,7 @@ FLEX_ARGS="
     --nnodes $NNODES \
 "
 
+mkdir -p logs
 mkdir -p logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}/csv
 

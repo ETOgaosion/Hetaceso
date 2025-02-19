@@ -1,46 +1,61 @@
 #!/bin/bash
 
-export CUDA_DEVICE_MAX_CONNECTIONS=1
-# export DEBUG_COMMUNICATE=1
+export DEBUG_COMMUNICATE=1
 export DEBUG_PARALLEL_STATES=1
 
+export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export NCCL_DEBUG=TRACE
 # export NCCL_DEBUG_FILE=./nccl.log
 # export NCCL_DEBUG_SUBSYS=ALL
+# export NCCL_IB_DISABLE=1
+# export NCCL_SET_THREAD_NAME=1
+# export NCCL_TOPO_FILE=nccl/rank_topo.xml
+# export NCCL_SOCKET_FAMILY=AF_INET
+# export NCCL_P2P_DISABLE=1
 
-GPUS_PER_NODE=4
-# Change for multinode config
-MASTER_ADDR=10.156.154.20
-MASTER_PORT=6000
-NNODES=2
-NODE_RANK=1
-WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
-MACHINE=${1:-0}
-
-if [[ $MACHINE -eq "0" ]]; then
-    export NCCL_SOCKET_IFNAME=eno1
-    export CUDA_VISIBLE_DEVICES=3,4,5,6
-elif [[ $MACHINE -eq "1" ]]; then
-    export NCCL_SOCKET_IFNAME=eno2
-    export CUDA_VISIBLE_DEVICES=3,4,5,7
-elif [[ $MACHINE -eq "2" ]]; then
-    export NCCL_SOCKET_IFNAME=ens1f0
+if [ -e export.sh ]; then
+    source export.sh
 fi
 
-TEST_NUM=${2:-0}
+GPUS_PER_NODE=2
+# Change for multinode config
+MASTER_ADDR=localhost
+MASTER_PORT=7000
+NNODES=1
+NODE_RANK=0
+WORLD_SIZE=$(($GPUS_PER_NODE*$NNODES))
 
 # fixed Model related configuration here, pls not overlap with json config
 HIDDEN_SIZE=1024
 NUM_ATTENTION_HEADS=16
-SEQ_LENGTH=1024
+SEQ_LENGTH=2048
 MAX_POSITION_EMBEDDINGS=$SEQ_LENGTH
-MICRO_BATCH_SIZE=4
-GLOBAL_BATCH_SIZE=16
+MICRO_BATCH_SIZE=8
+GLOBAL_BATCH_SIZE=1024
 
+TEST_NUM=${1:-0}
+MACHINE=${2:-0}
+TRAIN_ITERS=${3:-1}
+RETRAIN=${4:-1}
+
+if [[ $MACHINE -eq "0" ]]; then
+    export NCCL_SOCKET_IFNAME=eno2
+    export CUDA_VISIBLE_DEVICES=3,4,5,7
+elif [[ $MACHINE -eq "1" ]]; then
+    export NCCL_SOCKET_IFNAME=eno1
+    export CUDA_VISIBLE_DEVICES=3,4,5,6
+elif [[ $MACHINE -eq "2" ]]; then
+    export NCCL_SOCKET_IFNAME=ens1f0
+fi
 
 VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../vocabs/gpt2-merges.txt
 
+if [ $RETRAIN -eq 1 ]; then
+    rm -rf logs_${TEST_NUM}
+fi
+mkdir -p logs_${TEST_NUM}
+mkdir -p logs_${TEST_NUM}/profile_torch
 
 DISTRIBUTED_ARGS="
     --nproc_per_node $GPUS_PER_NODE \
@@ -66,7 +81,7 @@ GPT_ARGS="
     --micro-batch-size $MICRO_BATCH_SIZE \
     --global-batch-size $GLOBAL_BATCH_SIZE \
     --lr 0.00015 \
-    --train-iters 5 \
+    --train-iters $TRAIN_ITERS \
     --lr-decay-iters 320000 \
     --lr-decay-style cosine \
     --min-lr 1.0e-5 \
@@ -88,17 +103,14 @@ FLEX_ARGS="
 "
 
 mkdir -p logs
-mkdir -p logs_${TEST_NUM}
-mkdir -p logs_${TEST_NUM}/csv
-
-PRESET_RANKS=(4 5 6 7)
+mkdir -p logs/csv
 
 # export USE_FUSED_ATTN=1 && \
 export USE_FLASH_ATTN=1 && \
-export NVTE_SYNC_P2P=1 && \
+export NVTE_BATCH_MHA_P2P_COMM=1 && \
+export TIMERS_LOG_LEVEL=0 && \
 torchrun $DISTRIBUTED_ARGS \
     pretrain_gpt.py \
-    --preset-ranks ${PRESET_RANKS[@]} \
     $GPT_ARGS \
     $FLEX_ARGS \
     $DATA_ARGS \
