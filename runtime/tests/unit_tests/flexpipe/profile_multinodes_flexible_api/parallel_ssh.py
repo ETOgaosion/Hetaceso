@@ -20,7 +20,7 @@ host_project_dirs = {'localhost': '/home/gzy/projects/Hetaceso', '10.156.154.242
 container_project_dir = '/workspace/Hetaceso'
 contianer_names = {'localhost': 'hetaceso-gzy', '10.156.154.242': 'hetaceso-gaoziyuan'}
 pwd_relative = 'runtime/tests/unit_tests/flexpipe/profile_multinodes_flexible_api'
-user = 'ubuntu'
+users = {'localhost': 'gzy', '10.156.154.242': 'gaoziyuan'}
 password = 'gaoziyuan'
 pkey = '/home/gzy/.ssh/id_rsa'
 
@@ -35,17 +35,16 @@ input check
 preparations
 '''
 localhost = 'localhost'
-localhostclient = SSHClient(localhost, pkey=pkey, user=user, password=password)
+localhostclient = SSHClient(localhost, pkey=pkey, user=users['localhost'], password=password)
 
-clients_hosts = ParallelSSHClient(hosts, pkey=pkey, user=user, password=password)
 seperate_clients_hosts = {}
 for host in hosts:
-    seperate_clients_hosts[host] = ParallelSSHClient([host], pkey=pkey, user=user, password=password)
+    seperate_clients_hosts[host] = ParallelSSHClient([host], pkey=pkey, user=users[host], password=password)
 
 def preparation():
     for host in hosts:
         output_git_pull = seperate_clients_hosts[host].run_command('cd ' + host_project_dirs[host] + ' && git pull origin main')
-        clients_hosts.join(output_git_pull)
+        seperate_clients_hosts[host].join(output_git_pull)
 
 # preparation()
 
@@ -72,7 +71,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 clients = {}
 for host in hosts:
-    clients[host] = SSHClient(host, pkey=pkey, user=user, password=password)
+    clients[host] = SSHClient(host, pkey=pkey, user=users[host], password=password)
 
 '''
 Preparation of clients and commands
@@ -104,7 +103,7 @@ def execute_command(test_num):
             print(line)
     print('Finish test-{test_num}')
 
-execute_command(0)
+# execute_command(0)
 
 # for nodes in required_nodes:
 #     execute_command(nodes)
