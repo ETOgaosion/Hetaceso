@@ -87,6 +87,7 @@ FLEX_ARGS="
     --nnodes $NNODES \
 "
 
+mkdir -p logs
 mkdir -p logs_${TEST_NUM}
 mkdir -p logs_${TEST_NUM}/csv
 

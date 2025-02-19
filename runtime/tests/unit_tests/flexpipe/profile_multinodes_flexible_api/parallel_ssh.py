@@ -1,5 +1,5 @@
 import time
-from pssh.clients import ParallelSSHClient, SSHClient
+from pssh.clients.ssh import ParallelSSHClient, SSHClient
 import pprint
 import math
 import signal
@@ -51,7 +51,7 @@ def preparation():
 def kill_all():
     for host in seperate_clients_hosts:
         print(host)
-        output = host.run_command('ps aux | grep python | grep -v grep | awk "{print \$2}" | sudo xargs kill -9 ', sudo=True)
+        output = seperate_clients_hosts[host].run_command('ps aux | grep pretrain | grep -v grep | awk "{print \$2}" | sudo xargs kill -9 ', sudo=True)
         # for host_out in output:
         #     host_out.stdin.write('gzy2024\n')
         #     host_out.stdin.flush()
@@ -81,7 +81,7 @@ all_commands = {}
 for test in test_nums:
     all_commands[test] = {}
     for idx, host in enumerate(hosts):
-        all_commands[host] = f'docker exec -it {contianer_names[localhost]} bash -c "cd {container_project_dir}/{pwd_relative} && ./run_rank_{idx}.sh {idx} {test}"'
+        all_commands[test][host] = f'docker exec {contianer_names[host]} bash -c "cd {container_project_dir}/{pwd_relative} && ./run_rank_{idx}.sh {idx} {test}"'
         
 pprint.pp(all_commands)
 
@@ -94,16 +94,18 @@ def execute_command(test_num):
     print(f'execute test-{test_num}')
     for k, host in enumerate(hosts):
         output.append(clients[host].run_command(all_commands[test_num][host]))
+        print(f'executed command on {host}: {all_commands[test_num][host]}')
     for k, host in enumerate(hosts):
         clients[host].wait_finished(output[k])
-    for out in output:
+    for idx, out in enumerate(output):
+        print(f'output of {idx}:')
         for line in out.stdout:
             print(line)
         for line in out.stderr:
             print(line)
     print('Finish test-{test_num}')
 
-# execute_command(0)
+execute_command(0)
 
 # for nodes in required_nodes:
 #     execute_command(nodes)
