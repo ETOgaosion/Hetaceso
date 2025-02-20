@@ -367,6 +367,8 @@ def add_model_args(parser):
     group.add_argument('--decoder-seq-len', type=int, default=512, help='')
     group.add_argument('--max-tp', type=int, default=None, help='')
     group.add_argument('--num-algos', type=int, default=None, help='')
+    group.add_argument('--use-distributed-optimizer', action='store_true',
+                       help='Use distributed optimizer.')
 
     return parser
 

@@ -48,5 +48,6 @@ python3 aceso_search.py \
     --max-num-hops $max_num_hops \
     --time-budget-total $budget \
     --initial-point $init_config \
+    --use-distributed-optimizer \
     2>&1 | tee ${LOG_PATH}log_${model_name}_${model_size}_budget${budget}_${CURRENT_TIME}.log
  

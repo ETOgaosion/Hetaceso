@@ -518,7 +518,11 @@ def predict_stage_memory(ops, recompute_ops, tp_size, dp_size, base_batch_size, 
     memory_gradients = memory_weights
     memory_main_params = memory_weights * args.memory_main_params
     memory_optimizer = memory_weights * args.memory_optimizer
-      
+    if args.use_distributed_optimizer:
+        memory_main_params /= dp_size[0]
+        memory_optimizer /= dp_size[0]
+    
+     #save_activations and peak_activations are zero when recompute is disabled
     saved_activations = get_activations_v3(ops, recompute_ops, mbs_list, tp_size, algo_list)                        
     peak_activations = get_peak_activations(ops, recompute_ops, mbs_list, tp_size, algo_list) 
 
