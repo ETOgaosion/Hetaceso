@@ -363,19 +363,19 @@ def get_batch_on_this_tp_rank(data_iterator):
  
         if mpu.is_pipeline_first_stage():
             print(f'[rank {torch.distributed.get_rank()}] broadcast tokens')
-            _broadcast(batch['tokens'])
+            _broadcast(tokens)
             print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
-            _broadcast(batch['attention_mask'])
+            _broadcast(attention_mask)
             print(f'[rank {torch.distributed.get_rank()}] broadcast position_ids')
-            _broadcast(batch['position_ids'])
+            _broadcast(position_ids)
 
         if mpu.is_pipeline_last_stage():
             print(f'[rank {torch.distributed.get_rank()}] broadcast labels')
-            _broadcast(batch['labels'])
+            _broadcast(labels)
             print(f'[rank {torch.distributed.get_rank()}] broadcast loss_mask')
-            _broadcast(batch['loss_mask'])
+            _broadcast(loss_mask)
             print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
-            _broadcast(batch['attention_mask'])
+            _broadcast(attention_mask)
     
         batch = {
             'tokens': tokens,
