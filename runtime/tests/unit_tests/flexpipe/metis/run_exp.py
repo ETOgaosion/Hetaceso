@@ -1,6 +1,6 @@
 import time
 from typing import Dict
-from pssh.clients.ssh import ParallelSSHClient, SSHClient
+from pssh.clients.ssh import SSHClient
 import pprint
 import math
 import signal
@@ -52,6 +52,7 @@ if __name__ == "__main__":
     # hosts = ["172.31.37.189", "172.31.33.155", "172.31.31.19", "172.31.25.221"]
     hosts = ["172.31.37.189", "172.31.33.155"]
     container_project_dir = "/workspace/Hetaceso/runtime/tests/unit_tests/flexpipe/metis/"
+    host_project_dir = "/home/ubuntu/code/python/Hetaceso/runtime/tests/unit_tests/flexpipe/metis"
     container_name = "hetaceso-ubuntu"
     pkey = "/home/ubuntu/.ssh/id_rsa"
 
@@ -75,14 +76,17 @@ if __name__ == "__main__":
     for model_name, seq_len in itertools.product(model_names, seq_lens):
         exp_key = f"{model_name}_{seq_len}"
         all_commands[exp_key] = {}
-        flex_config = f"{container_project_dir}/config/{model_name}_seq-{seq_len}.json"
-        with open(flex_config) as f:
+        # host_flex_config = f"{host_project_dir}/config/{model_name}_seq-{seq_len}.json"
+        # container_flex_config = f"{container_project_dir}/config/{model_name}_seq-{seq_len}.json"
+        host_flex_config = f"{host_project_dir}/test.json"
+        container_flex_config = f"{container_project_dir}/test.json"
+        with open(host_flex_config) as f:
             config = json.load(f)
-            mbs = gbs // int(json["nums_of_mbs"])
+            mbs = gbs // int(config["nums_of_mbs"])
             for node_rank, host in enumerate(hosts):
                 all_commands[exp_key][
                     host
-                ] = f'docker exec {container_name} bash -c "cd {container_project_dir} && ./run_rank.sh -n {node_rank} -m {model_name} -s {seq_len} -u {mbs} -g {gbs} -f {flex_config}"'
+                ] = f'docker exec {container_name} bash -c "cd {container_project_dir} && ./run_rank.sh -n {node_rank} -m {model_name} -s {seq_len} -u {mbs} -g {gbs} -f {container_flex_config}"'
 
     pprint.pp(all_commands)
 
