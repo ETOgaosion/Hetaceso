@@ -502,7 +502,6 @@ class FlexPipeModel(MegatronModule):
 
         self.num_ops = len(full_model_op_list)
         initialize_communication(full_model_op_list)
-        print_ops_info(self.ops)
 
     def set_input_tensor(self, input_tensor):
         """Set input tensor to be used instead of forward()'s input.
@@ -524,7 +523,6 @@ class FlexPipeModel(MegatronModule):
 
         for index in range(self.num_ops):
             op = self.ops[index]
-            print(f'rank {torch.distributed.get_rank()} op {op.op_name} index {index}')
             if self.config.timers:
                 self.config.timers(f"{op.op_name}-forward-outside", log_level=1).start()
             hidden_states = op(

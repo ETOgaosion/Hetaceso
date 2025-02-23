@@ -557,7 +557,6 @@ def train_step(forward_step_func, data_iterator,
         model_chunk.zero_grad_buffer()
     optimizer.zero_grad()
     
-    print(f'{torch.distributed.get_rank()} [DEBUG] model_chunk zero grad buffer')
 
     # Forward pass.
     forward_backward_func = get_forward_backward_func()

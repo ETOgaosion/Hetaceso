@@ -503,7 +503,7 @@ def _communicate_flexpipe(
     #         req.wait()
     # To protect against race condition when using batch_isend_irecv().
     torch.cuda.synchronize()
-    print_info(torch.distributed.get_rank(), "after cuda synchronize")
+    # print_info(torch.distributed.get_rank(), "after cuda synchronize")
     with torch.no_grad():
         if recv_prev:
             tensor_recv_prev, extra_tensor_recv_prev = _reshape2(flatten_tensor_recv_prev, recv_info, forward=True)
