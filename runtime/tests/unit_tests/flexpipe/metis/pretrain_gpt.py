@@ -146,8 +146,10 @@ def forward_step(data_iterator, model: FlexGPTModel, extra_tensors_):
 
     # Get the batch.
     timers('batch-generator', log_level=2).start()
+    print(f'[rank {torch.distributed.get_rank()}] before get_batch')
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
         data_iterator)
+    print(f'[rank {torch.distributed.get_rank()}] after get_batch')
     input_tensors = {}
     input_tensors['input_ids'] = tokens
     input_tensors['position_ids'] = position_ids
@@ -155,8 +157,9 @@ def forward_step(data_iterator, model: FlexGPTModel, extra_tensors_):
     input_extra_tensors['labels'] = labels
     input_extra_tensors['attention_mask'] = attention_mask
     timers('batch-generator').stop()
-
+    print(f'[rank {torch.distributed.get_rank()}] before model forward')
     output_tensor, output_extra_tensors = model(input_tensors, input_extra_tensors)
+    print(f'[rank {torch.distributed.get_rank()}] after model forward')
 
     return output_tensor, output_extra_tensors, partial(loss_func, loss_mask)
 

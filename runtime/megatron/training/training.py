@@ -549,6 +549,8 @@ def setup_model_and_optimizer(model_provider_func,
 def train_step(forward_step_func, data_iterator,
                model, optimizer, opt_param_scheduler, config):
     """Single training step."""
+    # print(f'[rank {torch.distributed.get_rank()}] [DEBUG] start train_step')
+    print_rank_0(f'[rank {torch.distributed.get_rank()}] [DEBUG] start train_step')
     args = get_args()
     timers = get_timers()
 
@@ -557,7 +559,7 @@ def train_step(forward_step_func, data_iterator,
         model_chunk.zero_grad_buffer()
     optimizer.zero_grad()
     
-
+    print_rank_0(f'[rank {torch.distributed.get_rank()}] [DEBUG] before forward_backward_func')
     # Forward pass.
     forward_backward_func = get_forward_backward_func()
     losses_reduced = forward_backward_func(

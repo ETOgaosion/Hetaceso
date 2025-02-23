@@ -333,13 +333,19 @@ def get_batch_on_this_tp_rank(data_iterator):
             'position_ids': data["position_ids"].cuda(non_blocking = True)
         }
         if mpu.is_pipeline_first_stage() and mpu.get_tensor_model_parallel_world_size() > 1:
+            print(f'[rank {torch.distributed.get_rank()}] broadcast tokens')
             _broadcast(batch['tokens'])
+            print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
             _broadcast(batch['attention_mask'])
+            print(f'[rank {torch.distributed.get_rank()}] broadcast position_ids')
             _broadcast(batch['position_ids'])
 
         if mpu.is_pipeline_last_stage() and mpu.get_tensor_model_parallel_world_size() > 1:
+            print(f'[rank {torch.distributed.get_rank()}] broadcast labels')
             _broadcast(batch['labels'])
+            print(f'[rank {torch.distributed.get_rank()}] broadcast loss_mask')
             _broadcast(batch['loss_mask'])
+            print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
             _broadcast(batch['attention_mask'])
 
     else:
@@ -356,14 +362,20 @@ def get_batch_on_this_tp_rank(data_iterator):
         position_ids=torch.empty((local_micro_batch_size,args.seq_length), dtype = torch.int64 , device = torch.cuda.current_device())
  
         if mpu.is_pipeline_first_stage():
-            _broadcast(tokens)
-            _broadcast(attention_mask)
-            _broadcast(position_ids)
+            print(f'[rank {torch.distributed.get_rank()}] broadcast tokens')
+            _broadcast(batch['tokens'])
+            print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
+            _broadcast(batch['attention_mask'])
+            print(f'[rank {torch.distributed.get_rank()}] broadcast position_ids')
+            _broadcast(batch['position_ids'])
 
         if mpu.is_pipeline_last_stage():
-            _broadcast(labels)
-            _broadcast(loss_mask)
-            _broadcast(attention_mask)
+            print(f'[rank {torch.distributed.get_rank()}] broadcast labels')
+            _broadcast(batch['labels'])
+            print(f'[rank {torch.distributed.get_rank()}] broadcast loss_mask')
+            _broadcast(batch['loss_mask'])
+            print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
+            _broadcast(batch['attention_mask'])
     
         batch = {
             'tokens': tokens,
