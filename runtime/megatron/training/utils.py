@@ -312,7 +312,7 @@ def get_batch_on_this_tp_rank(data_iterator):
 
     def _broadcast(item):
        if item is not None:
-           print(f"[rank {torch.distributed.get_rank()}] tp src_rank: {mpu.get_tensor_model_parallel_src_rank()}. {torch.distibuted.get_process_group_ranks(mpu.get_tensor_model_parallel_group())}")
+           print(f"[rank {torch.distributed.get_rank()}] tp src_rank: {mpu.get_tensor_model_parallel_src_rank()}. {torch.distributed.get_process_group_ranks(mpu.get_tensor_model_parallel_group())}")
            torch.distributed.broadcast(item, mpu.get_tensor_model_parallel_src_rank(), group=mpu.get_tensor_model_parallel_group())
 
     local_micro_batch_size = args.micro_batch_size // mpu.get_data_parallel_world_size()
