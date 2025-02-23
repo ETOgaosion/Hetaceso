@@ -3,9 +3,9 @@
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export DEBUG_COMMUNICATE=1
 export DEBUG_PARALLEL_STATES=1
-export NCCL_DEBUG=TRACE
+# export NCCL_DEBUG=TRACE
 # export NCCL_DEBUG_FILE=./nccl.log
-export NCCL_DEBUG_SUBSYS=ALL
+# export NCCL_DEBUG_SUBSYS=ALL
 # export NCCL_SOCKET_IFNAME=ens5
 GPUS_PER_NODE=8
 NNODES=2
@@ -117,6 +117,7 @@ GPT_ARGS="
     --use-mcore-models \
     --transformer-impl transformer_engine \
     --no-scatter-gather-tensors-in-pipeline \
+    --distributed-timeout-minutes 3 \
 "
 
 FLEX_ARGS="

@@ -525,9 +525,11 @@ class FlexPipeModel(MegatronModule):
             op = self.ops[index]
             if self.config.timers:
                 self.config.timers(f"{op.op_name}-forward-outside", log_level=1).start()
+            print(f"[rank {torch.distributed.get_rank()}] {op.op_name} idx {index} start")
             hidden_states = op(
                 hidden_states, input_extra_tensors, output_extra_tensors
             )
+            print(f"[rank {torch.distributed.get_rank()}] {op.op_name} idx {index} end")
             if self.config.timers:
                 self.config.timers(f"{op.op_name}-forward-outside").stop()
                 
