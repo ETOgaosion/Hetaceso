@@ -18,12 +18,12 @@ def execute_command(clients: Dict[str, SSHClient], commands: Dict[str, str]):
     for host, client in clients.items():
         client.wait_finished(output[host])
     
-    # for idx, out in enumerate(output):
-    #     print(f"output of {idx}:")
-    #     for line in out.stdout:
-    #         print(line)
-    #     for line in out.stderr:
-    #         print(line)
+    for host, out in output.items():
+        print(f"output of {host}:")
+        for line in out.stdout:
+            print(line)
+        for line in out.stderr:
+            print(line)
 
 def kill_all(clients):
     for host in clients:
@@ -49,7 +49,8 @@ def setup_signal_handler(clients):
 
 if __name__ == "__main__":
 
-    hosts = ["172.31.37.189", "172.31.33.155", "172.31.31.19", "172.31.25.221"]
+    # hosts = ["172.31.37.189", "172.31.33.155", "172.31.31.19", "172.31.25.221"]
+    hosts = ["172.31.37.189", "172.31.33.155"]
     container_project_dir = "/workspace/Hetaceso/runtime/tests/unit_tests/flexpipe/metis/"
     container_name = "hetaceso-ubuntu"
     pkey = "/home/ubuntu/.ssh/id_rsa"
@@ -62,8 +63,10 @@ if __name__ == "__main__":
     
     signal.signal(signal.SIGINT, setup_signal_handler(clients))
 
-    model_names = ["GPT_1-3B", "GPT_2-6B", "GPT_6-7B"]
-    seq_lens = [8192, 16384, 32768, 65536]
+    # model_names = ["GPT_1-3B", "GPT_2-6B", "GPT_6-7B"]
+    # seq_lens = [8192, 16384, 32768, 65536]
+    model_names = ["GPT_1-3B"]
+    seq_lens = [8192]
     gbs = 1024
 
     # generate commands for each experiment
