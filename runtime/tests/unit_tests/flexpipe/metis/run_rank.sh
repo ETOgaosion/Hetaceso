@@ -9,7 +9,7 @@ export DEBUG_PARALLEL_STATES=1
 
 GPUS_PER_NODE=8
 NNODES=4
-MASTER_ADDR=10.156.154.20
+MASTER_ADDR=172.31.37.189
 MASTER_PORT=6000
 VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../vocabs/gpt2-merges.txt

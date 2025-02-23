@@ -49,16 +49,10 @@ def setup_signal_handler(clients):
 
 if __name__ == "__main__":
 
-    hosts = ["localhost", "10.156.154.242"]
-    host_project_dirs = {
-        "localhost": "/home/gzy/projects/Hetaceso",
-        "10.156.154.242": "/home/gaoziyuan/projects/Hetaceso",
-    }
+    hosts = ["172.31.37.189", "172.31.33.155", "172.31.31.19", "172.31.25.221"]
     container_project_dir = "/workspace/Hetaceso/runtime/tests/unit_tests/flexpipe/metis/"
-    contianer_names = {"localhost": "hetaceso-gzy", "10.156.154.242": "hetaceso-gaoziyuan"}
-    users = {"localhost": "gzy", "10.156.154.242": "gaoziyuan"}
-    password = "gaoziyuan"
-    pkey = "/home/gzy/.ssh/id_rsa"
+    container_name = "hetaceso-ubuntu"
+    pkey = "/home/ubuntu/.ssh/id_rsa"
 
 
     # init ssh clients
@@ -85,7 +79,7 @@ if __name__ == "__main__":
             for node_rank, host in enumerate(hosts):
                 all_commands[exp_key][
                     host
-                ] = f'docker exec {contianer_names[host]} bash -c "cd {container_project_dir} && ./run_rank.sh -n {node_rank} -m {model_name} -s {seq_len} -u {mbs} -g {gbs} -f {flex_config}"'
+                ] = f'docker exec {container_name} bash -c "cd {container_project_dir} && ./run_rank.sh -n {node_rank} -m {model_name} -s {seq_len} -u {mbs} -g {gbs} -f {flex_config}"'
 
     pprint.pp(all_commands)
 
