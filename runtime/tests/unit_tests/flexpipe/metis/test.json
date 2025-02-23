@@ -1,26 +1,26 @@
 {
     "comment": "GPT1-3B with 8192 sequence length",
-    "num_layers": 3,
+    "num_layers": 1,
     "num_stages": 2,
     "num_gpus": [
         8,
         8
     ],
     "num_ops_in_each_stage": [
-        4,
-        4
+        2,
+        2
     ],
     "nums_of_mbs": 128,
     "device_mesh_of_each_stage": [
         ["a10g", "a10g", "a10g", "a10g", "a10g", "a10g", "a10g", "a10g"],
         ["l4", "l4", "l4", "l4", "l4", "l4", "l4", "l4"]
         ], 
-    "data_parallel_size_of_each_stage": [8, 8],
-    "tensor_parallel_size_of_each_stage":[1, 1],
+    "data_parallel_size_of_each_stage": [2, 2],
+    "tensor_parallel_size_of_each_stage":[4, 4],
     "context_parallel_size_of_each_stage": [1, 1],
     "ring_context_parallel_size_of_each_stage": [1, 1],
     "ulysses_context_parallel_size_of_each_stage": [1, 1],
-    "data_parallel_split_of_each_stage": [[1, 1, 1, 1, 1, 1, 1, 1], 
-                                          [1, 1, 1, 1, 1, 1, 1, 1]],
+    "data_parallel_split_of_each_stage": [[1, 1], 
+                                          [1, 1]],
     "ring_context_parallel_split_of_each_stage": [[8192], [8192]]
 }
