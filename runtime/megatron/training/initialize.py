@@ -376,7 +376,9 @@ def _warmup_jit_function():
         dtype = torch.float16
     else:
         dtype = torch.float32
-
+    mbs_list = [element for sublist in args.data_parallel_split_of_each_stage for element in sublist]
+    mbs_list = list(set(mbs_list))
+    
     # Warmup fused bias+gelu
     bias = torch.rand(
         args.ffn_hidden_size // mpu.get_tensor_model_parallel_world_size(),
@@ -386,7 +388,7 @@ def _warmup_jit_function():
     input = torch.rand(
         (
             args.seq_length,
-            args.micro_batch_size,
+            mbs_list[0],
             args.ffn_hidden_size // mpu.get_tensor_model_parallel_world_size(),
         ),
         dtype=dtype,
@@ -406,12 +408,12 @@ def _warmup_jit_function():
     else:
         seq_length = args.seq_length
     input = torch.rand(
-        (seq_length, args.micro_batch_size, args.hidden_size),
+        (seq_length, mbs_list[0], args.hidden_size),
         dtype=dtype,
         device="cuda",
     )
     residual = torch.rand(
-        (seq_length, args.micro_batch_size, args.hidden_size),
+        (seq_length, mbs_list[0], args.hidden_size),
         dtype=dtype,
         device="cuda",
     )
