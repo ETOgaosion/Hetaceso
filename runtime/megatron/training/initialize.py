@@ -251,7 +251,7 @@ def _initialize_distributed():
             world_size=args.world_size,
             rank=args.rank,
             timeout=timedelta(minutes=args.distributed_timeout_minutes),
-            device_id=torch.device('cuda', torch.cuda.current_device()),
+            # device_id=torch.device('cuda', torch.cuda.current_device()),
         )
         print(f'rank {args.rank} initialized process group, torch rank: {torch.distributed.get_rank()}, device: {torch.cuda.current_device()}')
 
