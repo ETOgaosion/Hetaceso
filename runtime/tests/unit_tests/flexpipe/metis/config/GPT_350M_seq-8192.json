@@ -9,7 +9,7 @@
         13,
         13
     ],
-    "nums_of_mbs": 256,
+    "nums_of_mbs": 1024,
     "device_mesh_of_each_stage": [
         ["a10g"],
         ["l40s"]
