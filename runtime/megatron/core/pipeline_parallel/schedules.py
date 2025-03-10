@@ -185,7 +185,7 @@ def forward_step(
     else:
         context_manager = contextlib.nullcontext()
     
-    print(f'[rank {torch.distributed.get_rank()}] start forward_step_func:')
+    # print(f'[rank {torch.distributed.get_rank()}] start forward_step_func:')
     with context_manager:
         if config.timers is not None:
             config.timers('forward-compute', log_level=0).start()
@@ -197,7 +197,7 @@ def forward_step(
             )
         if config.timers is not None:
             config.timers('forward-compute').stop()
-    print(f'[rank {torch.distributed.get_rank()}] end forward_step_func')
+    # print(f'[rank {torch.distributed.get_rank()}] end forward_step_func')
 
     if parallel_state.is_pipeline_last_stage():
         if not collect_non_loss_data:

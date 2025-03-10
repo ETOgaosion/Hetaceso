@@ -559,7 +559,7 @@ def train_step(forward_step_func, data_iterator,
         model_chunk.zero_grad_buffer()
     optimizer.zero_grad()
     
-    print(f'[rank {torch.distributed.get_rank()}] [DEBUG] before forward_backward_func')
+    # print(f'[rank {torch.distributed.get_rank()}] [DEBUG] before forward_backward_func')
     # Forward pass.
     forward_backward_func = get_forward_backward_func()
     losses_reduced = forward_backward_func(
@@ -569,7 +569,7 @@ def train_step(forward_step_func, data_iterator,
         num_microbatches=get_num_microbatches(),
         forward_only=False)
     
-    print(f'{torch.distributed.get_rank()} [DEBUG] end forward_backward_func')
+    # print(f'{torch.distributed.get_rank()} [DEBUG] end forward_backward_func')
 
     # Empty unused memory.
     if args.empty_unused_memory_level >= 1:
