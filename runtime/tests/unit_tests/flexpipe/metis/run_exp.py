@@ -50,7 +50,7 @@ def setup_signal_handler(clients):
 if __name__ == "__main__":
 
     # hosts = ["172.31.37.189", "172.31.33.155", "172.31.31.19", "172.31.25.221"]
-    hosts = ["172.31.37.189", "172.31.31.19"]
+    hosts = ["172.31.37.189", "172.31.31.19", "172.31.33.155", "172.31.20.160"]
     container_project_dir = "/workspace/Hetaceso/runtime/tests/unit_tests/flexpipe/metis/"
     host_project_dir = "/home/ubuntu/code/python/Hetaceso/runtime/tests/unit_tests/flexpipe/metis"
     container_name = "hetaceso-ubuntu"
@@ -66,14 +66,15 @@ if __name__ == "__main__":
 
     # model_names = ["GPT_1-3B", "GPT_2-6B", "GPT_6-7B"]
     # seq_lens = [8192, 16384, 32768, 65536]
-    model_names = ["GPT_350M"]
+    model_names = ["GPT_1-3B"]
     seq_lens = [8192]
-    gbs = 1024 
 
     # generate commands for each experiment
     all_commands = {}
 
     for model_name, seq_len in itertools.product(model_names, seq_lens):
+        
+        gbs = 1024 // (seq_len // 8192)
         exp_key = f"{model_name}_{seq_len}"
         all_commands[exp_key] = {}
         host_flex_config = f"{host_project_dir}/config/{model_name}_seq-{seq_len}.json"
