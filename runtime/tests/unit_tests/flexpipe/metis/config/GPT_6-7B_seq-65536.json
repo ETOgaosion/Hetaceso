@@ -1,7 +1,7 @@
 {
     "comment": "GPT6-7B with 65536 sequence length",
     "num_layers": 32,
-    "num_stages": 2,
+    "num_stages": 4,
     "num_gpus": [
         8,
         8,
@@ -9,26 +9,26 @@
         8
     ],
     "num_ops_in_each_stage": [
-        1,
-        12,
+        3,
+        10,
         28,
         25
     ],
-    "nums_of_mbs": 512,
+    "nums_of_mbs": 128,
     "device_mesh_of_each_stage": [
         ["a10g"],
-        ["l4", "l4"], 
-        ["l40s", "l40s"], 
-        ["l40s", "l40s"]], 
-    "data_parallel_size_of_each_stage": [1, 2, 2, 2],
-    "tensor_parallel_size_of_each_stage":[8, 4, 4, 4],
+        ["l4"], 
+        ["l40s"], 
+        ["l40s"]], 
+    "data_parallel_size_of_each_stage": [1, 1, 1, 1],
+    "tensor_parallel_size_of_each_stage":[8, 8, 8, 8],
     "context_parallel_size_of_each_stage": [1, 1, 1, 1],
     "ring_context_parallel_size_of_each_stage": [1, 1, 1, 1],
     "ulysses_context_parallel_size_of_each_stage": [1, 1, 1, 1],
-    "data_parallel_split_of_each_stage": [[2], 
-                                          [1, 1],
-                                          [1, 1],
-                                          [1, 1] 
+    "data_parallel_split_of_each_stage": [[1], 
+                                          [1],
+                                          [1],
+                                          [1] 
                                         ],
     "ring_context_parallel_split_of_each_stage": [[65536], [65536]]
 }
