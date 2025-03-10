@@ -1,6 +1,7 @@
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 
 import contextlib
+import time
 from typing import Callable, Iterator, List, Optional, Union
 import inspect
 
@@ -1236,10 +1237,10 @@ def forward_backward_pipelining_without_interleaving(
         max_outstanding_backprops = num_warmup_microbatches + 1
 
     model_type = get_model_type(model)
-    
+    print(f'[rank {torch.distributed.get_rank()}] start forward_backward_pipelining_without_interleaving')
 
     rank = parallel_state.get_pipeline_model_parallel_rank()
-
+    print(f'[rank {torch.distributed.get_rank()}] get pipeline rank: {rank}')
     # Input, output tensors only need to be saved when doing backward passes
     input_tensors = None
     output_tensors = None
@@ -1253,7 +1254,8 @@ def forward_backward_pipelining_without_interleaving(
         input_extra_tensors_list = []
         output_extra_tensors_list = []
     forward_data_store = []
-
+    print(f'[rank {torch.distributed.get_rank()}] start warm up.')
+    # torch.cuda.synchronize()
     # Run warmup forward passes.
     for i in range(num_warmup_microbatches):
         # Decide to checkpoint all layers' activations of the current micro-batch
@@ -1264,7 +1266,7 @@ def forward_backward_pipelining_without_interleaving(
             )
         else:
             checkpoint_activations_microbatch = None
-
+        print(f'[rank {torch.distributed.get_rank()}] before receive input tensor')
         input_tensor, extra_tensors = p2p_communication.recv_forward(config)
         print(f'[rank {torch.distributed.get_rank()}] received input tensor')
         output_tensor, output_extra_tensors = forward_step(
@@ -1294,8 +1296,10 @@ def forward_backward_pipelining_without_interleaving(
     # If all microbatches are run in warmup / cooldown phase, then no need to
     # receive this tensor here.
     if num_microbatches_remaining > 0:
+        
+        print(f'[rank {torch.distributed.get_rank()}] mbs remaining. before recv input_tensor') 
         input_tensor, extra_tensors = p2p_communication.recv_forward(config)
-
+        print(f'[rank {torch.distributed.get_rank()}] mbs remaining. after recv input_tensor')
     # Run 1F1B in steady state.
     for i in range(num_microbatches_remaining):
         last_iteration = i == (num_microbatches_remaining - 1)

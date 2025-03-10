@@ -2040,8 +2040,9 @@ def get_tensor_model_parallel_src_rank():
     """Calculate the global rank corresponding to the first local rank
     in the tensor model parallel group."""
     global_rank = torch.distributed.get_rank()
-    local_world_size = get_tensor_model_parallel_world_size()
-    return (global_rank // local_world_size) * local_world_size
+    return global_rank - get_tensor_model_parallel_rank()
+    # local_world_size = get_tensor_model_parallel_world_size()
+    # return (global_rank // local_world_size) * local_world_size
 
 
 def get_data_parallel_src_rank(with_context_parallel=False):
@@ -2401,7 +2402,6 @@ def get_group(ranks):
     group_bits = bitmap(ranks)
     if group_bits not in all_groups: 
         all_groups[group_bits] = torch.distributed.new_group(list(ranks), backend='nccl', use_local_synchronization=True)
-
     return all_groups[group_bits]
 
 def get_group_gloo(ranks):

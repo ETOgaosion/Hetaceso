@@ -408,10 +408,10 @@ def _communicate_flexpipe(
     elif recv_prev:
         recv_info = mpu.get_recv_info(forward=True)
         if DEBUG_COMMUNICATE:
-            print(f'{torch.distributed.get_rank()} recv_info["tensors"]: {recv_info["tensors"]}')
+            print(f'[rank {torch.distributed.get_rank()}] recv_info["tensors"]: {recv_info["tensors"]}')
         for key in sorted(recv_info["tensors"]): 
             if DEBUG_COMMUNICATE:
-                print(f'{torch.distributed.get_rank()} recv_info["tensors"][key]: {recv_info["tensors"][key]}')
+                print(f'[rank {torch.distributed.get_rank()}] recv_info["tensors"][key]: {recv_info["tensors"][key]}')
             if recv_info["tensors"][key]["extra_tensor"] and not EXTRA_TENSOR_TRANSFER:
                 continue
             ops = []    

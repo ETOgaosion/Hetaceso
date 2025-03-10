@@ -307,13 +307,14 @@ def print_rank_last(message):
 
 
 def get_batch_on_this_tp_rank(data_iterator):
-
     args = get_args()
+    # torch.distributed.barrier(mpu.get_tensor_model_parallel_group())
 
     def _broadcast(item):
        if item is not None:
-           print(f"[rank {torch.distributed.get_rank()}] tp src_rank: {mpu.get_tensor_model_parallel_src_rank()}. {torch.distributed.get_process_group_ranks(mpu.get_tensor_model_parallel_group())}")
+           print(f"[rank {torch.distributed.get_rank()}] before broadcast. tp src_rank: {mpu.get_tensor_model_parallel_src_rank()}. {torch.distributed.get_process_group_ranks(mpu.get_tensor_model_parallel_group())}")
            torch.distributed.broadcast(item, mpu.get_tensor_model_parallel_src_rank(), group=mpu.get_tensor_model_parallel_group())
+           print(f"[rank {torch.distributed.get_rank()}] after broadcast. tp src_rank: {mpu.get_tensor_model_parallel_src_rank()}. {torch.distributed.get_process_group_ranks(mpu.get_tensor_model_parallel_group())}")
 
     local_micro_batch_size = args.micro_batch_size // mpu.get_data_parallel_world_size()
 
@@ -324,15 +325,21 @@ def get_batch_on_this_tp_rank(data_iterator):
         else:
             data = None
 
-
-        
         batch = {
-            'tokens': data["tokens"].cuda(non_blocking = True),
-            'labels': data["labels"].cuda(non_blocking = True),
-            'loss_mask': data["loss_mask"].cuda(non_blocking = True),
-            'attention_mask': None if "attention_mask" not in data else data["attention_mask"].cuda(non_blocking = True),
-            'position_ids': data["position_ids"].cuda(non_blocking = True)
+            'tokens': data["tokens"].cuda(),
+            'labels': data["labels"].cuda(),
+            'loss_mask': data["loss_mask"].cuda(),
+            'attention_mask': None if "attention_mask" not in data else data["attention_mask"].cuda(),
+            'position_ids': data["position_ids"].cuda()
         }
+        
+        # batch = {
+        #     'tokens': data["tokens"].cuda(non_blocking = True),
+        #     'labels': data["labels"].cuda(non_blocking = True),
+        #     'loss_mask': data["loss_mask"].cuda(non_blocking = True),
+        #     'attention_mask': None if "attention_mask" not in data else data["attention_mask"].cuda(non_blocking = True),
+        #     'position_ids': data["position_ids"].cuda(non_blocking = True)
+        # }
         if mpu.is_pipeline_first_stage() and mpu.get_tensor_model_parallel_world_size() > 1:
             print(f'[rank {torch.distributed.get_rank()}] broadcast tokens. shape: {batch["tokens"].size()}')
             _broadcast(batch['tokens'])
@@ -385,5 +392,6 @@ def get_batch_on_this_tp_rank(data_iterator):
             'attention_mask': attention_mask,
             'position_ids': position_ids
         }
+
 
     return batch

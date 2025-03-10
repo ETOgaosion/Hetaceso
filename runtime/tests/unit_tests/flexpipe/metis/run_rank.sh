@@ -2,14 +2,20 @@
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export DEBUG_COMMUNICATE=1
-export DEBUG_PARALLEL_STATES=1
-# export NCCL_DEBUG=TRACE
+# export DEBUG_PARALLEL_STATES=1
+export NCCL_IB_DISABLE=1
+export NCCL_IBEXT_DISABLE=1
+export NCCL_DEBUG=TRACE
 # export NCCL_DEBUG_FILE=./nccl.log
-# export NCCL_DEBUG_SUBSYS=ALL
-# export NCCL_SOCKET_IFNAME=ens5
+export NCCL_DEBUG_SUBSYS=ALL
+export NCCL_SOCKET_IFNAME=eno1
+export TORCH_CPP_LOG_LEVEL=INFO
+export TORCH_DISTRIBUTED_DEBUG=DETAIL
+# export TORCH_NCCL_BLOCKING_WAIT=1     # 强制同步等待并显示错误
+# export TORCH_NCCL_ASYNC_ERROR_HANDLING=1  # 启用异步错误检测
 GPUS_PER_NODE=4
 NNODES=1
-MASTER_ADDR=172.31.37.189
+MASTER_ADDR=10.156.154.20
 MASTER_PORT=6000
 VOCAB_FILE=../../../../vocabs/gpt2-vocab.json
 MERGE_FILE=../../../../vocabs/gpt2-merges.txt
@@ -117,7 +123,7 @@ GPT_ARGS="
     --use-mcore-models \
     --transformer-impl transformer_engine \
     --no-scatter-gather-tensors-in-pipeline \
-    --distributed-timeout-minutes 3 \
+    --distributed-backend nccl \
 "
 
 FLEX_ARGS="
@@ -140,5 +146,4 @@ torchrun $DISTRIBUTED_ARGS \
     $GPT_ARGS \
     $FLEX_ARGS \
     $DATA_ARGS \
-    --distributed-backend nccl \
     2>&1 | tee ./logs_${MODEL_NAME}_${SEQ_LENGTH}/node_${NODE_RANK}.log
