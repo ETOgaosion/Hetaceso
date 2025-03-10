@@ -10,7 +10,7 @@
     ],
     "nums_of_mbs": 256,
     "device_mesh_of_each_stage": [
-        ["l40s"]
+        ["a10g"]
             ],
     "data_parallel_size_of_each_stage": [1],
     "tensor_parallel_size_of_each_stage":[1],

@@ -51,6 +51,7 @@ if __name__ == "__main__":
 
     # hosts = ["172.31.37.189", "172.31.33.155", "172.31.31.19", "172.31.25.221"]
     hosts = ["172.31.37.189", "172.31.31.19"]
+    hosts = ["172.31.37.189"]
     container_project_dir = "/workspace/Hetaceso/runtime/tests/unit_tests/flexpipe/metis/"
     host_project_dir = "/home/ubuntu/code/python/Hetaceso/runtime/tests/unit_tests/flexpipe/metis"
     container_name = "hetaceso-ubuntu"
@@ -68,7 +69,7 @@ if __name__ == "__main__":
     # seq_lens = [8192, 16384, 32768, 65536]
     model_names = ["GPT_350M"]
     seq_lens = [4096]
-    gbs = 1024
+    gbs = 512
 
     # generate commands for each experiment
     all_commands = {}
