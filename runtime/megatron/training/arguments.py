@@ -65,6 +65,7 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     torch.cuda.set_device(device)
     if args.preset_ranks is not None:
         args.rank = args.preset_ranks[args.local_rank]
+    print(f"args.rank: {args.rank}. args.local_rank: {args.local_rank}")
     args.world_size = int(os.getenv("WORLD_SIZE", '1'))
 
     args.overlap_p2p_comm = False
