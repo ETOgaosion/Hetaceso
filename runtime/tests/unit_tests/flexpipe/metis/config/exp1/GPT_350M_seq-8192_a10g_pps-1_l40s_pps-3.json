@@ -1,0 +1,25 @@
+{
+    "comment": "GPT-350M with 8192 sequence length",
+    "num_layers": 12,
+    "num_stages": 2,
+    "num_gpus": [
+        1,
+        1
+    ],
+    "num_ops_in_each_stage": [
+        9,
+        17
+    ],
+    "nums_of_mbs": 1024,
+    "device_mesh_of_each_stage": [
+        ["a10g"],
+        ["l40s"]
+            ],
+    "data_parallel_size_of_each_stage": [1, 1],
+    "tensor_parallel_size_of_each_stage":[1, 1],
+    "context_parallel_size_of_each_stage": [1, 1],
+    "ring_context_parallel_size_of_each_stage": [1, 1],
+    "ulysses_context_parallel_size_of_each_stage": [1, 1],
+    "data_parallel_split_of_each_stage": [[1], [1]],
+    "ring_context_parallel_split_of_each_stage": [[8192], [8192]]
+}
