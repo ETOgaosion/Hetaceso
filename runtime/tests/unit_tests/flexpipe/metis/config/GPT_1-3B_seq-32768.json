@@ -1,39 +1,33 @@
 {
     "comment": "GPT1-3B with 32768 sequence length",
     "num_layers": 24,
-    "num_stages": 20,
+    "num_stages": 4,
     "num_gpus": [
-        2, 2, 4, 
-        1, 1, 1, 1, 1, 1, 1, 1, 
-        2, 2, 2, 2, 
-        1, 1, 2, 2, 2
+        8,
+        8,
+        8,
+        8
     ],
     "num_ops_in_each_stage": [
-        1, 2, 2,
-        2, 2, 2, 2, 2, 2, 2, 2,
-        2, 2, 2, 5, 
-        2, 2, 2, 6, 6 
+        5,
+        5,
+        17,
+        23 
     ],
-    "nums_of_mbs": 512,
+    "nums_of_mbs": 32,
     "device_mesh_of_each_stage": [
-        ["a10g", "a10g"], ["a10g", "a10g"], ["a10g", "a10g"], 
-        ["l4"], ["l4"], ["l4"], ["l4"], ["l4"], ["l4"], ["l4"], ["l4"], 
-        ["l40s", "l40s"], ["l40s", "l40s"],["l40s", "l40s"], ["l40s", "l40s"], ["l40s"], ["l40s"], ["l40s", "l40s"], ["l40s", "l40s"], ["l40s", "l40s"]], 
-    "data_parallel_size_of_each_stage": [2, 2, 2, 
-                                         1, 1, 1, 1, 1, 1, 1, 1,
-                                         2, 2, 2, 2, 
-                                         1, 1, 2, 2, 2],
-    "tensor_parallel_size_of_each_stage":[1, 1, 2, 
-                                          1, 1, 1, 1, 1, 1, 1, 1, 
-                                          1, 1, 1, 1, 
-                                          1, 1, 1, 1, 1],
-
-    "context_parallel_size_of_each_stage": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    "ring_context_parallel_size_of_each_stage": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    "ulysses_context_parallel_size_of_each_stage": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    "data_parallel_split_of_each_stage": [[1, 1], [1, 1], [1, 1], 
-                                          [1], [1], [1], [1], [1], [1], [1], [1], 
-                                          [1, 1], [1, 1], [1, 1], [1, 1], 
-                                          [1], [1], [1, 1], [1, 1], [1, 1]],
-    "ring_context_parallel_split_of_each_stage": [[32768], [32768], [32768], [32768],[32768], [32768], [32768], [32768],[32768], [32768], [32768], [32768],[32768], [32768], [32768], [32768],[32768], [32768], [32768], [32768]]
+        ["a10g", "a10g", "a10g", "a10g", "a10g", "a10g", "a10g", "a10g"],
+        ["l4", "l4", "l4", "l4", "l4", "l4", "l4", "l4"], 
+        ["l40s", "l40s", "l40s", "l40s", "l40s", "l40s", "l40s", "l40s"],
+        ["l40s", "l40s", "l40s", "l40s", "l40s", "l40s", "l40s", "l40s"]], 
+    "data_parallel_size_of_each_stage": [8, 8, 8, 8],
+    "tensor_parallel_size_of_each_stage":[1, 1, 1, 1],
+    "context_parallel_size_of_each_stage": [1, 1, 1, 1],
+    "ring_context_parallel_size_of_each_stage": [1, 1, 1, 1],
+    "ulysses_context_parallel_size_of_each_stage": [1, 1, 1, 1],
+    "data_parallel_split_of_each_stage": [[1, 1, 1, 1, 1, 1, 1, 1], 
+                                          [1, 1, 1, 1, 1, 1, 1, 1],
+                                          [1, 1, 1, 1, 1, 1, 1, 1],
+                                          [1, 1, 1, 1, 1, 1, 1, 1]],
+    "ring_context_parallel_split_of_each_stage": [[32768], [32768], [32768], [32768]]
 }
