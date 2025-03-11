@@ -312,9 +312,9 @@ def get_batch_on_this_tp_rank(data_iterator):
 
     def _broadcast(item):
        if item is not None:
-           print(f"[rank {torch.distributed.get_rank()}] before broadcast. tp src_rank: {mpu.get_tensor_model_parallel_src_rank()}. {torch.distributed.get_process_group_ranks(mpu.get_tensor_model_parallel_group())}")
+        #    print(f"[rank {torch.distributed.get_rank()}] before broadcast. tp src_rank: {mpu.get_tensor_model_parallel_src_rank()}. {torch.distributed.get_process_group_ranks(mpu.get_tensor_model_parallel_group())}")
            torch.distributed.broadcast(item, mpu.get_tensor_model_parallel_src_rank(), group=mpu.get_tensor_model_parallel_group())
-           print(f"[rank {torch.distributed.get_rank()}] after broadcast. tp src_rank: {mpu.get_tensor_model_parallel_src_rank()}. {torch.distributed.get_process_group_ranks(mpu.get_tensor_model_parallel_group())}")
+        #    print(f"[rank {torch.distributed.get_rank()}] after broadcast. tp src_rank: {mpu.get_tensor_model_parallel_src_rank()}. {torch.distributed.get_process_group_ranks(mpu.get_tensor_model_parallel_group())}")
 
     local_micro_batch_size = args.micro_batch_size // mpu.get_data_parallel_world_size()
 
@@ -341,19 +341,19 @@ def get_batch_on_this_tp_rank(data_iterator):
         #     'position_ids': data["position_ids"].cuda(non_blocking = True)
         # }
         if mpu.is_pipeline_first_stage() and mpu.get_tensor_model_parallel_world_size() > 1:
-            print(f'[rank {torch.distributed.get_rank()}] broadcast tokens. shape: {batch["tokens"].size()}')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast tokens. shape: {batch["tokens"].size()}')
             _broadcast(batch['tokens'])
-            print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
             _broadcast(batch['attention_mask'])
-            print(f'[rank {torch.distributed.get_rank()}] broadcast position_ids')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast position_ids')
             _broadcast(batch['position_ids'])
 
         if mpu.is_pipeline_last_stage() and mpu.get_tensor_model_parallel_world_size() > 1:
-            print(f'[rank {torch.distributed.get_rank()}] broadcast labels')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast labels')
             _broadcast(batch['labels'])
-            print(f'[rank {torch.distributed.get_rank()}] broadcast loss_mask')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast loss_mask')
             _broadcast(batch['loss_mask'])
-            print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
             _broadcast(batch['attention_mask'])
 
     else:
@@ -370,19 +370,19 @@ def get_batch_on_this_tp_rank(data_iterator):
         position_ids=torch.empty((local_micro_batch_size,args.seq_length), dtype = torch.int64 , device = torch.cuda.current_device())
  
         if mpu.is_pipeline_first_stage():
-            print(f'[rank {torch.distributed.get_rank()}] broadcast tokens. shape: {tokens.size()}')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast tokens. shape: {tokens.size()}')
             _broadcast(tokens)
-            print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
             _broadcast(attention_mask)
-            print(f'[rank {torch.distributed.get_rank()}] broadcast position_ids')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast position_ids')
             _broadcast(position_ids)
 
         if mpu.is_pipeline_last_stage():
-            print(f'[rank {torch.distributed.get_rank()}] broadcast labels')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast labels')
             _broadcast(labels)
-            print(f'[rank {torch.distributed.get_rank()}] broadcast loss_mask')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast loss_mask')
             _broadcast(loss_mask)
-            print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
+            # print(f'[rank {torch.distributed.get_rank()}] broadcast attention_mask')
             _broadcast(attention_mask)
     
         batch = {

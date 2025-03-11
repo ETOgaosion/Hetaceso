@@ -7,8 +7,8 @@
         16
     ],
     "num_ops_in_each_stage": [
-        16,
-        50
+        5,
+        61
     ],
     "nums_of_mbs": 64,
     "device_mesh_of_each_stage": [
