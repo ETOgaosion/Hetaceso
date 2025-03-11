@@ -67,7 +67,7 @@ if __name__ == "__main__":
     # model_names = ["GPT_1-3B", "GPT_2-6B", "GPT_6-7B"]
     # seq_lens = [8192, 16384, 32768, 65536]
     model_names = ["GPT_1-3B"]
-    seq_lens = [16384]
+    seq_lens = [32768]
 
     # generate commands for each experiment
     all_commands = {}
