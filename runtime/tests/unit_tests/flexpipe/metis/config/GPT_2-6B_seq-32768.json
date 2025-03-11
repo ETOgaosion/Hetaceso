@@ -7,19 +7,19 @@
         16
     ],
     "num_ops_in_each_stage": [
-        14,
-        52
+        5,
+        61
     ],
     "nums_of_mbs": 64,
     "device_mesh_of_each_stage": [
-        ["a10g", "a10g", "l4", "l4"], 
-        ["l40s", "l40s", "l40s", "l40s"]], 
-    "data_parallel_size_of_each_stage": [4, 4],
-    "tensor_parallel_size_of_each_stage":[4, 4],
+        ["a10g", "l4"], 
+        ["l40s", "l40s"]], 
+    "data_parallel_size_of_each_stage": [2, 2],
+    "tensor_parallel_size_of_each_stage":[8, 8],
     "context_parallel_size_of_each_stage": [1, 1],
     "ring_context_parallel_size_of_each_stage": [1, 1],
     "ulysses_context_parallel_size_of_each_stage": [1, 1],
-    "data_parallel_split_of_each_stage": [[1, 1, 1, 1], 
-                                          [1, 1, 1, 1]],
+    "data_parallel_split_of_each_stage": [[1, 1], 
+                                          [1, 1]],
     "ring_context_parallel_split_of_each_stage": [[32768], [32768]]
 }
