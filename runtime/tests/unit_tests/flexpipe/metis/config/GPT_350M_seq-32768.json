@@ -9,7 +9,7 @@
         12,
         38
     ],
-    "nums_of_mbs": 32,
+    "nums_of_mbs": 16,
     "device_mesh_of_each_stage": [
         ["a10g", "a10g", "a10g", "a10g", "a10g", "a10g", "a10g", "a10g",
         "l4", "l4", "l4", "l4", "l4", "l4", "l4", "l4"], 
