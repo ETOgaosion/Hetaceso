@@ -75,7 +75,8 @@ if __name__ == "__main__":
 
     for model_name, seq_len in itertools.product(model_names, seq_lens):
         
-        gbs = 1024 // (seq_len // 8192)
+        # gbs = 1024 // (seq_len // 8192)
+        gbs = 1024
         exp_key = f"{model_name}_{seq_len}"
         all_commands[exp_key] = {}
         host_flex_config = f"{host_project_dir}/config/{model_name}_seq-{seq_len}.json"
