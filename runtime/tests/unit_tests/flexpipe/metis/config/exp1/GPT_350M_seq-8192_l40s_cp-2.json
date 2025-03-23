@@ -1,12 +1,12 @@
 {
     "comment": "GPT-350M with 8192 sequence length",
-    "num_layers": 12,
+    "num_layers": 24,
     "num_stages": 1,
     "num_gpus": [
         2
     ],
     "num_ops_in_each_stage": [
-        26
+        50
     ],
     "nums_of_mbs": 512,
     "device_mesh_of_each_stage": [
