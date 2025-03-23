@@ -1,5 +1,5 @@
 {
-    "comment": "GPT-350M with 4096 sequence length",
+    "comment": "GPT-350M with 6144 sequence length",
     "num_layers": 24,
     "num_stages": 1,
     "num_gpus": [
@@ -18,5 +18,5 @@
     "ring_context_parallel_size_of_each_stage": [2],
     "ulysses_context_parallel_size_of_each_stage": [1],
     "data_parallel_split_of_each_stage": [[2]],
-    "ring_context_parallel_split_of_each_stage": [[2048, 2048]]
+    "ring_context_parallel_split_of_each_stage": [[3072, 3072]]
 }
