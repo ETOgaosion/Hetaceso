@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=0,1
 # export DEBUG_COMMUNICATE=1
 # export DEBUG_PARALLEL_STATES=1
 # export NCCL_IB_DISABLE=1
@@ -129,9 +129,12 @@ GPT_ARGS="
     --distributed-backend nccl \
 "
 
+filename=$(basename "$FLEX_CONFIG")
+file_base=$(echo "$filename" | sed 's/\.[^.]*$//')
+
 FLEX_ARGS="
     --flexpipe-config ${FLEX_CONFIG} \
-    --log-path ./logs_${MODEL_NAME}_${SEQ_LENGTH} \
+    --log-path ./logs_${file_base} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
 "
