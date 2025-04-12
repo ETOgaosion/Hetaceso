@@ -3,17 +3,17 @@
     "num_layers": 24,
     "num_stages": 1,
     "num_gpus": [
-        2
+        4
     ],
     "num_ops_in_each_stage": [
         50
     ],
-    "nums_of_mbs": 256,
+    "nums_of_mbs": 64,
     "device_mesh_of_each_stage": [
         ["a10g", "l40s"]
             ],
     "data_parallel_size_of_each_stage": [2],
-    "tensor_parallel_size_of_each_stage":[1],
+    "tensor_parallel_size_of_each_stage":[2],
     "context_parallel_size_of_each_stage": [1],
     "ring_context_parallel_size_of_each_stage": [1],
     "ulysses_context_parallel_size_of_each_stage": [1],
