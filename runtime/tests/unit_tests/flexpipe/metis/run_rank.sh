@@ -14,7 +14,7 @@ export CUDA_VISIBLE_DEVICES=0,1
 # export TORCH_DISTRIBUTED_DEBUG=DETAIL
 # export TORCH_NCCL_BLOCKING_WAIT=1     # 强制同步等待并显示错误
 # export TORCH_NCCL_ASYNC_ERROR_HANDLING=1  # 启用异步错误检测
-GPUS_PER_NODE=1
+GPUS_PER_NODE=2
 NNODES=2
 MASTER_ADDR=172.31.37.189
 MASTER_PORT=6000
@@ -134,7 +134,7 @@ file_base=$(echo "$filename" | sed 's/\.[^.]*$//')
 
 FLEX_ARGS="
     --flexpipe-config ${FLEX_CONFIG} \
-    --log-path ./logs_${file_base} \
+    --log-path ./logs_${MODEL_NAME}_${SEQ_LENGTH} \
     --nproc-per-node $GPUS_PER_NODE \
     --nnodes $NNODES \
 "
