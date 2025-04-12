@@ -1,6 +1,6 @@
 {
     "comment": "GPT-1.3B with 4096 sequence length",
-    "num_layers": 24,
+    "num_layers": 32,
     "num_stages": 2,
     "num_gpus": [
         1,
@@ -8,7 +8,7 @@
     ],
     "num_ops_in_each_stage": [
         16,
-        34
+        50
     ],
     "nums_of_mbs": 1024,
     "device_mesh_of_each_stage": [
