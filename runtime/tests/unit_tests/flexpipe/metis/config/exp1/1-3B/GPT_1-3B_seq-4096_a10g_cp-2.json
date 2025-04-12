@@ -3,7 +3,7 @@
     "num_layers": 24,
     "num_stages": 1,
     "num_gpus": [
-        2
+        4
     ],
     "num_ops_in_each_stage": [
         50
